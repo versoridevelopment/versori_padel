@@ -26,6 +26,9 @@ const RegisterPage: FC = () => {
   const [clubId, setClubId] = useState<number | null>(null);
   const [clubLoading, setClubLoading] = useState<boolean>(true);
 
+  // Subdominio actual (padelcentral, greenpadel, etc.)
+  const [subdomain, setSubdomain] = useState<string | null>(null);
+
   // 🧠 Detectar subdominio + obtener club reutilizando helpers
   useEffect(() => {
     const fetchClub = async () => {
@@ -33,9 +36,10 @@ const RegisterPage: FC = () => {
         const host = window.location.host; // ej: "padelcentral.localhost:3000"
         const hostname = host.split(":")[0]; // "padelcentral.localhost"
 
-        const subdomain = getSubdomainFromHost(hostname);
+        const sub = getSubdomainFromHost(hostname);
+        setSubdomain(sub);
 
-        if (!subdomain) {
+        if (!sub) {
           console.error(
             "[Register] No se pudo detectar subdominio desde host:",
             host
@@ -43,14 +47,14 @@ const RegisterPage: FC = () => {
           return;
         }
 
-        const club = await getClubBySubdomain(subdomain);
+        const club = await getClubBySubdomain(sub);
 
         if (club) {
           setClubId(club.id_club);
         } else {
           console.error(
             "[Register] No se encontró club para subdominio:",
-            subdomain
+            sub
           );
         }
       } finally {
@@ -69,7 +73,7 @@ const RegisterPage: FC = () => {
       return;
     }
 
-    if (!clubId) {
+    if (!clubId || !subdomain) {
       alert(
         "No se pudo identificar el club actual. Probá recargar la página o contactá al administrador."
       );
@@ -77,6 +81,17 @@ const RegisterPage: FC = () => {
     }
 
     setIsLoading(true);
+
+    // URL base central para el callback (sin subdominio)
+    // Ej: http://localhost:3000  (definido en .env.local)
+    const siteUrl =
+      process.env.NEXT_PUBLIC_SITE_URL ??
+      `${window.location.protocol}//${window.location.host}`;
+
+    // Redirección central con el subdominio como query param
+    const redirectTo = `${siteUrl}/auth/callback?sub=${encodeURIComponent(
+      subdomain
+    )}`;
 
     const { error } = await supabase.auth.signUp({
       email,
@@ -87,8 +102,9 @@ const RegisterPage: FC = () => {
           apellido,
           telefono,
           id_club: clubId, // 👈 se reutiliza el mismo dato que usa tu trigger
+          subdomain, // opcional, por si lo querés guardar como metadata
         },
-        emailRedirectTo: `${location.origin}/auth/callback`,
+        emailRedirectTo: redirectTo,
       },
     });
 
