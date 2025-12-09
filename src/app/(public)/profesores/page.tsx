@@ -3,7 +3,7 @@
 import { motion } from "framer-motion";
 import Image from "next/image";
 import { MessageCircle } from "lucide-react";
-import ProfesoresGrid from "@/components/profesores/ProfesoresGrid";
+import ProfesoresGrid from "@/app/(public)/components/profesores/ProfesoresGrid";
 
 export default function ProfesoresPage() {
   return (

@@ -1,9 +1,9 @@
 // src/app/page.tsx
-import HeroVideo from "../../components/home/HeroVideo";
-import MarcasSlider from "../../components/home/MarcasSlider";
-import TextSlider from "@/components/home/TextSlider";
-import SobreNosotros from "@/components/home/SobreNosotros";
-import Ubicacion from "@/components/home/Ubicacion";
+import HeroVideo from "./components/home/HeroVideo";
+import MarcasSlider from "./components/home/MarcasSlider";
+import TextSlider from "@/app/(public)/components/home/TextSlider";
+import SobreNosotros from "@/app/(public)/components/home/SobreNosotros";
+import Ubicacion from "@/app/(public)/components/home/Ubicacion";
 
 export default function HomePage() {
   return (

@@ -1,6 +1,6 @@
 "use client";
 
-import CanchaCard from "@/components/reserva/CanchaCard";
+import CanchaCard from "@/app/(public)/components/reserva/CanchaCard";
 import { motion } from "framer-motion";
 
 export default function Reserva() {

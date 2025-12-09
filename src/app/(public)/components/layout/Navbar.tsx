@@ -3,7 +3,7 @@
 import { useEffect, useState, FC } from "react";
 import Link from "next/link";
 import Container from "../ui/Container";
-import { supabase } from "../../lib/supabase/supabaseClient";
+import { supabase } from "../../../../lib/supabase/supabaseClient";
 import type { Session } from "@supabase/supabase-js";
 import type { Club } from "@/lib/getCurrentClub"; // 👈 reutilizamos el tipo
 
