@@ -1,5 +1,5 @@
 // src/lib/getClubBySubdomain.ts
-import { supabase } from "./supabase/supabaseClient";
+import { supabase } from "../supabase/supabaseClient";
 
 export type Club = {
   id_club: number;

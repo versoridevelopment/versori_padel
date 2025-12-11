@@ -2,7 +2,7 @@
 import "../globals.css";
 import Navbar from "@/app/(public)/components/layout/Navbar";
 import Footer from "@/app/(public)/components/layout/Footer";
-import { getCurrentClub } from "@/lib/getCurrentClub";
+import { getCurrentClub } from "@/lib/ObetenerClubUtils/getCurrentClub";
 
 export default async function RootLayout({
   children,

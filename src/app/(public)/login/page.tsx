@@ -7,8 +7,8 @@ import Link from "next/link";
 import Image from "next/image";
 import { motion } from "framer-motion";
 import { supabase } from "../../../lib/supabase/supabaseClient";
-import { getSubdomainFromHost } from "@/lib/tenantUtils";
-import { getClubBySubdomain } from "@/lib/getClubBySubdomain";
+import { getSubdomainFromHost } from "@/lib/ObetenerClubUtils/tenantUtils";
+import { getClubBySubdomain } from "@/lib/ObetenerClubUtils/getClubBySubdomain";
 
 type MessageType = "success" | "error" | "info" | null;
 

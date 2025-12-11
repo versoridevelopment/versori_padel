@@ -5,10 +5,10 @@ import Link from "next/link";
 import Image from "next/image";
 import { motion } from "framer-motion";
 import { supabase } from "../../../lib/supabase/supabaseClient";
-import { getSubdomainFromHost } from "@/lib/tenantUtils";
-import { getClubBySubdomain } from "@/lib/getClubBySubdomain";
+import { getSubdomainFromHost } from "@/lib/ObetenerClubUtils/tenantUtils";
+import { getClubBySubdomain } from "@/lib/ObetenerClubUtils/getClubBySubdomain";
 
-type MessageType = "success" | "error" | "info" | null;
+type MessageType = "success" | "error" | "info" | "warning" | null;
 
 // Helper para capitalizar nombres y apellidos
 const formatName = (value: string) => {
@@ -156,13 +156,12 @@ const RegisterPage: FC = () => {
       return;
     }
 
-    // CASO: Email YA EXISTE
+    // CASO: Email YA EXISTE en profiles
     if (existingProfile) {
       setMessage(
-        "Este email ya está registrado en el sistema VERSORI con otra contraseña. " +
-          "Iniciá sesión con tu contraseña original o usá 'Olvidé mi contraseña'."
+        "Atención: este email ya está registrado en el sistema VERSORI. Ya te has registrado en otro club. Iniciá sesión con tu contraseña original o usá 'Olvidé mi contraseña'."
       );
-      setMessageType("error");
+      setMessageType("warning");
       setIsLoading(false);
       return;
     }
@@ -199,14 +198,14 @@ const RegisterPage: FC = () => {
         msg.toLowerCase().includes("already exists")
       ) {
         setMessage(
-          "Este email ya está registrado en el sistema VERSORI con otra contraseña. " +
-            "Iniciá sesión con tu contraseña original o usá 'Olvidé mi contraseña'."
+          "Atención: este email ya está registrado en el sistema VERSORI con otra contraseña. Iniciá sesión con tu contraseña original o usá 'Olvidé mi contraseña'."
         );
+        setMessageType("warning");
       } else {
         setMessage("Error al registrar: " + signUpError.message);
+        setMessageType("error");
       }
 
-      setMessageType("error");
       setIsLoading(false);
       return;
     }
@@ -278,18 +277,36 @@ const RegisterPage: FC = () => {
         />
         <h1 className="text-3xl font-bold mb-2">Crear una cuenta</h1>
 
-        {/* Bloque de mensajes inline */}
+        {/* Bloque de mensajes inline PREMIUM */}
         {message && (
           <div
-            className={`mt-4 mb-4 text-sm p-3 rounded-xl text-left border ${
-              messageType === "error"
+            className={`mt-4 mb-4 text-sm p-4 rounded-xl text-left border flex items-start gap-3 ${
+              messageType === "warning"
+                ? "bg-amber-500/10 text-amber-200 border-amber-500/40"
+                : messageType === "error"
                 ? "bg-red-500/10 text-red-300 border-red-500/40"
                 : messageType === "success"
                 ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/40"
                 : "bg-blue-500/10 text-blue-200 border-blue-500/40"
             }`}
           >
-            {message}
+            {/* Ícono premium (triángulo de alerta) */}
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              className="w-5 h-5 flex-shrink-0 mt-0.5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M12 9v3m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"
+              />
+            </svg>
+
+            <p>{message}</p>
           </div>
         )}
 
@@ -407,7 +424,9 @@ const RegisterPage: FC = () => {
                 setErrors((prev) => ({ ...prev, confirmPassword: "" }));
               }}
               className={`w-full p-3 rounded-xl bg-[#112d57] border ${
-                errors.confirmPassword ? "border-red-500" : "border-blue-900/40"
+                errors.confirmPassword
+                  ? "border-red-500"
+                  : "border-blue-900/40"
               }`}
             />
             {errors.confirmPassword && (

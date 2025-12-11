@@ -5,7 +5,7 @@ import Link from "next/link";
 import Container from "../ui/Container";
 import { supabase } from "../../../../lib/supabase/supabaseClient";
 import type { Session } from "@supabase/supabase-js";
-import type { Club } from "@/lib/getCurrentClub"; // 👈 reutilizamos el tipo
+import type { Club } from "@/lib/ObetenerClubUtils/getCurrentClub"; // 👈 reutilizamos el tipo
 
 type UserProfile = {
   nombre: string | null;

@@ -5,7 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { motion } from "framer-motion";
 import { supabase } from "../../../lib/supabase/supabaseClient";
-import { getSubdomainFromHost } from "@/lib/tenantUtils";
+import { getSubdomainFromHost } from "@/lib/ObetenerClubUtils/tenantUtils";
 
 const ForgotPasswordPage = () => {
   const [email, setEmail] = useState("");

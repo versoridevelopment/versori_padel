@@ -1,60 +1,56 @@
-"use client";
+// src/app/(public)/reserva/page.tsx
+import { notFound } from "next/navigation";
+import { getCurrentClub } from "@/lib/ObetenerClubUtils/getCurrentClub";
+import ReservaClient from "./ReservaClient";
+import { getCanchasBySubdomain } from "@/lib/canchas/getCanchasBySubdomain";
 
-import CanchaCard from "@/app/(public)/components/reserva/CanchaCard";
-import { motion } from "framer-motion";
+type CanchaFromApi = {
+  id_cancha: number;
+  nombre: string;
+  descripcion: string | null;
+  imagen_url: string | null;
+  deporte_nombre: string;
+  tipo_nombre: string;
+  capacidad_jugadores: number | null;
+  precio_hora: number;
+  es_exterior: boolean;
+};
 
-export default function Reserva() {
-  const canchas = [
-    {
-      nombre: "Cancha 1",
-      slug: "cancha-1",
-      imagen: "/reserva/cancha_interior.jpg",
-    },
-    {
-      nombre: "Cancha 2",
-      slug: "cancha-2",
-      imagen: "/reserva/cancha_interior.jpg",
-    },
-    {
-      nombre: "Cancha 3",
-      slug: "cancha-3",
-      descripcion: "Aire libre 🌤️🍃",
-      imagen: "/reserva/cancha_exterior.jpg",
-    },
-    {
-      nombre: "Cancha 4",
-      slug: "cancha-4",
-      imagen: "/reserva/cancha_interior.jpg",
-    },
-    {
-      nombre: "Cancha 5",
-      slug: "cancha-5",
-      imagen: "/reserva/cancha_interior.jpg",
-    },
-  ];
+export default async function ReservaPage() {
+  // 1) Club actual según subdominio (multi-tenant)
+  const club = await getCurrentClub();
+  if (!club) {
+    notFound();
+  }
 
-  return (
-    <section className="min-h-screen bg-gradient-to-b from-[#001a33] to-[#003366] py-24 px-6 text-white flex flex-col items-center">
-      <motion.h1
-        className="text-5xl md:text-6xl font-extrabold mb-14 uppercase tracking-tight drop-shadow-lg"
-        initial={{ opacity: 0, y: -40 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.7 }}
-      >
-        SELECCIONA TU CANCHA
-      </motion.h1>
-      {/* Grid de canchas */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-Acols-3 gap-8 w-full max-w-6xl">
-        {canchas.map((cancha, i) => (
-          <CanchaCard
-            key={i}
-            nombre={cancha.nombre}
-            descripcion={cancha.descripcion}
-            imagen={cancha.imagen}
-            slug={cancha.slug} // ✅ usamos slug, no onClick
-          />
-        ))}
-      </div>
-    </section>
-  );
+  // 2) Obtener canchas usando la misma lógica que la API, pero directo (sin fetch HTTP)
+  let apiData: CanchaFromApi[] = [];
+  try {
+    apiData = (await getCanchasBySubdomain(club.subdominio)) as CanchaFromApi[];
+  } catch (err) {
+    console.error("[ReservaPage] Error al obtener canchas:", err);
+    throw new Error("No se pudieron cargar las canchas.");
+  }
+
+  // 3) Mapear al formato que usará el componente cliente
+  const canchas = apiData.map((c) => ({
+    id: c.id_cancha,
+    nombre: c.nombre,
+    descripcion:
+      c.descripcion ??
+      `${c.deporte_nombre.toUpperCase()} · ${c.tipo_nombre}${
+        c.capacidad_jugadores
+          ? ` · ${c.capacidad_jugadores} jugadores`
+          : ""
+      }`,
+    imagen: c.imagen_url || "/reserva/cancha_interior.jpg",
+    slug: `cancha-${c.id_cancha}`,
+    deporte: c.deporte_nombre,
+    tipo: c.tipo_nombre,
+    capacidad: c.capacidad_jugadores,
+    precioHora: c.precio_hora,
+    esExterior: c.es_exterior,
+  }));
+
+  return <ReservaClient club={club} canchas={canchas} />;
 }
