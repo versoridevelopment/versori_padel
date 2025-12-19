@@ -50,3 +50,9 @@ export function buildNosotrosGalleryPath(idClub: number, file: File) {
     idClub
   )}/nosotros/gallery-${Date.now()}-${uniqueId}.${ext}`;
 }
+
+export function buildStaffPath(idClub: number, file: File) {
+  const ext = safeFileExt(file);
+  // Guardamos en la carpeta 'staff'
+  return `${clubBasePath(idClub)}/staff/profe-${Date.now()}.${ext}`;
+}
