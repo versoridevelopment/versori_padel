@@ -29,7 +29,7 @@ export default function ProfesorCard({
       transition={{ duration: 0.8 }}
       viewport={{ once: true }}
     >
-      <div className="relative w-full max-w-[550px] aspect-[4/3] overflow-hidden rounded-lg shadow-lg border border-blue-900/40">
+      <div className="relative w-full max-w-[400px] aspect-[3/4] overflow-hidden rounded-lg shadow-lg border border-blue-900/40">
         {foto_url ? (
           <Image
             src={foto_url}
@@ -40,7 +40,7 @@ export default function ProfesorCard({
         ) : (
           <div className="w-full h-full bg-[#0e1a2b] flex flex-col items-center justify-center text-gray-500">
             <User className="w-16 h-16 mb-2 opacity-50" />
-            <span>Sin foto</span>
+            <span></span>
           </div>
         )}
       </div>
