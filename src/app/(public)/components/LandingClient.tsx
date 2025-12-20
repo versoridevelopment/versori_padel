@@ -21,11 +21,11 @@ export interface LandingProps {
     nombre: string;
     subdominio: string;
     color_primario: string;
-    color_secundario: string; // Nuevo
+    color_secundario: string;
     logo_url?: string;
     imagen_hero_url?: string;
-    texto_titulo?: string; // Nuevo
-    texto_subtitulo?: string; // Nuevo
+    texto_titulo?: string;
+    texto_subtitulo?: string;
     marcas: { id: string; valor: string }[];
   };
   nosotros: any;
@@ -39,13 +39,23 @@ export default function LandingClient({
   profesores,
   contacto,
 }: LandingProps) {
-  const telefonoPrincipal = contacto?.telefonos?.[0]?.numero;
-  const direccionPrincipal = contacto?.direcciones?.[0];
+  // Lógica segura para extraer datos de contacto
+  const telefonoPrincipal =
+    contacto?.telefonos && contacto.telefonos.length > 0
+      ? contacto.telefonos[0].numero
+      : null;
+
+  const direccionPrincipal =
+    contacto?.direcciones && contacto.direcciones.length > 0
+      ? contacto.direcciones[0]
+      : null;
+
   const direccionTexto = direccionPrincipal
-    ? `${direccionPrincipal.calle} ${direccionPrincipal.altura_calle}, ${direccionPrincipal.barrio}`
+    ? `${direccionPrincipal.calle || ""} ${
+        direccionPrincipal.altura_calle || ""
+      }, ${direccionPrincipal.barrio || ""}`
     : null;
 
-  // LEYENDA POR DEFECTO
   const leyendaHero =
     club.texto_subtitulo || "El mejor lugar para vivir el pádel.";
 
@@ -71,6 +81,7 @@ export default function LandingClient({
                 fill
                 priority
                 className="object-cover"
+                sizes="100vw"
               />
             )
           ) : (
@@ -85,7 +96,6 @@ export default function LandingClient({
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8 }}
           >
-            {/* LOGO O NOMBRE */}
             {club.logo_url ? (
               <div className="relative w-40 h-40 md:w-60 md:h-60 mx-auto mb-8">
                 <Image
@@ -101,9 +111,8 @@ export default function LandingClient({
               </h1>
             )}
 
-            {/* TITULO Y LEYENDA EDITABLES */}
             <h2 className="text-2xl md:text-4xl font-bold text-white mb-4 drop-shadow-md">
-              {club.texto_titulo || club.nombre}
+              {club.texto_titulo || "EL MEJOR LUGAR PARA VIVIR EL PÁDEL"}
             </h2>
             <p className="text-xl md:text-2xl text-gray-200 max-w-2xl mx-auto mb-10 leading-relaxed drop-shadow-md">
               {leyendaHero}
@@ -123,7 +132,7 @@ export default function LandingClient({
         </div>
       </section>
 
-      {/* MARCAS (Carrusel) */}
+      {/* MARCAS */}
       {club.marcas && club.marcas.length > 0 && (
         <section className="py-8 bg-[#050608] border-b border-gray-900 overflow-hidden relative">
           <div className="flex w-[200%] animate-marquee">
@@ -143,7 +152,7 @@ export default function LandingClient({
         </section>
       )}
 
-      {/* SECCIÓN NOSOTROS (Usa Color Secundario) */}
+      {/* NOSOTROS - APLICA COLOR SECUNDARIO */}
       {nosotros && (
         <section
           id="nosotros"
@@ -177,11 +186,11 @@ export default function LandingClient({
                     alt="Nosotros"
                     fill
                     className="object-cover"
+                    sizes="(max-width: 768px) 100vw, 50vw"
                   />
                 )}
               </div>
             </div>
-            {/* Valores */}
             {nosotros.valores && (
               <div className="grid md:grid-cols-3 gap-8 text-center">
                 {nosotros.valores.map((val: any, i: number) => (
@@ -217,7 +226,7 @@ export default function LandingClient({
         </section>
       )}
 
-      {/* FOOTER (Usa Color Secundario) */}
+      {/* FOOTER - APLICA COLOR SECUNDARIO */}
       <footer
         className="pt-20 pb-10 border-t border-gray-800"
         style={{ backgroundColor: club.color_secundario }}
@@ -243,13 +252,15 @@ export default function LandingClient({
                 </li>
               </ul>
             </div>
+
+            {/* DATOS DE CONTACTO DINÁMICOS */}
             <div>
               <h4 className="text-white font-semibold mb-6">Contacto</h4>
               <ul className="space-y-4 text-gray-400">
                 {direccionTexto && (
                   <li className="flex gap-3">
                     <MapPin
-                      className="w-5 h-5 text-blue-500"
+                      className="w-5 h-5"
                       style={{ color: club.color_primario }}
                     />
                     {direccionTexto}
@@ -258,7 +269,7 @@ export default function LandingClient({
                 {telefonoPrincipal && (
                   <li className="flex gap-3">
                     <Phone
-                      className="w-5 h-5 text-blue-500"
+                      className="w-5 h-5"
                       style={{ color: club.color_primario }}
                     />
                     {telefonoPrincipal}
@@ -267,10 +278,16 @@ export default function LandingClient({
                 {contacto?.email && (
                   <li className="flex gap-3">
                     <Mail
-                      className="w-5 h-5 text-blue-500"
+                      className="w-5 h-5"
                       style={{ color: club.color_primario }}
                     />
                     {contacto.email}
+                  </li>
+                )}
+                {contacto?.usuario_instagram && (
+                  <li className="flex gap-3">
+                    <Instagram className="w-5 h-5 text-pink-500" />
+                    {contacto.usuario_instagram}
                   </li>
                 )}
               </ul>
