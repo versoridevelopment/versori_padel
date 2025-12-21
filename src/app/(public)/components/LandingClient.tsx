@@ -1,6 +1,7 @@
 "use client";
 
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
+import { useState, useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import {
@@ -10,7 +11,6 @@ import {
   Mail,
   Instagram,
   Trophy,
-  Users,
 } from "lucide-react";
 import ProfesorCard, { Profesor } from "./profesores/ProfesorCard";
 
@@ -40,6 +40,22 @@ export default function LandingClient({
   profesores,
   contacto,
 }: LandingProps) {
+  // 1. DEFINIR DATOS SEGUROS PARA "NOSOTROS"
+  // Si 'nosotros' es null (no cargaste nada en admin), usamos este objeto por defecto para que la sección NO desaparezca.
+  const safeNosotros = nosotros || {
+    historia_titulo: "Bienvenido a " + club.nombre,
+    // Texto de relleno para visualizar el diseño
+    historia_contenido:
+      "Todavía no se ha cargado la historia del club. Ve al panel de administración > Sobre Nosotros para completar esta información y contarle a tus clientes sobre tu pasión por el pádel. Esta sección es ideal para generar confianza.",
+    galeria_inicio: [], // Usaremos la imagen del hero como fallback en el slider
+    frase_cierre: "Pasión por el deporte",
+    valores: [
+      { titulo: "Comunidad", contenido: "Fomentamos el deporte y la amistad." },
+      { titulo: "Calidad", contenido: "Canchas de primer nivel." },
+      { titulo: "Pasión", contenido: "Vivimos el pádel día a día." },
+    ],
+  };
+
   // Lógica segura para extraer datos de contacto
   const telefonoPrincipal =
     contacto?.telefonos && contacto.telefonos.length > 0
@@ -143,7 +159,7 @@ export default function LandingClient({
 
       {/* ================= CARRUSEL DE MARCAS (INFINITO) ================= */}
       {club.marcas && club.marcas.length > 0 && (
-        <section className="py-1 bg-[#050608] border-y border-gray-900 overflow-hidden select-none relative z-20">
+        <section className="py-5 bg-[#050608] border-y border-gray-900 overflow-hidden select-none relative z-20">
           {/* Contenedor Flex para el loop infinito (2 listas idénticas) */}
           <div className="flex overflow-hidden group w-full">
             {/* LISTA 1 */}
@@ -166,71 +182,67 @@ export default function LandingClient({
         </section>
       )}
 
-      {/* ================= SECCIÓN NOSOTROS ================= */}
-      {nosotros && (
-        <section
-          id="nosotros"
-          className="py-24"
-          style={{ backgroundColor: club.color_secundario }}
-        >
-          <div className="container mx-auto px-6">
-            <div className="grid md:grid-cols-2 gap-16 items-center mb-24">
-              <motion.div
-                initial={{ opacity: 0, x: -40 }}
-                whileInView={{ opacity: 1, x: 0 }}
-                viewport={{ once: true }}
+      {/* ================= SECCIÓN NOSOTROS (AHORA SIEMPRE VISIBLE) ================= */}
+      {/* Eliminamos el chequeo estricto {nosotros && ...} y usamos safeNosotros */}
+      <section
+        id="nosotros"
+        className="py-24 overflow-hidden relative"
+        style={{ backgroundColor: club.color_secundario }}
+      >
+        <div className="container mx-auto px-6 relative z-10">
+          <div className="grid lg:grid-cols-2 gap-16 items-center">
+            {/* --- Columna Izquierda: Texto Resumido --- */}
+            <motion.div
+              initial={{ opacity: 0, x: -30 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              viewport={{ once: true }}
+              className="space-y-6"
+            >
+              <div
+                className="inline-block px-3 py-1 rounded-full bg-white/5 border border-white/10 text-xs font-bold tracking-widest uppercase"
+                style={{ color: club.color_primario }}
               >
-                <h2
-                  className="font-bold tracking-wider mb-2 uppercase text-sm"
-                  style={{ color: club.color_primario }}
-                >
-                  Nuestra Historia
-                </h2>
-                <h3 className="text-4xl font-bold text-white mb-6">
-                  {nosotros.historia_titulo}
-                </h3>
-                <p className="text-gray-400 leading-relaxed mb-6 whitespace-pre-line">
-                  {nosotros.historia_contenido}
-                </p>
-              </motion.div>
-
-              <div className="relative h-[450px] rounded-3xl overflow-hidden shadow-2xl border border-gray-800">
-                {nosotros.historia_imagen_url && (
-                  <Image
-                    src={nosotros.historia_imagen_url}
-                    alt="Nosotros"
-                    fill
-                    className="object-cover"
-                    sizes="(max-width: 768px) 100vw, 50vw"
-                  />
-                )}
+                Sobre Nosotros
               </div>
-            </div>
 
-            {/* Valores Dinámicos */}
-            {nosotros.valores && (
-              <div className="grid md:grid-cols-3 gap-8 text-center">
-                {nosotros.valores.map((val: any, i: number) => (
-                  <div
-                    key={i}
-                    className="p-8 bg-black/20 rounded-2xl border border-white/5 hover:border-white/10 transition-colors"
-                  >
-                    {/* Icono genérico o switch según titulo si quisieras */}
-                    <Trophy
-                      className="w-10 h-10 mx-auto mb-4"
+              <h2 className="text-4xl md:text-5xl font-bold text-white leading-tight">
+                {safeNosotros.historia_titulo}
+              </h2>
+
+              <p className="text-lg text-gray-400 leading-relaxed line-clamp-4">
+                {safeNosotros.hero_descripcion ||
+                  safeNosotros.historia_contenido}
+              </p>
+
+              <div className="pt-4">
+                <Link href="/nosotros">
+                  <button className="group flex items-center gap-3 text-white font-semibold hover:text-gray-300 transition-colors">
+                    <span className="border-b-2 border-transparent group-hover:border-white transition-all pb-0.5">
+                      Conoce nuestra historia completa
+                    </span>
+                    <ArrowRight
+                      className="w-5 h-5 group-hover:translate-x-1 transition-transform"
                       style={{ color: club.color_primario }}
                     />
-                    <h3 className="text-xl font-bold text-white mb-3">
-                      {val.titulo}
-                    </h3>
-                    <p className="text-gray-400 text-sm">{val.contenido}</p>
-                  </div>
-                ))}
+                  </button>
+                </Link>
               </div>
-            )}
+            </motion.div>
+
+            {/* --- Columna Derecha: Slider Elegante --- */}
+            <div className="relative aspect-[4/3] w-full rounded-2xl overflow-hidden shadow-2xl border border-white/10 bg-black/50">
+              <ElegantSlider
+                // Si no hay galería, usamos imagen de historia, o imagen de hero, o placeholder
+                images={
+                  safeNosotros.galeria_inicio?.length > 0
+                    ? safeNosotros.galeria_inicio
+                    : [safeNosotros.historia_imagen_url || club.imagen_hero_url]
+                }
+              />
+            </div>
           </div>
-        </section>
-      )}
+        </div>
+      </section>
 
       {/* ================= PROFESORES ================= */}
       {profesores.length > 0 && (
@@ -268,9 +280,7 @@ export default function LandingClient({
               <h3 className="text-2xl font-bold text-white mb-6">
                 {club.nombre}
               </h3>
-              <p className="text-gray-500">
-                {nosotros?.frase_cierre || "Pasión por el pádel."}
-              </p>
+              <p className="text-gray-500">{safeNosotros.frase_cierre}</p>
             </div>
 
             {/* Navegación */}
@@ -354,6 +364,74 @@ export default function LandingClient({
 }
 
 // =====================================================================
+// COMPONENTE: SLIDER ELEGANTE (FADE AUTOMÁTICO)
+// =====================================================================
+const ElegantSlider = ({ images }: { images: string[] }) => {
+  // Aseguramos que sea un array válido. Si falla, placeholder.
+  const validImages = Array.isArray(images) && images.length > 0 ? images : [];
+
+  const [currentIndex, setCurrentIndex] = useState(0);
+
+  // Auto-play
+  useEffect(() => {
+    if (validImages.length <= 1) return;
+
+    const timer = setInterval(() => {
+      setCurrentIndex((prev) => (prev + 1) % validImages.length);
+    }, 5000); // Cambia cada 5 segundos
+
+    return () => clearInterval(timer);
+  }, [validImages.length]);
+
+  // Si no hay imágenes válidas, mostramos un div vacío o un placeholder simple
+  if (validImages.length === 0)
+    return <div className="w-full h-full bg-gray-800" />;
+
+  return (
+    <div className="relative w-full h-full bg-gray-900">
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={currentIndex}
+          initial={{ opacity: 0, scale: 1.05 }}
+          animate={{ opacity: 1, scale: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 1.5, ease: "easeOut" }}
+          className="absolute inset-0"
+        >
+          {validImages[currentIndex] && (
+            <Image
+              src={validImages[currentIndex]}
+              alt={`Slide ${currentIndex}`}
+              fill
+              className="object-cover"
+              sizes="(max-width: 768px) 100vw, 50vw"
+            />
+          )}
+          <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
+        </motion.div>
+      </AnimatePresence>
+
+      {validImages.length > 1 && (
+        <div className="absolute bottom-6 left-0 right-0 flex justify-center gap-3 z-10">
+          {validImages.map((_, idx) => (
+            <button
+              key={idx}
+              onClick={() => setCurrentIndex(idx)}
+              className={`h-1.5 rounded-full transition-all duration-500 ${
+                idx === currentIndex
+                  ? "w-8 bg-white"
+                  : "w-2 bg-white/30 hover:bg-white/50"
+              }`}
+              aria-label={`Ir a imagen ${idx + 1}`}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// =====================================================================
 // COMPONENTE AUXILIAR PARA CADA MARCA (TEXTO O IMAGEN)
 // =====================================================================
 const BrandItem = ({
@@ -365,7 +443,7 @@ const BrandItem = ({
     <div className="flex items-center justify-center">
       {marca.tipo === "imagen" && marca.valor ? (
         // --- RENDERIZADO DE IMAGEN (Logo) ---
-        <div className="relative w-48 h-24 md:w-60 md:h-32 transition-transform duration-300 hover:scale-110">
+        <div className="opacity-85 hover:opacity-100 relative w-48 h-24 md:w-40 md:h-20 transition-transform duration-300 hover:scale-105">
           <Image
             src={marca.valor}
             alt="Marca"
