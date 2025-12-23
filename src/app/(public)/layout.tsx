@@ -1,4 +1,4 @@
-import "../globals.css"; // Asegúrate de que la ruta sea correcta (suele ser ./globals.css si estás en src/app)
+import "../globals.css";
 import Navbar from "@/app/(public)/components/layout/Navbar";
 import Footer from "@/app/(public)/components/layout/Footer";
 import { getCurrentClub } from "@/lib/ObetenerClubUtils/getCurrentClub";
@@ -11,10 +11,22 @@ const montserrat = Montserrat({
   display: "swap",
 });
 
-export const metadata: Metadata = {
-  title: "Ferpadel",
-  description: "Reserva tu cancha de pádel",
-};
+// --- AQUÍ ESTÁ LA MAGIA DEL ÍCONO DINÁMICO ---
+export async function generateMetadata(): Promise<Metadata> {
+  // 1. Obtenemos los datos del club desde el servidor
+  const club = await getCurrentClub();
+
+  return {
+    title: club?.nombre || "Ferpadel",
+    description: "Reserva tu cancha de pádel",
+    icons: {
+      // 2. Si existe un logo subido, úsalo como ícono. Si no, usa el default.
+      icon: club?.logo_url || "/favicon.ico",
+      shortcut: club?.logo_url || "/favicon.ico",
+      apple: club?.logo_url || "/favicon.ico", // Para iPhone/iPad
+    },
+  };
+}
 
 export default async function RootLayout({
   children,
@@ -25,7 +37,6 @@ export default async function RootLayout({
 
   return (
     <html lang="es">
-      {/* CORRECCIÓN: Usamos template literals (``) para inyectar la variable montserrat.className */}
       <body
         className={`relative min-h-screen text-white bg-black ${montserrat.className}`}
       >

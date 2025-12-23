@@ -66,7 +66,7 @@ export function Sidebar() {
   const personalizacionLinks = [
     {
       href: "/admin/personalizacion/club",
-      label: "Identidad del Club",
+      label: "Página Principal",
       icon: <Settings size={14} />,
     },
     {

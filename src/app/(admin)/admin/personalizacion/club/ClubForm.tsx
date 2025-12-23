@@ -1,14 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Image from "next/image";
-import { supabase } from "@/lib/supabase/supabaseClient";
 import {
   Loader2,
   Save,
   UploadCloud,
   Monitor,
-  PlayCircle,
   MapPin,
   Phone,
   Mail,
@@ -23,12 +21,6 @@ import {
   Layers,
   X,
 } from "lucide-react";
-import {
-  buildLogoPath,
-  buildHeroPath,
-  buildBrandPath,
-  PUBLIC_MEDIA_BUCKET,
-} from "@/lib/storage/paths";
 
 // --- TIPOS ---
 type ClubData = {
@@ -108,6 +100,32 @@ export default function ClubForm({
   // Helpers
   const isVideo = (url: string) => url?.match(/\.(mp4|webm|mov)$/i);
 
+  // === EFECTO AGRESIVO PARA EL ÍCONO (FAVICON) ===
+  useEffect(() => {
+    if (formData.logo_url) {
+      // 1. Determinar URL final (si es remota, rompemos caché; si es local blob, usamos directo)
+      const isRemote =
+        formData.logo_url.startsWith("http") &&
+        !formData.logo_url.startsWith("blob:");
+      const faviconUrl = isRemote
+        ? `${formData.logo_url}?t=${Date.now()}`
+        : formData.logo_url;
+
+      // 2. Eliminar cualquier link de ícono existente para forzar al navegador
+      const existingLinks = document.querySelectorAll("link[rel*='icon']");
+      existingLinks.forEach((el) => el.remove());
+
+      // 3. Crear nuevo link
+      const link = document.createElement("link");
+      link.type = "image/x-icon";
+      link.rel = "icon";
+      link.href = faviconUrl;
+
+      // 4. Inyectar en el head
+      document.head.appendChild(link);
+    }
+  }, [formData.logo_url]);
+
   // === HANDLERS CLUB ===
   const handleChange = (field: keyof ClubData, value: any) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -135,12 +153,10 @@ export default function ClubForm({
     }
   };
 
-  // --- FUNCIÓN AGREGADA (La que faltaba) ---
   const handleRemoveLogo = () => {
     setLogoFile(null);
     setFormData((prev) => ({ ...prev, logo_url: null }));
   };
-  // ----------------------------------------
 
   // Marcas Handlers
   const addMarca = () =>
@@ -210,19 +226,6 @@ export default function ClubForm({
       valores: prev.valores.filter((_, i) => i !== index),
     }));
 
-  const handleNosotrosMainImageSelect = (
-    e: React.ChangeEvent<HTMLInputElement>
-  ) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setNosotrosMainImageFile(file);
-      setNosotrosData((prev) => ({
-        ...prev,
-        historia_imagen_url: URL.createObjectURL(file),
-      }));
-    }
-  };
-
   const handleGallerySelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       const files = Array.from(e.target.files);
@@ -255,8 +258,7 @@ export default function ClubForm({
       // 1. Datos Básicos e IDs
       formDataToSend.append("clubId", clubId.toString());
 
-      // 2. Datos JSON (Texto y Estructuras)
-      // Enviamos el objeto completo como string para parsearlo en el server
+      // 2. Datos JSON
       formDataToSend.append(
         "clubData",
         JSON.stringify({
@@ -267,9 +269,9 @@ export default function ClubForm({
           color_texto: formData.color_texto,
           texto_bienvenida_titulo: formData.texto_bienvenida_titulo,
           texto_bienvenida_subtitulo: formData.texto_bienvenida_subtitulo,
-          marcas: formData.marcas, // Enviamos las marcas, el server buscará si hay archivos asociados
-          logo_url: formData.logo_url, // URL actual (si no se cambia)
-          imagen_hero_url: formData.imagen_hero_url, // URL actual
+          marcas: formData.marcas,
+          logo_url: formData.logo_url,
+          imagen_hero_url: formData.imagen_hero_url,
           email: formData.email,
           usuario_instagram: formData.usuario_instagram,
           telefono: formData.telefono,
@@ -286,33 +288,30 @@ export default function ClubForm({
           hero_descripcion: nosotrosData.hero_descripcion,
           historia_contenido: nosotrosData.historia_contenido,
           frase_cierre: nosotrosData.frase_cierre,
-          historia_imagen_url: nosotrosData.historia_imagen_url, // URL actual
-          galeria_inicio: nosotrosData.galeria_inicio, // URLs actuales (las viejas)
+          historia_imagen_url: nosotrosData.historia_imagen_url,
+          galeria_inicio: nosotrosData.galeria_inicio,
           valores: nosotrosData.valores,
         })
       );
 
-      // 3. Archivos Nuevos (Solo si existen)
+      // 3. Archivos Nuevos
       if (logoFile) formDataToSend.append("logoFile", logoFile);
       if (heroFile) formDataToSend.append("heroFile", heroFile);
       if (nosotrosMainImageFile)
         formDataToSend.append("nosotrosMainFile", nosotrosMainImageFile);
 
-      // 4. Archivos de Galería (Array)
       if (newGalleryFiles.length > 0) {
         newGalleryFiles.forEach((file) => {
           formDataToSend.append("galleryFiles", file);
         });
       }
 
-      // 5. Archivos de Marcas (Mapeados por ID)
-      // Iteramos sobre el estado temporal de archivos de marcas
       Object.keys(brandFiles).forEach((brandId) => {
         const file = brandFiles[brandId];
         formDataToSend.append(`brand_file_${brandId}`, file);
       });
 
-      // 6. ENVIAR A LA API
+      // 4. ENVIAR A LA API
       const response = await fetch("/api/admin/club/update", {
         method: "POST",
         body: formDataToSend,
@@ -324,7 +323,6 @@ export default function ClubForm({
         throw new Error(result.error || "Error en la actualización");
       }
 
-      // 7. ÉXITO y Limpieza
       setBrandFiles({});
       setNewGalleryFiles([]);
       setNewGalleryPreviews([]);
@@ -332,7 +330,6 @@ export default function ClubForm({
       setHeroFile(null);
       setNosotrosMainImageFile(null);
 
-      // Forzar un refresh para ver los cambios (opcional, pero recomendado si Next cachea)
       alert("¡Todos los cambios guardados correctamente!");
       window.location.reload();
     } catch (error: any) {
@@ -340,6 +337,16 @@ export default function ClubForm({
       alert(`Error al guardar: ${error.message}`);
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Función auxiliar para preview
+  const getPreviewTitle = () => {
+    switch (activeTab) {
+      case "nosotros":
+        return "Sección Nosotros (Home)";
+      default:
+        return "Página de Inicio (Home)";
     }
   };
 
@@ -399,6 +406,7 @@ export default function ClubForm({
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
           <div className="space-y-6">
+            {/* TAB IDENTIDAD */}
             {activeTab === "identidad" && (
               <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
                 <section className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
@@ -429,11 +437,12 @@ export default function ClubForm({
                     <div className="relative w-28 h-28 bg-slate-100 rounded-xl border border-slate-200 flex items-center justify-center overflow-hidden">
                       {formData.logo_url ? (
                         <Image
+                          key={formData.logo_url}
                           src={formData.logo_url}
                           alt="Logo"
-                          width={90}
-                          height={90}
-                          className="object-contain"
+                          fill
+                          className="object-contain p-2"
+                          sizes="(max-width: 768px) 100vw, 33vw"
                         />
                       ) : (
                         <span className="text-xs text-slate-400">Sin Logo</span>
@@ -487,6 +496,7 @@ export default function ClubForm({
                           alt="Hero"
                           fill
                           className="object-cover"
+                          sizes="(max-width: 768px) 100vw, 50vw"
                         />
                       )
                     ) : (
@@ -515,10 +525,9 @@ export default function ClubForm({
               </div>
             )}
 
-            {/* --- NUEVA TAB: SOBRE NOSOTROS --- */}
+            {/* TAB NOSOTROS */}
             {activeTab === "nosotros" && (
               <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
-                {/* Sección 1: Textos */}
                 <section className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
                   <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
                     <BookOpen className="w-5 h-5 text-blue-600" /> Historia &
@@ -579,7 +588,6 @@ export default function ClubForm({
                   </div>
                 </section>
 
-                {/* Sección 2: Galería Slider */}
                 <section className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
                   <div className="flex justify-between items-center mb-4">
                     <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
@@ -612,6 +620,7 @@ export default function ClubForm({
                           alt="Gallery"
                           fill
                           className="object-cover"
+                          sizes="(max-width: 768px) 33vw, 25vw"
                         />
                         <button
                           type="button"
@@ -634,6 +643,7 @@ export default function ClubForm({
                           alt="New"
                           fill
                           className="object-cover"
+                          sizes="(max-width: 768px) 33vw, 25vw"
                         />
                         <button
                           type="button"
@@ -655,7 +665,6 @@ export default function ClubForm({
                   </div>
                 </section>
 
-                {/* Sección 3: Valores */}
                 <section className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
                   <div className="flex justify-between items-center mb-4">
                     <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
@@ -715,6 +724,7 @@ export default function ClubForm({
               </div>
             )}
 
+            {/* TAB ESTILO */}
             {activeTab === "estilo" && (
               <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
                 <section className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
@@ -822,6 +832,7 @@ export default function ClubForm({
               </div>
             )}
 
+            {/* TAB CONTACTO */}
             {activeTab === "contacto" && (
               <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
                 <section className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
@@ -934,6 +945,7 @@ export default function ClubForm({
               </div>
             )}
 
+            {/* TAB MARCAS */}
             {activeTab === "marcas" && (
               <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
                 <section className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
@@ -1017,6 +1029,7 @@ export default function ClubForm({
                                   alt="Marca"
                                   fill
                                   className="object-contain p-1"
+                                  sizes="64px"
                                 />
                               ) : (
                                 <ImageIcon className="w-6 h-6 text-slate-300" />
@@ -1051,8 +1064,7 @@ export default function ClubForm({
           <div className="sticky top-6 hidden lg:block">
             <div className="bg-[#0b0d12] rounded-[2rem] border-[10px] border-slate-800 shadow-2xl overflow-hidden h-[800px] relative flex flex-col">
               <div className="bg-slate-800 py-2 text-center text-xs text-slate-400">
-                Vista Previa:{" "}
-                {activeTab === "nosotros" ? "Sección Nosotros" : "Home"}
+                Vista Previa: {getPreviewTitle()}
               </div>
               <div className="flex-1 overflow-y-auto custom-scrollbar relative flex flex-col">
                 {/* HERO PREVIEW */}
@@ -1072,21 +1084,26 @@ export default function ClubForm({
                         alt="Hero"
                         fill
                         className="object-cover opacity-60"
+                        sizes="(max-width: 768px) 100vw, 50vw"
                       />
                     )
                   ) : (
                     <div className="absolute inset-0 bg-blue-900/20" />
                   )}
                   <div className="relative z-10 text-center px-6 mt-6">
-                    {formData.logo_url ? (
-                      <Image
-                        src={formData.logo_url}
-                        alt="Logo"
-                        width={80}
-                        height={80}
-                        className="mx-auto mb-2 object-contain"
-                      />
-                    ) : (
+                    {formData.logo_url && (
+                      <div className="relative w-20 h-20 mx-auto mb-2">
+                        <Image
+                          key={formData.logo_url}
+                          src={formData.logo_url}
+                          alt="Logo"
+                          fill
+                          className="object-contain"
+                          sizes="80px"
+                        />
+                      </div>
+                    )}
+                    {!formData.logo_url && (
                       <h1 className="text-xl font-bold text-white mb-2">
                         {formData.nombre.toUpperCase()}
                       </h1>
@@ -1097,7 +1114,7 @@ export default function ClubForm({
                   </div>
                 </div>
 
-                {/* NOSOTROS PREVIEW (NUEVO) */}
+                {/* NOSOTROS PREVIEW */}
                 <div
                   className="p-6 bg-[#0b0d12]"
                   style={{ backgroundColor: formData.color_secundario }}
@@ -1115,7 +1132,6 @@ export default function ClubForm({
                     {nosotrosData.hero_descripcion || "Descripción..."}
                   </p>
 
-                  {/* Slider Preview */}
                   <div className="relative aspect-video w-full bg-slate-800 rounded-lg overflow-hidden border border-white/10">
                     {nosotrosData.galeria_inicio[0] || newGalleryPreviews[0] ? (
                       <Image
@@ -1126,30 +1142,13 @@ export default function ClubForm({
                         alt="Slide"
                         fill
                         className="object-cover"
+                        sizes="(max-width: 768px) 100vw, 33vw"
                       />
                     ) : (
                       <div className="flex items-center justify-center h-full text-slate-500 text-xs">
                         Slider
                       </div>
                     )}
-                    <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-1">
-                      <div className="w-4 h-1 bg-white rounded-full"></div>
-                      <div className="w-1 h-1 bg-white/30 rounded-full"></div>
-                    </div>
-                  </div>
-
-                  {/* Valores Preview */}
-                  <div className="grid grid-cols-2 gap-2 mt-4">
-                    {nosotrosData.valores.slice(0, 2).map((v, i) => (
-                      <div
-                        key={i}
-                        className="bg-black/20 p-2 rounded border border-white/5 text-center"
-                      >
-                        <h4 className="text-white text-xs font-bold">
-                          {v.titulo}
-                        </h4>
-                      </div>
-                    ))}
                   </div>
                 </div>
 
@@ -1163,6 +1162,7 @@ export default function ClubForm({
                           alt="m"
                           fill
                           className="object-contain"
+                          sizes="32px"
                         />
                       </div>
                     ) : (

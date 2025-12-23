@@ -67,8 +67,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 3. PROCESAR MARCAS (Archivos individuales vinculados por ID)
-    // El cliente manda 'brand_file_ID' para cada marca que tenga archivo nuevo
+    // 3. PROCESAR MARCAS
     if (clubData.marcas && Array.isArray(clubData.marcas)) {
       for (let i = 0; i < clubData.marcas.length; i++) {
         const marca = clubData.marcas[i];
@@ -86,7 +85,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 4. PROCESAR GALERÍA (Archivos múltiples)
+    // 4. PROCESAR GALERÍA
     const galleryFiles = formData.getAll("galleryFiles") as File[];
     const currentGallery = nosotrosData.galeria_inicio || [];
     const newGalleryUrls: string[] = [];
@@ -99,10 +98,9 @@ export async function POST(req: NextRequest) {
       newGalleryUrls.push(url);
     }
 
-    // Combinar URLs viejas con nuevas
     nosotrosData.galeria_inicio = [...currentGallery, ...newGalleryUrls];
 
-    // 5. ACTUALIZAR BASE DE DATOS (Usando Admin para saltar RLS)
+    // 5. ACTUALIZAR BASE DE DATOS
 
     // A) Tabla Clubes
     const { error: errClub } = await supabaseAdmin
@@ -122,7 +120,7 @@ export async function POST(req: NextRequest) {
 
     if (errClub) throw errClub;
 
-    // B) Tabla Contacto (Upsert)
+    // B) Tabla Contacto
     const { data: contactData, error: errContact } = await supabaseAdmin
       .from("contacto")
       .upsert(
@@ -138,7 +136,7 @@ export async function POST(req: NextRequest) {
 
     if (errContact) throw errContact;
 
-    // C) Direcciones y Teléfonos (Limpiar y Crear)
+    // C) Direcciones y Teléfonos
     if (contactData) {
       await supabaseAdmin
         .from("direccion")
@@ -162,7 +160,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // D) Tabla Nosotros (Upsert)
+    // D) Tabla Nosotros
     const { error: errNosotros } = await supabaseAdmin.from("nosotros").upsert(
       {
         id_club: clubId,
