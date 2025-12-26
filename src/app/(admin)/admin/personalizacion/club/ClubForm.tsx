@@ -100,29 +100,17 @@ export default function ClubForm({
   // Helpers
   const isVideo = (url: string) => url?.match(/\.(mp4|webm|mov)$/i);
 
-  // === EFECTO AGRESIVO PARA EL ÍCONO (FAVICON) ===
+  // === EFECTO PARA CAMBIAR EL ÍCONO (FAVICON) EN TIEMPO REAL ===
   useEffect(() => {
     if (formData.logo_url) {
-      // 1. Determinar URL final (si es remota, rompemos caché; si es local blob, usamos directo)
-      const isRemote =
-        formData.logo_url.startsWith("http") &&
-        !formData.logo_url.startsWith("blob:");
-      const faviconUrl = isRemote
-        ? `${formData.logo_url}?t=${Date.now()}`
-        : formData.logo_url;
-
-      // 2. Eliminar cualquier link de ícono existente para forzar al navegador
-      const existingLinks = document.querySelectorAll("link[rel*='icon']");
-      existingLinks.forEach((el) => el.remove());
-
-      // 3. Crear nuevo link
-      const link = document.createElement("link");
-      link.type = "image/x-icon";
-      link.rel = "icon";
-      link.href = faviconUrl;
-
-      // 4. Inyectar en el head
-      document.head.appendChild(link);
+      let link = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
+      if (!link) {
+        link = document.createElement("link");
+        link.rel = "icon";
+        document.getElementsByTagName("head")[0].appendChild(link);
+      }
+      // Timestamp para romper caché
+      link.href = `${formData.logo_url}?t=${Date.now()}`;
     }
   }, [formData.logo_url]);
 
@@ -398,6 +386,7 @@ export default function ClubForm({
                   : "text-slate-500 hover:bg-slate-100"
               }`}
               title={`Ver sección ${tab.label}`}
+              aria-label={`Ver sección ${tab.label}`}
             >
               <tab.icon className="w-4 h-4" /> {tab.label}
             </button>
@@ -428,6 +417,7 @@ export default function ClubForm({
                       className="w-full px-4 py-2 border border-slate-300 rounded-xl"
                       placeholder="Ej: Club Padel Pro"
                       title="Nombre del club"
+                      aria-label="Nombre del club"
                     />
                   </div>
                   <h2 className="text-lg font-bold text-slate-800 mb-4 mt-6">
@@ -460,6 +450,7 @@ export default function ClubForm({
                           className="hidden"
                           onChange={(e) => handleFileSelect(e, "logo")}
                           title="Seleccionar archivo de logo"
+                          aria-label="Seleccionar archivo de logo"
                         />
                       </label>
                       {formData.logo_url && (
@@ -468,7 +459,7 @@ export default function ClubForm({
                           onClick={handleRemoveLogo}
                           className="bg-red-50 text-red-600 px-4 py-2 rounded-lg font-bold hover:bg-red-100 flex gap-2 items-center text-sm w-fit"
                           title="Eliminar logo actual"
-                          aria-label="Eliminar logo"
+                          aria-label="Eliminar logo actual"
                         >
                           <Trash2 className="w-4 h-4" /> Quitar Logo
                         </button>
@@ -517,6 +508,7 @@ export default function ClubForm({
                           className="hidden"
                           onChange={(e) => handleFileSelect(e, "hero")}
                           title="Seleccionar archivo de portada"
+                          aria-label="Seleccionar archivo de portada"
                         />
                       </label>
                     </div>
@@ -550,6 +542,7 @@ export default function ClubForm({
                         className="w-full px-4 py-2 border border-slate-300 rounded-xl"
                         placeholder="Ej: Nuestra Pasión"
                         title="Título de la sección nosotros"
+                        aria-label="Título de la sección nosotros"
                       />
                     </div>
                     <div>
@@ -568,6 +561,7 @@ export default function ClubForm({
                         className="w-full px-4 py-2 border border-slate-300 rounded-xl resize-none"
                         placeholder="Breve descripción..."
                         title="Descripción corta para el home"
+                        aria-label="Descripción corta para el home"
                       />
                     </div>
                     <div>
@@ -583,6 +577,7 @@ export default function ClubForm({
                         className="w-full px-4 py-2 border border-slate-300 rounded-xl"
                         placeholder="Ej: Pasión por el deporte."
                         title="Frase del footer"
+                        aria-label="Frase del footer"
                       />
                     </div>
                   </div>
@@ -606,6 +601,7 @@ export default function ClubForm({
                         className="hidden"
                         onChange={handleGallerySelect}
                         title="Seleccionar imágenes"
+                        aria-label="Seleccionar imágenes"
                       />
                     </label>
                   </div>
@@ -696,6 +692,7 @@ export default function ClubForm({
                             className="w-full bg-white px-2 py-1 border border-slate-200 rounded text-sm font-bold"
                             placeholder="Título"
                             title="Título del valor"
+                            aria-label="Título del valor"
                           />
                           <input
                             type="text"
@@ -706,6 +703,7 @@ export default function ClubForm({
                             className="w-full bg-white px-2 py-1 border border-slate-200 rounded text-sm"
                             placeholder="Descripción"
                             title="Descripción del valor"
+                            aria-label="Descripción del valor"
                           />
                         </div>
                         <button
@@ -748,6 +746,7 @@ export default function ClubForm({
                         className="w-full px-4 py-2 border border-slate-300 rounded-xl"
                         placeholder="EL MEJOR LUGAR..."
                         title="Título principal del home"
+                        aria-label="Título principal del home"
                       />
                     </div>
                     <div>
@@ -766,6 +765,7 @@ export default function ClubForm({
                         className="w-full px-4 py-2 border border-slate-300 rounded-xl"
                         placeholder="Subtítulo..."
                         title="Subtítulo del home"
+                        aria-label="Subtítulo del home"
                       />
                     </div>
                   </div>
@@ -788,6 +788,7 @@ export default function ClubForm({
                           }
                           className="h-10 w-16 rounded cursor-pointer border"
                           title="Elegir color primario"
+                          aria-label="Elegir color primario"
                         />
                         <input
                           type="text"
@@ -798,6 +799,7 @@ export default function ClubForm({
                           className="flex-1 px-4 border border-slate-300 rounded-xl uppercase"
                           title="Código hexadecimal color primario"
                           placeholder="#000000"
+                          aria-label="Código hexadecimal color primario"
                         />
                       </div>
                     </div>
@@ -814,6 +816,7 @@ export default function ClubForm({
                           }
                           className="h-10 w-16 rounded cursor-pointer border"
                           title="Elegir color secundario"
+                          aria-label="Elegir color secundario"
                         />
                         <input
                           type="text"
@@ -824,6 +827,7 @@ export default function ClubForm({
                           className="flex-1 px-4 border border-slate-300 rounded-xl uppercase"
                           title="Código hexadecimal color secundario"
                           placeholder="#000000"
+                          aria-label="Código hexadecimal color secundario"
                         />
                       </div>
                     </div>
@@ -855,6 +859,7 @@ export default function ClubForm({
                           className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-xl"
                           title="Email de contacto"
                           placeholder="contacto@email.com"
+                          aria-label="Email de contacto"
                         />
                       </div>
                     </div>
@@ -873,6 +878,7 @@ export default function ClubForm({
                           className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-xl"
                           title="Usuario de Instagram"
                           placeholder="@usuario"
+                          aria-label="Usuario de Instagram"
                         />
                       </div>
                     </div>
@@ -891,6 +897,7 @@ export default function ClubForm({
                           className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-xl"
                           title="Teléfono de contacto"
                           placeholder="+54 9..."
+                          aria-label="Teléfono de contacto"
                         />
                       </div>
                     </div>
@@ -912,6 +919,7 @@ export default function ClubForm({
                         className="w-full px-4 py-2 border border-slate-300 rounded-xl"
                         title="Calle"
                         placeholder="Av. Principal"
+                        aria-label="Calle"
                       />
                     </div>
                     <div>
@@ -925,6 +933,7 @@ export default function ClubForm({
                         className="w-full px-4 py-2 border border-slate-300 rounded-xl"
                         title="Altura"
                         placeholder="123"
+                        aria-label="Altura"
                       />
                     </div>
                     <div>
@@ -938,6 +947,7 @@ export default function ClubForm({
                         className="w-full px-4 py-2 border border-slate-300 rounded-xl"
                         title="Barrio"
                         placeholder="Centro"
+                        aria-label="Barrio"
                       />
                     </div>
                   </div>
@@ -1019,6 +1029,7 @@ export default function ClubForm({
                             className="w-full bg-white px-3 py-2 border border-slate-200 rounded-lg outline-none text-sm font-semibold"
                             placeholder="Nombre de marca"
                             title="Nombre de la marca"
+                            aria-label="Nombre de la marca"
                           />
                         ) : (
                           <div className="flex items-center gap-4">
@@ -1048,6 +1059,7 @@ export default function ClubForm({
                                   handleBrandFileChange(marca.id, e)
                                 }
                                 title="Subir archivo"
+                                aria-label="Subir archivo"
                               />
                             </label>
                           </div>
@@ -1092,6 +1104,7 @@ export default function ClubForm({
                   )}
                   <div className="relative z-10 text-center px-6 mt-6">
                     {formData.logo_url && (
+                      /* key forces update when logo changes */
                       <div className="relative w-20 h-20 mx-auto mb-2">
                         <Image
                           key={formData.logo_url}
