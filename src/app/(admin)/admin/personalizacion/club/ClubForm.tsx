@@ -18,7 +18,6 @@ import {
   ImageIcon,
   AlignLeft,
   BookOpen,
-  Layers,
   X,
   ToggleLeft,
   ToggleRight,
@@ -47,7 +46,7 @@ type ClubData = {
 type Valor = { titulo: string; contenido: string };
 
 type NosotrosData = {
-  activo_nosotros: boolean; // NUEVO CAMPO
+  activo_nosotros: boolean;
   historia_titulo: string;
   hero_descripcion: string;
   historia_contenido: string;
@@ -80,59 +79,48 @@ export default function ClubForm({
   const [heroFile, setHeroFile] = useState<File | null>(null);
   const [brandFiles, setBrandFiles] = useState<Record<string, File>>({});
 
-  // --- ESTADO NOSOTROS ---
+  // --- ESTADO NOSOTROS (HOME PREVIEW) ---
   const [nosotrosData, setNosotrosData] = useState<NosotrosData>(
     nosotrosInitialData || {
-      activo_nosotros: true, // Default visible
+      activo_nosotros: true,
       historia_titulo: "",
       hero_descripcion: "",
       historia_contenido: "",
       frase_cierre: "",
       historia_imagen_url: null,
       galeria_inicio: [],
-      valores: [
-        { titulo: "Comunidad", contenido: "Fomentamos el deporte." },
-        { titulo: "Pasión", contenido: "Vivimos el pádel." },
-      ],
+      valores: [],
     }
   );
-  const [nosotrosMainImageFile, setNosotrosMainImageFile] =
-    useState<File | null>(null);
+
+  // Estado para nuevas imágenes de galería del home
   const [newGalleryFiles, setNewGalleryFiles] = useState<File[]>([]);
   const [newGalleryPreviews, setNewGalleryPreviews] = useState<string[]>([]);
 
   // Helpers
   const isVideo = (url: string) => url?.match(/\.(mp4|webm|mov)$/i);
 
-  // === EFECTO PARA ACTUALIZAR EL FAVICON EN TIEMPO REAL ===
+  // === EFECTO FAVICON ===
   useEffect(() => {
-    // Función auxiliar para cambiar el icono
     const changeFavicon = (src: string) => {
       const link = document.createElement("link");
       const oldLinks = document.querySelectorAll(
         'link[rel="icon"], link[rel="shortcut icon"]'
       );
-
-      // Eliminamos los iconos viejos para que no haya conflicto
       oldLinks.forEach((e) => e.parentNode?.removeChild(e));
-
       link.id = "dynamic-favicon";
       link.rel = "icon";
       link.href = src;
-
       document.head.appendChild(link);
     };
 
     if (formData.logo_url) {
-      // Si es una URL remota (Supabase), le agregamos un timestamp para romper la caché
       const isRemote = formData.logo_url.startsWith("http");
       const faviconUrl = isRemote
         ? `${formData.logo_url}?t=${new Date().getTime()}`
-        : formData.logo_url; // Si es blob (preview local), se usa directo
-
+        : formData.logo_url;
       changeFavicon(faviconUrl);
     } else {
-      // Si no hay logo, volvemos al default
       changeFavicon("/icon.png");
     }
   }, [formData.logo_url]);
@@ -178,6 +166,7 @@ export default function ClubForm({
         { id: crypto.randomUUID(), tipo: "texto", valor: "Nueva Marca" },
       ],
     }));
+
   const removeMarca = (id: string) => {
     setFormData((prev) => ({
       ...prev,
@@ -187,11 +176,13 @@ export default function ClubForm({
     delete newFiles[id];
     setBrandFiles(newFiles);
   };
+
   const updateMarcaValor = (id: string, valor: string) =>
     setFormData((prev) => ({
       ...prev,
       marcas: prev.marcas.map((m) => (m.id === id ? { ...m, valor } : m)),
     }));
+
   const toggleMarcaTipo = (id: string) =>
     setFormData((prev) => ({
       ...prev,
@@ -200,11 +191,12 @@ export default function ClubForm({
           ? {
               ...m,
               tipo: m.tipo === "texto" ? "imagen" : "texto",
-              valor: m.tipo === "texto" ? "Nueva Marca" : "",
+              valor: m.tipo === "texto" ? "" : "Nueva Marca",
             }
           : m
       ),
     }));
+
   const handleBrandFileChange = (
     id: string,
     e: React.ChangeEvent<HTMLInputElement>
@@ -216,26 +208,10 @@ export default function ClubForm({
     }
   };
 
-  // === HANDLERS NOSOTROS ===
+  // === HANDLERS NOSOTROS (HOME) ===
   const handleNosotrosChange = (field: keyof NosotrosData, value: any) => {
     setNosotrosData((prev) => ({ ...prev, [field]: value }));
   };
-
-  const updateValor = (index: number, field: keyof Valor, value: string) => {
-    const newValores = [...nosotrosData.valores];
-    newValores[index] = { ...newValores[index], [field]: value };
-    setNosotrosData((prev) => ({ ...prev, valores: newValores }));
-  };
-  const addValor = () =>
-    setNosotrosData((prev) => ({
-      ...prev,
-      valores: [...prev.valores, { titulo: "Nuevo", contenido: "..." }],
-    }));
-  const removeValor = (index: number) =>
-    setNosotrosData((prev) => ({
-      ...prev,
-      valores: prev.valores.filter((_, i) => i !== index),
-    }));
 
   const handleGallerySelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
@@ -295,12 +271,12 @@ export default function ClubForm({
       formDataToSend.append(
         "nosotrosData",
         JSON.stringify({
-          activo_nosotros: nosotrosData.activo_nosotros, // ENVIAMOS EL ESTADO
+          activo_nosotros: nosotrosData.activo_nosotros,
           historia_titulo: nosotrosData.historia_titulo,
           hero_descripcion: nosotrosData.hero_descripcion,
+          // Preservamos los otros campos
           historia_contenido: nosotrosData.historia_contenido,
           frase_cierre: nosotrosData.frase_cierre,
-          historia_imagen_url: nosotrosData.historia_imagen_url,
           galeria_inicio: nosotrosData.galeria_inicio,
           valores: nosotrosData.valores,
         })
@@ -309,8 +285,6 @@ export default function ClubForm({
       // 3. Archivos Nuevos
       if (logoFile) formDataToSend.append("logoFile", logoFile);
       if (heroFile) formDataToSend.append("heroFile", heroFile);
-      if (nosotrosMainImageFile)
-        formDataToSend.append("nosotrosMainFile", nosotrosMainImageFile);
 
       if (newGalleryFiles.length > 0) {
         newGalleryFiles.forEach((file) => {
@@ -336,11 +310,10 @@ export default function ClubForm({
       }
 
       setBrandFiles({});
-      setNewGalleryFiles([]);
-      setNewGalleryPreviews([]);
       setLogoFile(null);
       setHeroFile(null);
-      setNosotrosMainImageFile(null);
+      setNewGalleryFiles([]);
+      setNewGalleryPreviews([]);
 
       alert("¡Todos los cambios guardados correctamente!");
       window.location.reload();
@@ -352,18 +325,32 @@ export default function ClubForm({
     }
   };
 
-  // Función auxiliar para preview
   const getPreviewTitle = () => {
-    switch (activeTab) {
-      case "nosotros":
-        return "Sección Nosotros (Home)";
-      default:
-        return "Página de Inicio (Home)";
-    }
+    if (activeTab === "nosotros") return "Sección Nosotros (Home)";
+    return "Página de Inicio (Home)";
   };
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 p-6 md:p-10 -m-6 md:-m-10">
+      {/* BOTÓN FLOTANTE MÓVIL */}
+      <div className="md:hidden fixed bottom-6 right-6 z-50">
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={saving}
+          className="bg-green-600 text-white px-6 py-4 rounded-full shadow-2xl flex items-center gap-2 font-bold hover:scale-105 active:scale-95 transition-all border-2 border-green-500"
+          title="Guardar cambios"
+          aria-label="Guardar todos los cambios"
+        >
+          {saving ? (
+            <Loader2 className="animate-spin w-6 h-6" />
+          ) : (
+            <Save className="w-6 h-6" />
+          )}
+          <span>Guardar</span>
+        </button>
+      </div>
+
       <div className="max-w-7xl mx-auto space-y-8 pb-32">
         <div className="flex justify-between items-end">
           <div>
@@ -371,7 +358,7 @@ export default function ClubForm({
               Personalización del Club
             </h1>
             <p className="text-slate-500 mt-2 text-lg">
-              Gestiona la identidad, historia y contacto en un solo lugar.
+              Gestiona la identidad y el contenido del Home.
             </p>
           </div>
           <button
@@ -380,13 +367,13 @@ export default function ClubForm({
             disabled={saving}
             className="hidden md:flex bg-green-600 hover:bg-green-700 text-white px-8 py-3 rounded-xl font-bold gap-2 items-center shadow-lg hover:-translate-y-1 disabled:opacity-70"
             title="Guardar todos los cambios"
-            aria-label="Guardar todo"
+            aria-label="Guardar todos los cambios"
           >
             {saving ? (
               <Loader2 className="animate-spin w-5 h-5" />
             ) : (
               <Save className="w-5 h-5" />
-            )}{" "}
+            )}
             Guardar Todo
           </button>
         </div>
@@ -395,7 +382,7 @@ export default function ClubForm({
         <div className="flex space-x-1 bg-white p-1 rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
           {[
             { id: "identidad", label: "Identidad & Hero", icon: Monitor },
-            { id: "nosotros", label: "Sobre Nosotros", icon: BookOpen },
+            { id: "nosotros", label: "Sobre Nosotros (Home)", icon: BookOpen },
             { id: "estilo", label: "Colores & Textos", icon: Palette },
             { id: "contacto", label: "Contacto", icon: MapPin },
             { id: "marcas", label: "Marcas", icon: Type },
@@ -440,8 +427,8 @@ export default function ClubForm({
                       onChange={(e) => handleChange("nombre", e.target.value)}
                       className="w-full px-4 py-2 border border-slate-300 rounded-xl"
                       placeholder="Ej: Club Padel Pro"
-                      title="Nombre del club"
                       aria-label="Nombre del club"
+                      title="Nombre del club"
                     />
                   </div>
                   <h2 className="text-lg font-bold text-slate-800 mb-4 mt-6">
@@ -456,7 +443,6 @@ export default function ClubForm({
                           alt="Logo"
                           fill
                           className="object-contain p-2"
-                          sizes="(max-width: 768px) 100vw, 33vw"
                         />
                       ) : (
                         <span className="text-xs text-slate-400">Sin Logo</span>
@@ -511,7 +497,6 @@ export default function ClubForm({
                           alt="Hero"
                           fill
                           className="object-cover"
-                          sizes="(max-width: 768px) 100vw, 50vw"
                         />
                       )
                     ) : (
@@ -541,18 +526,15 @@ export default function ClubForm({
               </div>
             )}
 
-            {/* TAB NOSOTROS */}
+            {/* TAB NOSOTROS (HOME PREVIEW) */}
             {activeTab === "nosotros" && (
               <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
-                {/* --- TOGGLE ACTIVAR/DESACTIVAR --- */}
+                {/* TOGGLE VISIBILIDAD */}
                 <section className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex justify-between items-center">
                   <div>
-                    <h3 className="font-bold text-slate-800">
-                      Visibilidad de la Sección
-                    </h3>
+                    <h3 className="font-bold text-slate-800">Sección Home</h3>
                     <p className="text-xs text-slate-500">
-                      Ocultar o mostrar el enlace &quot;Nosotros&quot; en el
-                      menú.
+                      Mostrar resumen en la página principal.
                     </p>
                   </div>
                   <button
@@ -570,10 +552,14 @@ export default function ClubForm({
                     }`}
                     title={
                       nosotrosData.activo_nosotros
-                        ? "Desactivar sección"
-                        : "Activar sección"
+                        ? "Ocultar sección"
+                        : "Mostrar sección"
                     }
-                    aria-label="Alternar visibilidad de nosotros"
+                    aria-label={
+                      nosotrosData.activo_nosotros
+                        ? "Ocultar sección"
+                        : "Mostrar sección"
+                    }
                   >
                     {nosotrosData.activo_nosotros ? (
                       <ToggleRight className="w-6 h-6" />
@@ -585,10 +571,6 @@ export default function ClubForm({
                 </section>
 
                 <section className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-                  <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
-                    <BookOpen className="w-5 h-5 text-blue-600" /> Historia &
-                    Textos
-                  </h2>
                   <div className="space-y-4">
                     <div>
                       <label className="block text-sm font-semibold text-slate-700 mb-1">
@@ -605,13 +587,13 @@ export default function ClubForm({
                         }
                         className="w-full px-4 py-2 border border-slate-300 rounded-xl"
                         placeholder="Ej: Nuestra Pasión"
-                        title="Título de la sección nosotros"
-                        aria-label="Título de la sección nosotros"
+                        aria-label="Título sección nosotros"
+                        title="Título sección nosotros"
                       />
                     </div>
                     <div>
                       <label className="block text-sm font-semibold text-slate-700 mb-1">
-                        Resumen (Para el Home)
+                        Resumen (Home)
                       </label>
                       <textarea
                         rows={3}
@@ -623,25 +605,9 @@ export default function ClubForm({
                           )
                         }
                         className="w-full px-4 py-2 border border-slate-300 rounded-xl resize-none"
-                        placeholder="Breve descripción..."
-                        title="Descripción corta para el home"
-                        aria-label="Descripción corta para el home"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-semibold text-slate-700 mb-1">
-                        Frase de Cierre (Footer)
-                      </label>
-                      <input
-                        type="text"
-                        value={nosotrosData.frase_cierre}
-                        onChange={(e) =>
-                          handleNosotrosChange("frase_cierre", e.target.value)
-                        }
-                        className="w-full px-4 py-2 border border-slate-300 rounded-xl"
-                        placeholder="Ej: Pasión por el deporte."
-                        title="Frase del footer"
-                        aria-label="Frase del footer"
+                        placeholder="Breve descripción para el inicio..."
+                        aria-label="Resumen home"
+                        title="Resumen home"
                       />
                     </div>
                   </div>
@@ -651,21 +617,21 @@ export default function ClubForm({
                   <div className="flex justify-between items-center mb-4">
                     <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                       <ImageIcon className="w-5 h-5 text-purple-600" /> Slider
-                      del Home
+                      Home
                     </h2>
                     <label
                       className="cursor-pointer text-blue-600 text-xs font-bold hover:bg-blue-50 px-3 py-1.5 rounded-lg transition-colors flex gap-1 items-center"
-                      title="Subir imágenes a la galería"
+                      title="Subir imágenes"
                     >
-                      <Plus className="w-4 h-4" /> Agregar Fotos
+                      <Plus className="w-4 h-4" /> Agregar
                       <input
                         type="file"
                         accept="image/*"
                         multiple
                         className="hidden"
                         onChange={handleGallerySelect}
-                        title="Seleccionar imágenes"
-                        aria-label="Seleccionar imágenes"
+                        aria-label="Seleccionar imágenes slider"
+                        title="Seleccionar imágenes slider"
                       />
                     </label>
                   </div>
@@ -680,12 +646,12 @@ export default function ClubForm({
                           alt="Gallery"
                           fill
                           className="object-cover"
-                          sizes="(max-width: 768px) 33vw, 25vw"
                         />
+                        {/* BOTÓN DE ELIMINAR SIEMPRE VISIBLE */}
                         <button
                           type="button"
                           onClick={() => removeGalleryImage(i, false)}
-                          className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100"
+                          className="absolute top-1 right-1 bg-red-600 text-white p-1 rounded-full shadow-md z-10 hover:bg-red-700 transition-colors"
                           aria-label="Eliminar imagen"
                           title="Eliminar imagen"
                         >
@@ -703,14 +669,16 @@ export default function ClubForm({
                           alt="New"
                           fill
                           className="object-cover"
-                          sizes="(max-width: 768px) 33vw, 25vw"
                         />
+                        <div className="absolute top-0 left-0 bg-green-500 text-white text-[10px] px-2 py-0.5 font-bold z-10">
+                          NUEVA
+                        </div>
                         <button
                           type="button"
                           onClick={() => removeGalleryImage(i, true)}
-                          className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100"
-                          aria-label="Eliminar imagen nueva"
-                          title="Eliminar imagen nueva"
+                          className="absolute top-1 right-1 bg-red-600 text-white p-1 rounded-full shadow-md z-10 hover:bg-red-700 transition-colors"
+                          aria-label="Cancelar imagen nueva"
+                          title="Cancelar imagen nueva"
                         >
                           <X className="w-3 h-3" />
                         </button>
@@ -718,69 +686,10 @@ export default function ClubForm({
                     ))}
                     {nosotrosData.galeria_inicio.length === 0 &&
                       newGalleryPreviews.length === 0 && (
-                        <div className="col-span-4 text-center py-4 text-xs text-slate-400 bg-slate-50 border border-dashed rounded">
+                        <div className="col-span-4 text-center py-6 text-sm text-slate-400 border-2 border-dashed rounded-xl">
                           Sin imágenes.
                         </div>
                       )}
-                  </div>
-                </section>
-
-                <section className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-                  <div className="flex justify-between items-center mb-4">
-                    <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                      <Layers className="w-5 h-5 text-orange-600" /> Valores
-                    </h2>
-                    <button
-                      type="button"
-                      onClick={addValor}
-                      className="text-xs bg-orange-50 text-orange-600 px-3 py-1.5 rounded-lg font-bold hover:bg-orange-100 flex items-center gap-1"
-                      title="Agregar nuevo valor"
-                      aria-label="Agregar valor"
-                    >
-                      <Plus className="w-4 h-4" /> Agregar
-                    </button>
-                  </div>
-                  <div className="grid gap-4">
-                    {nosotrosData.valores.map((valor, i) => (
-                      <div
-                        key={i}
-                        className="flex gap-3 bg-slate-50 p-3 rounded-lg border border-slate-100 relative group"
-                      >
-                        <div className="flex-1 space-y-2">
-                          <input
-                            type="text"
-                            value={valor.titulo}
-                            onChange={(e) =>
-                              updateValor(i, "titulo", e.target.value)
-                            }
-                            className="w-full bg-white px-2 py-1 border border-slate-200 rounded text-sm font-bold"
-                            placeholder="Título"
-                            title="Título del valor"
-                            aria-label="Título del valor"
-                          />
-                          <input
-                            type="text"
-                            value={valor.contenido}
-                            onChange={(e) =>
-                              updateValor(i, "contenido", e.target.value)
-                            }
-                            className="w-full bg-white px-2 py-1 border border-slate-200 rounded text-sm"
-                            placeholder="Descripción"
-                            title="Descripción del valor"
-                            aria-label="Descripción del valor"
-                          />
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => removeValor(i)}
-                          className="text-slate-400 hover:text-red-500 self-start"
-                          aria-label="Eliminar valor"
-                          title="Eliminar valor"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    ))}
                   </div>
                 </section>
               </div>
@@ -809,8 +718,8 @@ export default function ClubForm({
                         }
                         className="w-full px-4 py-2 border border-slate-300 rounded-xl"
                         placeholder="EL MEJOR LUGAR..."
-                        title="Título principal del home"
-                        aria-label="Título principal del home"
+                        aria-label="Título principal home"
+                        title="Título principal home"
                       />
                     </div>
                     <div>
@@ -828,8 +737,8 @@ export default function ClubForm({
                         }
                         className="w-full px-4 py-2 border border-slate-300 rounded-xl"
                         placeholder="Subtítulo..."
-                        title="Subtítulo del home"
-                        aria-label="Subtítulo del home"
+                        aria-label="Subtítulo home"
+                        title="Subtítulo home"
                       />
                     </div>
                   </div>
@@ -851,8 +760,8 @@ export default function ClubForm({
                             handleChange("color_primario", e.target.value)
                           }
                           className="h-10 w-16 rounded cursor-pointer border"
-                          title="Elegir color primario"
-                          aria-label="Elegir color primario"
+                          aria-label="Seleccionar color primario"
+                          title="Seleccionar color primario"
                         />
                         <input
                           type="text"
@@ -861,9 +770,9 @@ export default function ClubForm({
                             handleChange("color_primario", e.target.value)
                           }
                           className="flex-1 px-4 border border-slate-300 rounded-xl uppercase"
-                          title="Código hexadecimal color primario"
                           placeholder="#000000"
                           aria-label="Código hexadecimal color primario"
+                          title="Código hexadecimal color primario"
                         />
                       </div>
                     </div>
@@ -879,8 +788,8 @@ export default function ClubForm({
                             handleChange("color_secundario", e.target.value)
                           }
                           className="h-10 w-16 rounded cursor-pointer border"
-                          title="Elegir color secundario"
-                          aria-label="Elegir color secundario"
+                          aria-label="Seleccionar color secundario"
+                          title="Seleccionar color secundario"
                         />
                         <input
                           type="text"
@@ -889,9 +798,9 @@ export default function ClubForm({
                             handleChange("color_secundario", e.target.value)
                           }
                           className="flex-1 px-4 border border-slate-300 rounded-xl uppercase"
-                          title="Código hexadecimal color secundario"
                           placeholder="#000000"
                           aria-label="Código hexadecimal color secundario"
+                          title="Código hexadecimal color secundario"
                         />
                       </div>
                     </div>
@@ -921,9 +830,9 @@ export default function ClubForm({
                             handleChange("email", e.target.value)
                           }
                           className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-xl"
-                          title="Email de contacto"
                           placeholder="contacto@email.com"
                           aria-label="Email de contacto"
+                          title="Email de contacto"
                         />
                       </div>
                     </div>
@@ -940,9 +849,9 @@ export default function ClubForm({
                             handleChange("usuario_instagram", e.target.value)
                           }
                           className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-xl"
-                          title="Usuario de Instagram"
                           placeholder="@usuario"
                           aria-label="Usuario de Instagram"
+                          title="Usuario de Instagram"
                         />
                       </div>
                     </div>
@@ -959,9 +868,9 @@ export default function ClubForm({
                             handleChange("telefono", e.target.value)
                           }
                           className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-xl"
-                          title="Teléfono de contacto"
                           placeholder="+54 9..."
-                          aria-label="Teléfono de contacto"
+                          aria-label="Teléfono WhatsApp"
+                          title="Teléfono WhatsApp"
                         />
                       </div>
                     </div>
@@ -981,9 +890,9 @@ export default function ClubForm({
                         value={formData.calle}
                         onChange={(e) => handleChange("calle", e.target.value)}
                         className="w-full px-4 py-2 border border-slate-300 rounded-xl"
-                        title="Calle"
                         placeholder="Av. Principal"
                         aria-label="Calle"
+                        title="Calle"
                       />
                     </div>
                     <div>
@@ -995,9 +904,9 @@ export default function ClubForm({
                         value={formData.altura}
                         onChange={(e) => handleChange("altura", e.target.value)}
                         className="w-full px-4 py-2 border border-slate-300 rounded-xl"
-                        title="Altura"
                         placeholder="123"
                         aria-label="Altura"
+                        title="Altura"
                       />
                     </div>
                     <div>
@@ -1009,9 +918,9 @@ export default function ClubForm({
                         value={formData.barrio}
                         onChange={(e) => handleChange("barrio", e.target.value)}
                         className="w-full px-4 py-2 border border-slate-300 rounded-xl"
-                        title="Barrio"
                         placeholder="Centro"
                         aria-label="Barrio"
+                        title="Barrio"
                       />
                     </div>
                   </div>
@@ -1029,8 +938,8 @@ export default function ClubForm({
                       type="button"
                       onClick={addMarca}
                       className="text-sm bg-blue-50 text-blue-600 px-3 py-1.5 rounded-lg font-bold hover:bg-blue-100 flex items-center gap-1"
-                      title="Agregar marca"
                       aria-label="Agregar marca"
+                      title="Agregar marca"
                     >
                       <Plus className="w-4 h-4" /> Agregar
                     </button>
@@ -1092,8 +1001,8 @@ export default function ClubForm({
                             }
                             className="w-full bg-white px-3 py-2 border border-slate-200 rounded-lg outline-none text-sm font-semibold"
                             placeholder="Nombre de marca"
-                            title="Nombre de la marca"
-                            aria-label="Nombre de la marca"
+                            aria-label="Nombre de marca"
+                            title="Nombre de marca"
                           />
                         ) : (
                           <div className="flex items-center gap-4">
@@ -1104,7 +1013,6 @@ export default function ClubForm({
                                   alt="Marca"
                                   fill
                                   className="object-contain p-1"
-                                  sizes="64px"
                                 />
                               ) : (
                                 <ImageIcon className="w-6 h-6 text-slate-300" />
@@ -1122,8 +1030,8 @@ export default function ClubForm({
                                 onChange={(e) =>
                                   handleBrandFileChange(marca.id, e)
                                 }
-                                title="Subir archivo"
-                                aria-label="Subir archivo"
+                                aria-label="Subir archivo de marca"
+                                title="Subir archivo de marca"
                               />
                             </label>
                           </div>
@@ -1160,7 +1068,6 @@ export default function ClubForm({
                         alt="Hero"
                         fill
                         className="object-cover opacity-60"
-                        sizes="(max-width: 768px) 100vw, 50vw"
                       />
                     )
                   ) : (
@@ -1175,7 +1082,6 @@ export default function ClubForm({
                           alt="Logo"
                           fill
                           className="object-contain"
-                          sizes="80px"
                         />
                       </div>
                     )}
@@ -1218,7 +1124,6 @@ export default function ClubForm({
                         alt="Slide"
                         fill
                         className="object-cover"
-                        sizes="(max-width: 768px) 100vw, 33vw"
                       />
                     ) : (
                       <div className="flex items-center justify-center h-full text-slate-500 text-xs">
@@ -1238,7 +1143,6 @@ export default function ClubForm({
                           alt="m"
                           fill
                           className="object-contain"
-                          sizes="32px"
                         />
                       </div>
                     ) : (

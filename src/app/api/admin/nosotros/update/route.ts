@@ -42,6 +42,7 @@ export async function POST(req: NextRequest) {
     }
 
     // --- 2. Subida de Galería (Múltiple) ---
+    // Empezamos con las imágenes que ya existían
     const finalGalleryUrls: string[] = settings.galeria_pagina || [];
 
     for (const file of galleryFiles) {

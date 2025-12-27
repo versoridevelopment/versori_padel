@@ -2,6 +2,7 @@ import { getCurrentClub } from "@/lib/ObetenerClubUtils/getCurrentClub";
 import { supabase } from "@/lib/supabase/supabaseClient";
 import LandingClient from "./components/LandingClient";
 
+// Revalidación en 0 para que los cambios del admin (colores, textos) se vean al instante
 export const revalidate = 0;
 
 export default async function HomePage() {
@@ -9,38 +10,41 @@ export default async function HomePage() {
 
   if (!club) {
     return (
-      <div className="min-h-screen bg-black flex items-center justify-center text-white">
-        <h1 className="text-2xl">Club no encontrado</h1>
+      <div className="min-h-screen bg-[#0b0d12] flex items-center justify-center text-white">
+        <h1 className="text-2xl font-bold">Club no encontrado</h1>
       </div>
     );
   }
 
-  // 1. Consultas Principales (Club, Nosotros, Profesores, Contacto Base)
+  // 1. Consultas Principales en paralelo para máxima velocidad
   const [clubRes, nosotrosRes, profesoresRes, contactoBaseRes] =
     await Promise.all([
+      // Info del Club (Colores, Hero, Logo, etc.)
       supabase.from("clubes").select("*").eq("id_club", club.id_club).single(),
 
+      // Configuración de Nosotros (Historia, Slider)
       supabase
         .from("nosotros")
         .select("*")
         .eq("id_club", club.id_club)
         .maybeSingle(),
 
+      // Lista de Profesores
       supabase
         .from("profesores")
         .select("*")
         .eq("id_club", club.id_club)
         .order("created_at", { ascending: true }),
 
+      // Info de Contacto Base
       supabase
         .from("contacto")
-        .select("*") // Traemos solo la base del contacto primero
+        .select("*")
         .eq("id_club", club.id_club)
         .maybeSingle(),
     ]);
 
-  // 2. Consultas Secundarias (Dependen del Contacto)
-  // Si encontramos un contacto, buscamos sus teléfonos y direcciones por separado
+  // 2. Consultas Secundarias (Detalles de contacto)
   let telefonosData: any[] = [];
   let direccionesData: any[] = [];
 
@@ -56,7 +60,7 @@ export default async function HomePage() {
     direccionesData = dirRes.data || [];
   }
 
-  // 3. Armar el objeto final manualmente (A prueba de balas)
+  // 3. Armado de Objetos
   const contactoCompleto = contactoBaseRes.data
     ? {
         ...contactoBaseRes.data,
@@ -65,16 +69,16 @@ export default async function HomePage() {
       }
     : null;
 
+  // Preparamos el objeto Landing con TODOS los datos del club mezclados
+  // Esto es crucial para que el Hero reciba 'color_primario', 'imagen_hero_url', etc.
   const landingData = {
     club: {
-      nombre: clubRes.data?.nombre || club.nombre,
-      subdominio: club.subdominio,
+      ...club, // Datos básicos del middleware (id, subdominio)
+      ...clubRes.data, // Datos completos de la BD (sobrescribe lo básico)
+
+      // Aseguramos valores por defecto para evitar fallos visuales
       color_primario: clubRes.data?.color_primario || "#3b82f6",
       color_secundario: clubRes.data?.color_secundario || "#0b0d12",
-      logo_url: clubRes.data?.logo_url,
-      imagen_hero_url: clubRes.data?.imagen_hero_url,
-      texto_titulo: clubRes.data?.texto_bienvenida_titulo,
-      texto_subtitulo: clubRes.data?.texto_bienvenida_subtitulo,
       marcas: clubRes.data?.marcas || [],
     },
     nosotros: nosotrosRes.data || null,
