@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   LayoutDashboard,
   Calendar,
@@ -16,17 +16,22 @@ import {
   MapPin,
   Users2,
   Trophy,
-  Home, // Icono para el Quincho
-  Tag, // Icono para Tarifarios
+  Home,
+  Tag,
+  Menu, // Icono Hamburguesa
+  X, // Icono Cerrar
 } from "lucide-react";
-import { ROLE_PERMISSIONS, Rol } from "@/lib/roles";
+import { Rol } from "@/lib/roles";
 
 export function Sidebar() {
-  // En producción, esto vendría de un Contexto de Auth o Hook de Supabase
+  // Estado para el rol (Simulado)
   const [userRole] = useState<Rol>("Administrador");
-  // const permisos = ROLE_PERMISSIONS[userRole];
 
+  // Estado para desplegables
   const [isPersonalizacionOpen, setIsPersonalizacionOpen] = useState(true);
+
+  // NUEVO: Estado para abrir/cerrar menú en MÓVIL
+  const [isMobileOpen, setIsMobileOpen] = useState(false);
 
   const user = {
     nombreCompleto: "Juan Cruz",
@@ -62,20 +67,20 @@ export function Sidebar() {
     },
   ];
 
-  // Submenú de Personalización
+  // Submenú Personalización
   const personalizacionLinks = [
     {
       href: "/admin/personalizacion/club",
-      label: "Página Principal", // Contiene Identidad, Nosotros y Contacto unificados
+      label: "Configuración Web",
       icon: <Building2 size={14} />,
     },
     {
-      href: "/admin/personalizacion/profesores", // CORREGIDO: Ruta original restaurada
+      href: "/admin/equipo",
       label: "Equipo / Profesores",
       icon: <Users2 size={14} />,
     },
     {
-      href: "/admin/quinchos", // Nueva página de Quinchos
+      href: "/admin/quinchos",
       label: "Quincho / Eventos",
       icon: <Home size={14} />,
     },
@@ -95,48 +100,96 @@ export function Sidebar() {
     alert("Sesión cerrada");
   };
 
+  // Función para cerrar el menú al hacer clic en un link (Solo móvil)
+  const closeMobileMenu = () => setIsMobileOpen(false);
+
+  // Bloquear scroll cuando el menú móvil está abierto
+  useEffect(() => {
+    if (isMobileOpen) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "unset";
+    }
+  }, [isMobileOpen]);
+
   return (
-    <aside className="w-64 bg-[#0d1b2a] text-white flex flex-col justify-between shadow-lg h-screen sticky top-0 overflow-hidden">
-      {/* --- SECCIÓN USUARIO --- */}
-      <div className="flex flex-col items-center p-6 border-b border-gray-800 bg-[#0b1623]">
-        <Link href="/admin/usuario" className="group relative">
-          <div className="relative w-16 h-16 mx-auto transition-transform duration-300 group-hover:scale-105">
-            <Image
-              src={user.fotoPerfil}
-              alt="Perfil"
-              width={64}
-              height={64}
-              className="rounded-full border-2 border-blue-500/30 object-cover bg-gray-800 shadow-md"
-              priority
-            />
-            <div className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-green-500 border-2 border-[#0b1623] rounded-full"></div>
-          </div>
-        </Link>
-        <h2 className="mt-3 text-sm font-semibold tracking-wide text-gray-100">
-          {user.nombreCompleto}
-        </h2>
-        <span className="px-2 py-0.5 mt-1 text-[10px] uppercase font-bold tracking-wider bg-blue-900/40 text-blue-300 rounded-full border border-blue-800/50">
-          {user.rol}
-        </span>
-      </div>
+    <>
+      {/* --- 1. BOTÓN HAMBURGUESA MÓVIL (Flotante) --- */}
+      {/* Solo visible en pantallas pequeñas (md:hidden) */}
+      <button
+        onClick={() => setIsMobileOpen(!isMobileOpen)}
+        className="md:hidden fixed top-4 left-4 z-50 p-2 bg-[#0d1b2a] text-white rounded-lg shadow-lg border border-gray-700 hover:bg-[#1b263b] transition-colors"
+        aria-label="Abrir menú"
+      >
+        {isMobileOpen ? <X size={24} /> : <Menu size={24} />}
+      </button>
 
-      {/* --- NAVEGACIÓN PRINCIPAL --- */}
-      <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto custom-scrollbar">
-        {links.map((link) => (
+      {/* --- 2. OVERLAY OSCURO (Solo Móvil) --- */}
+      {/* Fondo negro semitransparente para cerrar al hacer clic fuera */}
+      {isMobileOpen && (
+        <div
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-30 md:hidden"
+          onClick={() => setIsMobileOpen(false)}
+        />
+      )}
+
+      {/* --- 3. SIDEBAR (Aside) --- */}
+      <aside
+        className={`
+          fixed md:sticky top-0 left-0 h-screen w-64 
+          bg-[#0d1b2a] text-white flex flex-col justify-between shadow-2xl 
+          z-40 overflow-hidden transition-transform duration-300 ease-in-out
+          ${
+            isMobileOpen
+              ? "translate-x-0"
+              : "-translate-x-full md:translate-x-0"
+          }
+        `}
+      >
+        {/* --- SECCIÓN USUARIO --- */}
+        <div className="flex flex-col items-center p-6 border-b border-gray-800 bg-[#0b1623]">
           <Link
-            key={link.key}
-            href={link.href}
-            className="flex items-center gap-3 px-3 py-2.5 text-gray-400 hover:text-white hover:bg-[#1b263b] rounded-lg transition-all duration-200 group font-medium text-sm"
+            href="/admin/usuario"
+            className="group relative"
+            onClick={closeMobileMenu}
           >
-            <span className="group-hover:text-blue-400 transition-colors">
-              {link.icon}
-            </span>
-            <span>{link.label}</span>
+            <div className="relative w-16 h-16 mx-auto transition-transform duration-300 group-hover:scale-105">
+              <Image
+                src={user.fotoPerfil}
+                alt="Perfil"
+                width={64}
+                height={64}
+                className="rounded-full border-2 border-blue-500/30 object-cover bg-gray-800 shadow-md"
+                priority
+              />
+              <div className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-green-500 border-2 border-[#0b1623] rounded-full"></div>
+            </div>
           </Link>
-        ))}
+          <h2 className="mt-3 text-sm font-semibold tracking-wide text-gray-100">
+            {user.nombreCompleto}
+          </h2>
+          <span className="px-2 py-0.5 mt-1 text-[10px] uppercase font-bold tracking-wider bg-blue-900/40 text-blue-300 rounded-full border border-blue-800/50">
+            {user.rol}
+          </span>
+        </div>
 
-        {/* --- MENÚ DESPLEGABLE PERSONALIZACIÓN --- */}
-        {userRole === "Administrador" && (
+        {/* --- NAVEGACIÓN PRINCIPAL --- */}
+        <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto custom-scrollbar">
+          {links.map((link) => (
+            <Link
+              key={link.key}
+              href={link.href}
+              onClick={closeMobileMenu}
+              className="flex items-center gap-3 px-3 py-2.5 text-gray-400 hover:text-white hover:bg-[#1b263b] rounded-lg transition-all duration-200 group font-medium text-sm"
+            >
+              <span className="group-hover:text-blue-400 transition-colors">
+                {link.icon}
+              </span>
+              <span>{link.label}</span>
+            </Link>
+          ))}
+
+          {/* --- MENÚ DESPLEGABLE PERSONALIZACIÓN --- */}
           <div className="pt-2 mt-2 border-t border-gray-800/50">
             <button
               onClick={() => setIsPersonalizacionOpen(!isPersonalizacionOpen)}
@@ -167,6 +220,7 @@ export function Sidebar() {
                   <Link
                     key={subLink.href}
                     href={subLink.href}
+                    onClick={closeMobileMenu}
                     className="flex items-center gap-2 px-3 py-2 text-xs font-medium text-gray-400 hover:text-white hover:bg-[#1b263b]/50 rounded-md transition-all duration-200"
                   >
                     <span className="opacity-70 text-blue-300">
@@ -178,19 +232,22 @@ export function Sidebar() {
               </div>
             )}
           </div>
-        )}
-      </nav>
+        </nav>
 
-      {/* --- LOGOUT --- */}
-      <div className="p-3 border-t border-gray-800 bg-[#0b1623]">
-        <button
-          onClick={handleLogout}
-          className="flex w-full items-center justify-center gap-2 py-2.5 text-xs font-bold uppercase tracking-wider text-red-400 hover:bg-red-950/30 hover:text-red-300 rounded-lg transition-all duration-200 border border-transparent hover:border-red-900/30"
-        >
-          <LogOut size={16} />
-          Cerrar sesión
-        </button>
-      </div>
-    </aside>
+        {/* --- LOGOUT --- */}
+        <div className="p-3 border-t border-gray-800 bg-[#0b1623]">
+          <button
+            onClick={() => {
+              handleLogout();
+              closeMobileMenu();
+            }}
+            className="flex w-full items-center justify-center gap-2 py-2.5 text-xs font-bold uppercase tracking-wider text-red-400 hover:bg-red-950/30 hover:text-red-300 rounded-lg transition-all duration-200 border border-transparent hover:border-red-900/30"
+          >
+            <LogOut size={16} />
+            Cerrar sesión
+          </button>
+        </div>
+      </aside>
+    </>
   );
 }
