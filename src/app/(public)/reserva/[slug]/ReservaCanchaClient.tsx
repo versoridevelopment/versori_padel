@@ -42,9 +42,13 @@ type DaySlots = {
 };
 
 function addDaysISO(dateISO: string, add: number) {
-  const d = new Date(`${dateISO}T00:00:00`);
-  d.setDate(d.getDate() + add);
-  return d.toISOString().slice(0, 10);
+  // Evitar toISOString() (UTC) para no correr la fecha
+  const [y, m, d] = dateISO.split("-").map(Number);
+  const dt = new Date(y, m - 1, d + add);
+  const yy = dt.getFullYear();
+  const mm = String(dt.getMonth() + 1).padStart(2, "0");
+  const dd = String(dt.getDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
 }
 
 export default function ReservaCanchaClient({
@@ -74,7 +78,9 @@ export default function ReservaCanchaClient({
 
   // Preview precio
   const [priceLoading, setPriceLoading] = useState(false);
-  const [pricePreview, setPricePreview] = useState<PrecioPreviewOk | PrecioPreviewErr | null>(null);
+  const [pricePreview, setPricePreview] = useState<PrecioPreviewOk | PrecioPreviewErr | null>(
+    null
+  );
 
   const openDay = useMemo(() => {
     return availableDays.find((d) => d.dateISO === openDateISO) || null;
@@ -107,6 +113,7 @@ export default function ReservaCanchaClient({
   const startSlot = startAbs != null ? slotsByAbs.get(startAbs) : null;
   const endSlot = endAbs != null ? slotsByAbs.get(endAbs) : null;
 
+  // Fecha efectiva para el cálculo/confirmación (si el inicio es (+1), sumamos 1 día)
   const requestFecha = useMemo(() => {
     if (!openDateISO || !startSlot) return openDateISO;
     return addDaysISO(openDateISO, startSlot.dayOffset);
@@ -132,10 +139,9 @@ export default function ReservaCanchaClient({
 
     async function loadSlots() {
       try {
-        const fecha_desde = new Date().toISOString().slice(0, 10);
-
+        // Fix recomendado: el client NO manda fecha_desde. El server decide (timezone AR).
         const res = await fetch(
-          `/api/reservas/slots?id_club=${clubId}&id_cancha=${cancha.id_cancha}&fecha_desde=${fecha_desde}&dias=7`,
+          `/api/reservas/slots?id_club=${clubId}&id_cancha=${cancha.id_cancha}&dias=7`,
           { cache: "no-store" }
         );
 
@@ -293,9 +299,13 @@ export default function ReservaCanchaClient({
   }, [hasValidSelection, durationOk, pricePreview]);
 
   const etiquetaTarifa = useMemo(() => {
-    const seg = (pricePreview && "ok" in pricePreview && (pricePreview as any).ok && (pricePreview as any).segmento)
-      ? ((pricePreview as any).segmento as Segmento)
-      : segmentoActual;
+    const seg =
+      pricePreview &&
+      "ok" in pricePreview &&
+      (pricePreview as any).ok &&
+      (pricePreview as any).segmento
+        ? ((pricePreview as any).segmento as Segmento)
+        : segmentoActual;
 
     return seg === "profe" ? "Tarifa Profe" : "Tarifa Público";
   }, [pricePreview, segmentoActual]);
@@ -378,9 +388,7 @@ export default function ReservaCanchaClient({
         {!openDay ? (
           <div className="text-neutral-400 text-sm">Cargando horarios…</div>
         ) : openDay.slots.length === 0 ? (
-          <div className="text-rose-300 text-sm">
-            No hay reglas activas para este día (o no hay tarifario asignado).
-          </div>
+          <div className="text-rose-300 text-sm">No hay reglas activas para este día (o no hay tarifario asignado).</div>
         ) : (
           <div className="mt-4">
             <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-4">

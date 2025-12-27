@@ -35,6 +35,16 @@ type ReglaDb = {
   vigente_hasta: string | null;
 };
 
+function todayISOAR() {
+  // "en-CA" => YYYY-MM-DD
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Argentina/Buenos_Aires",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
 function toMin(hhmmss: string) {
   const s = (hhmmss || "").slice(0, 5); // HH:MM
   const [h, m] = s.split(":").map((x) => Number(x));
@@ -53,9 +63,13 @@ function minToHHMM(absMin: number) {
 }
 
 function addDaysISO(dateISO: string, addDays: number) {
-  const d = new Date(`${dateISO}T00:00:00`);
-  d.setDate(d.getDate() + addDays);
-  return d.toISOString().slice(0, 10);
+  // Evitar toISOString() (UTC) para no correr la fecha
+  const [y, m, d] = dateISO.split("-").map(Number);
+  const dt = new Date(y, m - 1, d + addDays);
+  const yy = dt.getFullYear();
+  const mm = String(dt.getMonth() + 1).padStart(2, "0");
+  const dd = String(dt.getDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
 }
 
 function dayLabel(dateISO: string, idx: number) {
@@ -110,9 +124,7 @@ async function resolveSegmento(id_club: number): Promise<Segmento> {
   const userId = userRes?.user?.id ?? null;
   if (!userId) return "publico";
 
-  // IMPORTANTE:
-  // - No usamos maybeSingle porque puede haber múltiples roles/filas.
-  // - Filtramos por roles.nombre = 'profe' con join inner.
+  // Puede haber múltiples roles/filas, filtramos por roles.nombre='profe' con join inner.
   const { data, error } = await supabaseAdmin
     .from("club_usuarios")
     .select("id_usuario, roles!inner(nombre)")
@@ -135,7 +147,10 @@ export async function GET(req: Request) {
 
     const id_club = Number(searchParams.get("id_club"));
     const id_cancha = Number(searchParams.get("id_cancha"));
-    const fecha_desde = searchParams.get("fecha_desde") || new Date().toISOString().slice(0, 10);
+
+    // Fix recomendado: el server decide "hoy" en AR, NO UTC.
+    const fecha_desde = searchParams.get("fecha_desde") || todayISOAR();
+
     const dias = Number(searchParams.get("dias") || 7);
 
     if (!id_club || Number.isNaN(id_club)) {
@@ -155,7 +170,7 @@ export async function GET(req: Request) {
     if ("error" in tar) return NextResponse.json({ error: tar.error }, { status: 400 });
     const id_tarifario = tar.id_tarifario;
 
-    // Segmento automático por usuario logueado (CORREGIDO)
+    // Segmento automático por usuario logueado
     const segmento = await resolveSegmento(id_club);
 
     const outDays: DaySlots[] = [];
