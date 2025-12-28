@@ -51,8 +51,12 @@ type CheckoutOk = {
   fin_dia_offset?: 0 | 1;
 };
 
+type ContextoUI = {
+  club_nombre: string | null;
+  cancha_nombre: string | null;
+};
+
 function formatFechaAR(dateISO: string) {
-  // dateISO = YYYY-MM-DD
   const d = new Date(`${dateISO}T00:00:00`);
   return d.toLocaleDateString("es-AR", {
     weekday: "short",
@@ -85,6 +89,9 @@ function ConfirmacionTurno() {
 
   const [checkout, setCheckout] = useState<CheckoutOk | null>(null);
   const [creatingCheckout, setCreatingCheckout] = useState(false);
+
+  const [contexto, setContexto] = useState<ContextoUI>({ club_nombre: null, cancha_nombre: null });
+  const [loadingContexto, setLoadingContexto] = useState(false);
 
   // Countdown
   const expiresAtMs = checkout?.expires_at ? new Date(checkout.expires_at).getTime() : null;
@@ -126,16 +133,40 @@ function ConfirmacionTurno() {
         setDraft(null);
         setPreview(null);
         setCheckout(null);
+        setContexto({ club_nombre: null, cancha_nombre: null });
         setWarning("No hay una reserva en curso. Volvé a seleccionar un horario.");
         return;
       }
 
       setDraft(d);
-      setCheckout(null); // si volvés a esta vista, resetea checkout
+      setCheckout(null);
     } catch (e: any) {
       setWarning(e?.message || "Error cargando el borrador");
     } finally {
       setLoadingDraft(false);
+    }
+  }
+
+  async function loadContexto() {
+    setLoadingContexto(true);
+    try {
+      const res = await fetch("/api/reservas/contexto", { cache: "no-store" });
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        // No bloqueamos UI por esto; mostramos fallback con IDs
+        setContexto({ club_nombre: null, cancha_nombre: null });
+        return;
+      }
+
+      setContexto({
+        club_nombre: data?.club_nombre ?? null,
+        cancha_nombre: data?.cancha_nombre ?? null,
+      });
+    } catch {
+      setContexto({ club_nombre: null, cancha_nombre: null });
+    } finally {
+      setLoadingContexto(false);
     }
   }
 
@@ -177,22 +208,33 @@ function ConfirmacionTurno() {
     return () => {
       alive = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Cuando hay draft, calcular anticipo "preview" (sin crear reserva)
+  // Cuando hay draft: cargar contexto (nombres) y preview (anticipo)
   useEffect(() => {
     if (!draft) return;
+    loadContexto();
     loadPreviewAnticipo();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft?.id_club, draft?.id_cancha, draft?.fecha, draft?.inicio, draft?.fin]);
 
   const canConfirm = useMemo(() => {
-    // Para crear checkout (bloquear horario) exigimos preview ok
     return !!draft && !!preview && !loadingDraft && !loadingPreview && !creatingCheckout;
   }, [draft, preview, loadingDraft, loadingPreview, creatingCheckout]);
 
   const showPayButton = !!checkout && !expired;
+
+  const tituloLugar = useMemo(() => {
+    const canchaNombre = contexto.cancha_nombre;
+    const clubNombre = contexto.club_nombre;
+
+    if (canchaNombre && clubNombre) return `${canchaNombre} — ${clubNombre}`;
+    if (canchaNombre) return canchaNombre;
+    if (clubNombre) return clubNombre;
+
+    // fallback
+    return `Cancha #${draft?.id_cancha ?? "?"} (club #${draft?.id_club ?? "?"})`;
+  }, [contexto.cancha_nombre, contexto.club_nombre, draft?.id_cancha, draft?.id_club]);
 
   return (
     <section className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-b from-[#001a33] to-[#002b5b] text-white px-6 py-16">
@@ -220,7 +262,6 @@ function ConfirmacionTurno() {
           <p className="text-neutral-400 text-sm">Revisá los detalles antes de finalizar tu reserva</p>
         </motion.div>
 
-        {/* Body */}
         {loadingDraft ? (
           <p className="text-neutral-300">Cargando…</p>
         ) : !draft ? (
@@ -245,9 +286,12 @@ function ConfirmacionTurno() {
             <div className="mt-6 space-y-4 text-left bg-[#112d57] rounded-2xl p-6">
               <div className="flex items-center gap-3 text-blue-300">
                 <MapPin className="w-5 h-5 text-blue-400" />
-                <p className="font-semibold">
-                  Cancha #{draft.id_cancha} (club #{draft.id_club})
-                </p>
+                <div className="flex flex-col">
+                  <p className="font-semibold">{tituloLugar}</p>
+                  {loadingContexto && (
+                    <span className="text-xs text-neutral-400">Cargando nombres…</span>
+                  )}
+                </div>
               </div>
 
               <div className="flex items-center gap-3 text-blue-300">
@@ -334,7 +378,6 @@ function ConfirmacionTurno() {
                 <ArrowLeft className="w-5 h-5" /> Volver
               </button>
 
-              {/* Si ya hay checkout y no está expirado: Ir a pagar */}
               {showPayButton ? (
                 <button
                   onClick={() => {
@@ -347,7 +390,6 @@ function ConfirmacionTurno() {
               ) : expired ? (
                 <button
                   onClick={async () => {
-                    // reintentar: borrar checkout y recalcular preview (por si cambió)
                     setCheckout(null);
                     setWarning(null);
                     await loadPreviewAnticipo();
@@ -379,7 +421,6 @@ function ConfirmacionTurno() {
                       }
 
                       setCheckout(data as CheckoutOk);
-                      // No redirigimos automáticamente: mostramos botón "Ir a pagar"
                     } catch (e: any) {
                       setCheckout(null);
                       setWarning(e?.message || "Error de red iniciando checkout");
@@ -403,7 +444,6 @@ function ConfirmacionTurno() {
             <div className="mt-6 flex justify-center">
               <button
                 onClick={async () => {
-                  // Recargar draft + preview por si el usuario venía de atrás
                   await loadDraft();
                 }}
                 className="text-xs text-blue-200/70 hover:text-blue-100 underline underline-offset-4"
