@@ -18,9 +18,9 @@ import {
   ImageIcon,
   AlignLeft,
   BookOpen,
-  X,
   ToggleLeft,
   ToggleRight,
+  X,
 } from "lucide-react";
 
 // --- TIPOS ---
@@ -79,7 +79,7 @@ export default function ClubForm({
   const [heroFile, setHeroFile] = useState<File | null>(null);
   const [brandFiles, setBrandFiles] = useState<Record<string, File>>({});
 
-  // --- ESTADO NOSOTROS (HOME PREVIEW) ---
+  // --- ESTADO NOSOTROS ---
   const [nosotrosData, setNosotrosData] = useState<NosotrosData>(
     nosotrosInitialData || {
       activo_nosotros: true,
@@ -93,7 +93,6 @@ export default function ClubForm({
     }
   );
 
-  // Estado para nuevas imágenes de galería del home
   const [newGalleryFiles, setNewGalleryFiles] = useState<File[]>([]);
   const [newGalleryPreviews, setNewGalleryPreviews] = useState<string[]>([]);
 
@@ -102,16 +101,14 @@ export default function ClubForm({
 
   // === EFECTO FAVICON ===
   useEffect(() => {
-    const changeFavicon = (src: string) => {
-      const link = document.createElement("link");
-      const oldLinks = document.querySelectorAll(
-        'link[rel="icon"], link[rel="shortcut icon"]'
-      );
-      oldLinks.forEach((e) => e.parentNode?.removeChild(e));
-      link.id = "dynamic-favicon";
-      link.rel = "icon";
-      link.href = src;
-      document.head.appendChild(link);
+    const updateFavicon = (url: string) => {
+      let link = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
+      if (!link) {
+        link = document.createElement("link");
+        link.rel = "icon";
+        document.head.appendChild(link);
+      }
+      link.href = url;
     };
 
     if (formData.logo_url) {
@@ -119,13 +116,13 @@ export default function ClubForm({
       const faviconUrl = isRemote
         ? `${formData.logo_url}?t=${new Date().getTime()}`
         : formData.logo_url;
-      changeFavicon(faviconUrl);
+      updateFavicon(faviconUrl);
     } else {
-      changeFavicon("/icon.png");
+      updateFavicon("/icon.png");
     }
   }, [formData.logo_url]);
 
-  // === HANDLERS CLUB ===
+  // === HANDLERS ===
   const handleChange = (field: keyof ClubData, value: any) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
@@ -208,7 +205,7 @@ export default function ClubForm({
     }
   };
 
-  // === HANDLERS NOSOTROS (HOME) ===
+  // Nosotros Handlers
   const handleNosotrosChange = (field: keyof NosotrosData, value: any) => {
     setNosotrosData((prev) => ({ ...prev, [field]: value }));
   };
@@ -241,11 +238,8 @@ export default function ClubForm({
     setSaving(true);
     try {
       const formDataToSend = new FormData();
-
-      // 1. Datos Básicos e IDs
       formDataToSend.append("clubId", clubId.toString());
 
-      // 2. Datos JSON
       formDataToSend.append(
         "clubData",
         JSON.stringify({
@@ -274,7 +268,6 @@ export default function ClubForm({
           activo_nosotros: nosotrosData.activo_nosotros,
           historia_titulo: nosotrosData.historia_titulo,
           hero_descripcion: nosotrosData.hero_descripcion,
-          // Preservamos los otros campos
           historia_contenido: nosotrosData.historia_contenido,
           frase_cierre: nosotrosData.frase_cierre,
           galeria_inicio: nosotrosData.galeria_inicio,
@@ -282,32 +275,24 @@ export default function ClubForm({
         })
       );
 
-      // 3. Archivos Nuevos
       if (logoFile) formDataToSend.append("logoFile", logoFile);
       if (heroFile) formDataToSend.append("heroFile", heroFile);
-
       if (newGalleryFiles.length > 0) {
-        newGalleryFiles.forEach((file) => {
-          formDataToSend.append("galleryFiles", file);
-        });
+        newGalleryFiles.forEach((file) =>
+          formDataToSend.append("galleryFiles", file)
+        );
       }
-
       Object.keys(brandFiles).forEach((brandId) => {
-        const file = brandFiles[brandId];
-        formDataToSend.append(`brand_file_${brandId}`, file);
+        formDataToSend.append(`brand_file_${brandId}`, brandFiles[brandId]);
       });
 
-      // 4. ENVIAR A LA API
       const response = await fetch("/api/admin/club/update", {
         method: "POST",
         body: formDataToSend,
       });
 
       const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.error || "Error en la actualización");
-      }
+      if (!response.ok) throw new Error(result.error || "Error");
 
       setBrandFiles({});
       setLogoFile(null);
@@ -315,11 +300,11 @@ export default function ClubForm({
       setNewGalleryFiles([]);
       setNewGalleryPreviews([]);
 
-      alert("¡Todos los cambios guardados correctamente!");
+      alert("¡Cambios guardados correctamente!");
       window.location.reload();
     } catch (error: any) {
       console.error(error);
-      alert(`Error al guardar: ${error.message}`);
+      alert(`Error: ${error.message}`);
     } finally {
       setSaving(false);
     }
@@ -333,12 +318,12 @@ export default function ClubForm({
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 p-6 md:p-10 -m-6 md:-m-10">
       {/* BOTÓN FLOTANTE MÓVIL */}
-      <div className="md:hidden fixed bottom-6 right-6 z-50">
+      <div className="md:hidden fixed bottom-6 right-6 z-[9999]">
         <button
           type="button"
           onClick={handleSave}
           disabled={saving}
-          className="bg-green-600 text-white px-6 py-4 rounded-full shadow-2xl flex items-center gap-2 font-bold hover:scale-105 active:scale-95 transition-all border-2 border-green-500"
+          className="bg-green-600 text-white w-14 h-14 rounded-full shadow-2xl flex items-center justify-center border-2 border-white/20 active:scale-95 transition-all hover:bg-green-700"
           title="Guardar cambios"
           aria-label="Guardar todos los cambios"
         >
@@ -347,7 +332,6 @@ export default function ClubForm({
           ) : (
             <Save className="w-6 h-6" />
           )}
-          <span>Guardar</span>
         </button>
       </div>
 
@@ -355,12 +339,13 @@ export default function ClubForm({
         <div className="flex justify-between items-end">
           <div>
             <h1 className="text-3xl font-extrabold text-slate-900">
-              Personalización del Club
+              Personalización
             </h1>
             <p className="text-slate-500 mt-2 text-lg">
-              Gestiona la identidad y el contenido del Home.
+              Gestiona la identidad y el contenido.
             </p>
           </div>
+          {/* Botón Desktop */}
           <button
             type="button"
             onClick={handleSave}
@@ -381,9 +366,9 @@ export default function ClubForm({
         {/* --- TABS --- */}
         <div className="flex space-x-1 bg-white p-1 rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
           {[
-            { id: "identidad", label: "Identidad & Hero", icon: Monitor },
-            { id: "nosotros", label: "Sobre Nosotros (Home)", icon: BookOpen },
-            { id: "estilo", label: "Colores & Textos", icon: Palette },
+            { id: "identidad", label: "Identidad", icon: Monitor },
+            { id: "nosotros", label: "Nosotros", icon: BookOpen },
+            { id: "estilo", label: "Estilo", icon: Palette },
             { id: "contacto", label: "Contacto", icon: MapPin },
             { id: "marcas", label: "Marcas", icon: Type },
           ].map((tab) => (
@@ -396,8 +381,8 @@ export default function ClubForm({
                   ? "bg-slate-900 text-white shadow-md"
                   : "text-slate-500 hover:bg-slate-100"
               }`}
-              title={`Ver sección ${tab.label}`}
-              aria-label={`Ver sección ${tab.label}`}
+              title={`Ir a sección ${tab.label}`}
+              aria-label={`Ir a sección ${tab.label}`}
             >
               <tab.icon className="w-4 h-4" /> {tab.label}
             </button>
@@ -418,7 +403,7 @@ export default function ClubForm({
                       htmlFor="nombre_club"
                       className="block text-sm font-semibold text-slate-700 mb-1"
                     >
-                      Nombre del Club
+                      Nombre
                     </label>
                     <input
                       id="nombre_club"
@@ -426,70 +411,69 @@ export default function ClubForm({
                       value={formData.nombre}
                       onChange={(e) => handleChange("nombre", e.target.value)}
                       className="w-full px-4 py-2 border border-slate-300 rounded-xl"
-                      placeholder="Ej: Club Padel Pro"
-                      aria-label="Nombre del club"
+                      placeholder="Nombre del Club"
                       title="Nombre del club"
+                      aria-label="Nombre del club"
                     />
                   </div>
+
                   <h2 className="text-lg font-bold text-slate-800 mb-4 mt-6">
                     Logo
                   </h2>
-                  <div className="flex items-center gap-6">
-                    <div className="relative w-28 h-28 bg-slate-100 rounded-xl border border-slate-200 flex items-center justify-center overflow-hidden">
+                  <div className="flex items-center gap-6 mt-4">
+                    <div className="relative w-20 h-20 bg-slate-100 rounded-xl border border-slate-200 flex items-center justify-center overflow-hidden">
                       {formData.logo_url ? (
                         <Image
-                          key={formData.logo_url}
                           src={formData.logo_url}
                           alt="Logo"
                           fill
                           className="object-contain p-2"
                         />
                       ) : (
-                        <span className="text-xs text-slate-400">Sin Logo</span>
+                        <span className="text-xs">Sin Logo</span>
                       )}
                     </div>
-                    <div className="flex flex-col gap-2">
-                      <label
-                        className="cursor-pointer bg-blue-50 text-blue-600 px-4 py-2 rounded-lg font-bold hover:bg-blue-100 flex gap-2 items-center text-sm w-fit"
-                        title="Subir imagen de logo"
+                    <label
+                      className="cursor-pointer bg-blue-50 text-blue-600 px-4 py-2 rounded-lg font-bold hover:bg-blue-100 text-sm"
+                      title="Subir un nuevo logo"
+                    >
+                      Subir Logo
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => handleFileSelect(e, "logo")}
+                        title="Seleccionar archivo de logo"
+                        aria-label="Seleccionar archivo de logo"
+                      />
+                    </label>
+                    {formData.logo_url && (
+                      <button
+                        type="button"
+                        onClick={handleRemoveLogo}
+                        className="text-red-500 hover:text-red-700 p-2"
+                        title="Eliminar logo"
+                        aria-label="Eliminar logo"
                       >
-                        <UploadCloud className="w-4 h-4" /> Subir Logo
-                        <input
-                          type="file"
-                          accept="image/*"
-                          className="hidden"
-                          onChange={(e) => handleFileSelect(e, "logo")}
-                          title="Seleccionar archivo de logo"
-                          aria-label="Seleccionar archivo de logo"
-                        />
-                      </label>
-                      {formData.logo_url && (
-                        <button
-                          type="button"
-                          onClick={handleRemoveLogo}
-                          className="bg-red-50 text-red-600 px-4 py-2 rounded-lg font-bold hover:bg-red-100 flex gap-2 items-center text-sm w-fit"
-                          title="Eliminar logo actual"
-                          aria-label="Eliminar logo actual"
-                        >
-                          <Trash2 className="w-4 h-4" /> Quitar Logo
-                        </button>
-                      )}
-                    </div>
+                        <Trash2 className="w-5 h-5" />
+                      </button>
+                    )}
                   </div>
                 </section>
+
                 <section className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-                  <h2 className="text-lg font-bold text-slate-800 mb-2">
+                  <h2 className="text-lg font-bold text-slate-800 mb-4">
                     Portada (Hero)
                   </h2>
-                  <div className="relative w-full aspect-video bg-slate-900 rounded-xl overflow-hidden border-2 border-slate-300 group">
+                  <div className="relative w-full aspect-video bg-slate-100 rounded-xl overflow-hidden flex items-center justify-center border border-slate-200">
                     {formData.imagen_hero_url ? (
                       isVideo(formData.imagen_hero_url) ? (
                         <video
                           src={formData.imagen_hero_url}
-                          autoPlay
-                          loop
-                          muted
                           className="w-full h-full object-cover"
+                          autoPlay
+                          muted
+                          loop
                         />
                       ) : (
                         <Image
@@ -500,36 +484,33 @@ export default function ClubForm({
                         />
                       )
                     ) : (
-                      <div className="flex items-center justify-center h-full text-slate-500 flex-col gap-2">
-                        <Monitor className="w-8 h-8" />
+                      <div className="flex flex-col items-center text-slate-400">
+                        <ImageIcon className="w-10 h-10 mb-2" />
                         <span>Sin Portada</span>
                       </div>
                     )}
-                    <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                      <label
-                        className="cursor-pointer bg-white text-slate-900 px-6 py-3 rounded-full font-bold hover:scale-105 transition-transform flex gap-2"
-                        title="Cambiar imagen de portada"
-                      >
-                        <UploadCloud className="w-5 h-5" /> Cambiar
-                        <input
-                          type="file"
-                          accept="image/*,video/mp4,video/webm"
-                          className="hidden"
-                          onChange={(e) => handleFileSelect(e, "hero")}
-                          title="Seleccionar archivo de portada"
-                          aria-label="Seleccionar archivo de portada"
-                        />
-                      </label>
-                    </div>
+                    <label
+                      className="absolute bottom-4 right-4 cursor-pointer bg-white text-slate-800 px-4 py-2 rounded-lg font-bold shadow-md hover:bg-slate-50 text-sm flex items-center gap-2"
+                      title="Cambiar imagen de portada"
+                    >
+                      <UploadCloud className="w-4 h-4" /> Cambiar
+                      <input
+                        type="file"
+                        accept="image/*,video/mp4,video/webm"
+                        className="hidden"
+                        onChange={(e) => handleFileSelect(e, "hero")}
+                        title="Seleccionar archivo de portada"
+                        aria-label="Seleccionar archivo de portada"
+                      />
+                    </label>
                   </div>
                 </section>
               </div>
             )}
 
-            {/* TAB NOSOTROS (HOME PREVIEW) */}
+            {/* TAB NOSOTROS */}
             {activeTab === "nosotros" && (
               <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
-                {/* TOGGLE VISIBILIDAD */}
                 <section className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex justify-between items-center">
                   <div>
                     <h3 className="font-bold text-slate-800">Sección Home</h3>
@@ -555,11 +536,7 @@ export default function ClubForm({
                         ? "Ocultar sección"
                         : "Mostrar sección"
                     }
-                    aria-label={
-                      nosotrosData.activo_nosotros
-                        ? "Ocultar sección"
-                        : "Mostrar sección"
-                    }
+                    aria-label="Alternar visibilidad sección nosotros"
                   >
                     {nosotrosData.activo_nosotros ? (
                       <ToggleRight className="w-6 h-6" />
@@ -571,57 +548,56 @@ export default function ClubForm({
                 </section>
 
                 <section className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-semibold text-slate-700 mb-1">
-                        Título de la Sección
-                      </label>
-                      <input
-                        type="text"
-                        value={nosotrosData.historia_titulo}
-                        onChange={(e) =>
-                          handleNosotrosChange(
-                            "historia_titulo",
-                            e.target.value
-                          )
-                        }
-                        className="w-full px-4 py-2 border border-slate-300 rounded-xl"
-                        placeholder="Ej: Nuestra Pasión"
-                        aria-label="Título sección nosotros"
-                        title="Título sección nosotros"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-semibold text-slate-700 mb-1">
-                        Resumen (Home)
-                      </label>
-                      <textarea
-                        rows={3}
-                        value={nosotrosData.hero_descripcion}
-                        onChange={(e) =>
-                          handleNosotrosChange(
-                            "hero_descripcion",
-                            e.target.value
-                          )
-                        }
-                        className="w-full px-4 py-2 border border-slate-300 rounded-xl resize-none"
-                        placeholder="Breve descripción para el inicio..."
-                        aria-label="Resumen home"
-                        title="Resumen home"
-                      />
-                    </div>
+                  <div className="mb-4">
+                    <label
+                      htmlFor="historia_titulo"
+                      className="block text-sm font-semibold text-slate-700 mb-1"
+                    >
+                      Título
+                    </label>
+                    <input
+                      id="historia_titulo"
+                      type="text"
+                      value={nosotrosData.historia_titulo}
+                      onChange={(e) =>
+                        handleNosotrosChange("historia_titulo", e.target.value)
+                      }
+                      className="w-full px-4 py-2 border border-slate-300 rounded-xl"
+                      placeholder="Ej: Nuestra Historia"
+                      title="Título de la sección nosotros"
+                      aria-label="Título de la sección nosotros"
+                    />
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="hero_descripcion"
+                      className="block text-sm font-semibold text-slate-700 mb-1"
+                    >
+                      Resumen
+                    </label>
+                    <textarea
+                      id="hero_descripcion"
+                      rows={3}
+                      value={nosotrosData.hero_descripcion}
+                      onChange={(e) =>
+                        handleNosotrosChange("hero_descripcion", e.target.value)
+                      }
+                      className="w-full px-4 py-2 border border-slate-300 rounded-xl resize-none"
+                      placeholder="Breve descripción..."
+                      title="Resumen para el home"
+                      aria-label="Resumen para el home"
+                    />
                   </div>
                 </section>
 
                 <section className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
                   <div className="flex justify-between items-center mb-4">
-                    <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                      <ImageIcon className="w-5 h-5 text-purple-600" /> Slider
-                      Home
+                    <h2 className="text-lg font-bold text-slate-800">
+                      Galería (Slider Home)
                     </h2>
                     <label
-                      className="cursor-pointer text-blue-600 text-xs font-bold hover:bg-blue-50 px-3 py-1.5 rounded-lg transition-colors flex gap-1 items-center"
-                      title="Subir imágenes"
+                      className="cursor-pointer text-blue-600 text-xs font-bold hover:bg-blue-50 px-3 py-1.5 rounded-lg flex gap-1 items-center"
+                      title="Agregar imágenes"
                     >
                       <Plus className="w-4 h-4" /> Agregar
                       <input
@@ -630,8 +606,8 @@ export default function ClubForm({
                         multiple
                         className="hidden"
                         onChange={handleGallerySelect}
-                        aria-label="Seleccionar imágenes slider"
-                        title="Seleccionar imágenes slider"
+                        title="Seleccionar imágenes para slider"
+                        aria-label="Seleccionar imágenes para slider"
                       />
                     </label>
                   </div>
@@ -639,7 +615,7 @@ export default function ClubForm({
                     {nosotrosData.galeria_inicio.map((url, i) => (
                       <div
                         key={`saved-${i}`}
-                        className="relative aspect-square rounded-lg overflow-hidden border border-slate-200 group"
+                        className="relative aspect-square rounded-lg overflow-hidden border group"
                       >
                         <Image
                           src={url}
@@ -647,13 +623,12 @@ export default function ClubForm({
                           fill
                           className="object-cover"
                         />
-                        {/* BOTÓN DE ELIMINAR SIEMPRE VISIBLE */}
                         <button
                           type="button"
                           onClick={() => removeGalleryImage(i, false)}
-                          className="absolute top-1 right-1 bg-red-600 text-white p-1 rounded-full shadow-md z-10 hover:bg-red-700 transition-colors"
-                          aria-label="Eliminar imagen"
+                          className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
                           title="Eliminar imagen"
+                          aria-label="Eliminar imagen"
                         >
                           <X className="w-3 h-3" />
                         </button>
@@ -670,26 +645,17 @@ export default function ClubForm({
                           fill
                           className="object-cover"
                         />
-                        <div className="absolute top-0 left-0 bg-green-500 text-white text-[10px] px-2 py-0.5 font-bold z-10">
-                          NUEVA
-                        </div>
                         <button
                           type="button"
                           onClick={() => removeGalleryImage(i, true)}
-                          className="absolute top-1 right-1 bg-red-600 text-white p-1 rounded-full shadow-md z-10 hover:bg-red-700 transition-colors"
-                          aria-label="Cancelar imagen nueva"
-                          title="Cancelar imagen nueva"
+                          className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                          title="Cancelar subida"
+                          aria-label="Cancelar subida"
                         >
                           <X className="w-3 h-3" />
                         </button>
                       </div>
                     ))}
-                    {nosotrosData.galeria_inicio.length === 0 &&
-                      newGalleryPreviews.length === 0 && (
-                        <div className="col-span-4 text-center py-6 text-sm text-slate-400 border-2 border-dashed rounded-xl">
-                          Sin imágenes.
-                        </div>
-                      )}
                   </div>
                 </section>
               </div>
@@ -700,14 +666,18 @@ export default function ClubForm({
               <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
                 <section className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
                   <h2 className="text-lg font-bold text-slate-800 mb-4">
-                    Textos del Home
+                    Textos Home
                   </h2>
                   <div className="space-y-4">
                     <div>
-                      <label className="block text-sm font-semibold text-slate-700 mb-1">
+                      <label
+                        htmlFor="titulo_home"
+                        className="block text-sm font-semibold text-slate-700 mb-1"
+                      >
                         Título Principal
                       </label>
                       <input
+                        id="titulo_home"
                         type="text"
                         value={formData.texto_bienvenida_titulo}
                         onChange={(e) =>
@@ -717,16 +687,20 @@ export default function ClubForm({
                           )
                         }
                         className="w-full px-4 py-2 border border-slate-300 rounded-xl"
-                        placeholder="EL MEJOR LUGAR..."
-                        aria-label="Título principal home"
-                        title="Título principal home"
+                        placeholder="Ej: Bienvenido al Club"
+                        title="Título principal del home"
+                        aria-label="Título principal del home"
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-semibold text-slate-700 mb-1">
-                        Leyenda (Subtítulo)
+                      <label
+                        htmlFor="subtitulo_home"
+                        className="block text-sm font-semibold text-slate-700 mb-1"
+                      >
+                        Subtítulo
                       </label>
                       <input
+                        id="subtitulo_home"
                         type="text"
                         value={formData.texto_bienvenida_subtitulo}
                         onChange={(e) =>
@@ -736,9 +710,9 @@ export default function ClubForm({
                           )
                         }
                         className="w-full px-4 py-2 border border-slate-300 rounded-xl"
-                        placeholder="Subtítulo..."
-                        aria-label="Subtítulo home"
-                        title="Subtítulo home"
+                        placeholder="Ej: El mejor lugar..."
+                        title="Subtítulo del home"
+                        aria-label="Subtítulo del home"
                       />
                     </div>
                   </div>
@@ -750,7 +724,7 @@ export default function ClubForm({
                   <div className="grid grid-cols-1 gap-4">
                     <div>
                       <label className="block text-sm font-semibold text-slate-700 mb-1">
-                        Color Primario
+                        Primario
                       </label>
                       <div className="flex gap-2">
                         <input
@@ -760,8 +734,8 @@ export default function ClubForm({
                             handleChange("color_primario", e.target.value)
                           }
                           className="h-10 w-16 rounded cursor-pointer border"
-                          aria-label="Seleccionar color primario"
                           title="Seleccionar color primario"
+                          aria-label="Seleccionar color primario"
                         />
                         <input
                           type="text"
@@ -771,14 +745,14 @@ export default function ClubForm({
                           }
                           className="flex-1 px-4 border border-slate-300 rounded-xl uppercase"
                           placeholder="#000000"
-                          aria-label="Código hexadecimal color primario"
                           title="Código hexadecimal color primario"
+                          aria-label="Código hexadecimal color primario"
                         />
                       </div>
                     </div>
                     <div>
                       <label className="block text-sm font-semibold text-slate-700 mb-1">
-                        Color Secundario
+                        Secundario
                       </label>
                       <div className="flex gap-2">
                         <input
@@ -788,8 +762,8 @@ export default function ClubForm({
                             handleChange("color_secundario", e.target.value)
                           }
                           className="h-10 w-16 rounded cursor-pointer border"
-                          aria-label="Seleccionar color secundario"
                           title="Seleccionar color secundario"
+                          aria-label="Seleccionar color secundario"
                         />
                         <input
                           type="text"
@@ -799,8 +773,8 @@ export default function ClubForm({
                           }
                           className="flex-1 px-4 border border-slate-300 rounded-xl uppercase"
                           placeholder="#000000"
-                          aria-label="Código hexadecimal color secundario"
                           title="Código hexadecimal color secundario"
+                          aria-label="Código hexadecimal color secundario"
                         />
                       </div>
                     </div>
@@ -818,12 +792,16 @@ export default function ClubForm({
                   </h2>
                   <div className="space-y-4">
                     <div>
-                      <label className="block text-sm font-semibold text-slate-700 mb-1">
+                      <label
+                        htmlFor="email"
+                        className="block text-sm font-semibold text-slate-700 mb-1"
+                      >
                         Email
                       </label>
                       <div className="relative">
                         <Mail className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
                         <input
+                          id="email"
                           type="email"
                           value={formData.email}
                           onChange={(e) =>
@@ -831,18 +809,22 @@ export default function ClubForm({
                           }
                           className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-xl"
                           placeholder="contacto@email.com"
-                          aria-label="Email de contacto"
                           title="Email de contacto"
+                          aria-label="Email de contacto"
                         />
                       </div>
                     </div>
                     <div>
-                      <label className="block text-sm font-semibold text-slate-700 mb-1">
+                      <label
+                        htmlFor="instagram"
+                        className="block text-sm font-semibold text-slate-700 mb-1"
+                      >
                         Instagram
                       </label>
                       <div className="relative">
                         <Instagram className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
                         <input
+                          id="instagram"
                           type="text"
                           value={formData.usuario_instagram}
                           onChange={(e) =>
@@ -850,18 +832,22 @@ export default function ClubForm({
                           }
                           className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-xl"
                           placeholder="@usuario"
-                          aria-label="Usuario de Instagram"
-                          title="Usuario de Instagram"
+                          title="Usuario de instagram"
+                          aria-label="Usuario de instagram"
                         />
                       </div>
                     </div>
                     <div>
-                      <label className="block text-sm font-semibold text-slate-700 mb-1">
+                      <label
+                        htmlFor="telefono"
+                        className="block text-sm font-semibold text-slate-700 mb-1"
+                      >
                         WhatsApp
                       </label>
                       <div className="relative">
                         <Phone className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
                         <input
+                          id="telefono"
                           type="text"
                           value={formData.telefono}
                           onChange={(e) =>
@@ -869,8 +855,8 @@ export default function ClubForm({
                           }
                           className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-xl"
                           placeholder="+54 9..."
-                          aria-label="Teléfono WhatsApp"
-                          title="Teléfono WhatsApp"
+                          title="Número de whatsapp"
+                          aria-label="Número de whatsapp"
                         />
                       </div>
                     </div>
@@ -882,45 +868,57 @@ export default function ClubForm({
                   </h2>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="col-span-2">
-                      <label className="block text-sm font-semibold text-slate-700 mb-1">
+                      <label
+                        htmlFor="calle"
+                        className="block text-sm font-semibold text-slate-700 mb-1"
+                      >
                         Calle
                       </label>
                       <input
+                        id="calle"
                         type="text"
                         value={formData.calle}
                         onChange={(e) => handleChange("calle", e.target.value)}
                         className="w-full px-4 py-2 border border-slate-300 rounded-xl"
-                        placeholder="Av. Principal"
-                        aria-label="Calle"
-                        title="Calle"
+                        placeholder="Calle Principal"
+                        title="Nombre de la calle"
+                        aria-label="Nombre de la calle"
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-semibold text-slate-700 mb-1">
+                      <label
+                        htmlFor="altura"
+                        className="block text-sm font-semibold text-slate-700 mb-1"
+                      >
                         Altura
                       </label>
                       <input
+                        id="altura"
                         type="text"
                         value={formData.altura}
                         onChange={(e) => handleChange("altura", e.target.value)}
                         className="w-full px-4 py-2 border border-slate-300 rounded-xl"
                         placeholder="123"
-                        aria-label="Altura"
-                        title="Altura"
+                        title="Altura o numeración"
+                        aria-label="Altura o numeración"
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-semibold text-slate-700 mb-1">
+                      <label
+                        htmlFor="barrio"
+                        className="block text-sm font-semibold text-slate-700 mb-1"
+                      >
                         Barrio
                       </label>
                       <input
+                        id="barrio"
                         type="text"
                         value={formData.barrio}
                         onChange={(e) => handleChange("barrio", e.target.value)}
                         className="w-full px-4 py-2 border border-slate-300 rounded-xl"
                         placeholder="Centro"
-                        aria-label="Barrio"
-                        title="Barrio"
+                        title="Barrio o localidad"
+                        aria-label="Barrio o localidad"
                       />
                     </div>
                   </div>
@@ -938,8 +936,8 @@ export default function ClubForm({
                       type="button"
                       onClick={addMarca}
                       className="text-sm bg-blue-50 text-blue-600 px-3 py-1.5 rounded-lg font-bold hover:bg-blue-100 flex items-center gap-1"
-                      aria-label="Agregar marca"
-                      title="Agregar marca"
+                      title="Agregar nueva marca"
+                      aria-label="Agregar nueva marca"
                     >
                       <Plus className="w-4 h-4" /> Agregar
                     </button>
@@ -960,7 +958,7 @@ export default function ClubForm({
                                   ? "bg-blue-100 text-blue-600"
                                   : "text-slate-400 hover:bg-slate-200"
                               }`}
-                              title="Usar Texto"
+                              title="Usar texto"
                               aria-label="Usar texto"
                             >
                               <AlignLeft className="w-4 h-4" />
@@ -973,14 +971,11 @@ export default function ClubForm({
                                   ? "bg-blue-100 text-blue-600"
                                   : "text-slate-400 hover:bg-slate-200"
                               }`}
-                              title="Usar Imagen"
+                              title="Usar imagen"
                               aria-label="Usar imagen"
                             >
                               <ImageIcon className="w-4 h-4" />
                             </button>
-                            <span className="text-xs font-bold text-slate-500 uppercase">
-                              {marca.tipo}
-                            </span>
                           </div>
                           <button
                             type="button"
@@ -999,10 +994,10 @@ export default function ClubForm({
                             onChange={(e) =>
                               updateMarcaValor(marca.id, e.target.value)
                             }
-                            className="w-full bg-white px-3 py-2 border border-slate-200 rounded-lg outline-none text-sm font-semibold"
+                            className="w-full bg-white px-3 py-2 border border-slate-200 rounded-lg"
                             placeholder="Nombre de marca"
-                            aria-label="Nombre de marca"
-                            title="Nombre de marca"
+                            title="Nombre de la marca"
+                            aria-label="Nombre de la marca"
                           />
                         ) : (
                           <div className="flex items-center gap-4">
@@ -1030,8 +1025,8 @@ export default function ClubForm({
                                 onChange={(e) =>
                                   handleBrandFileChange(marca.id, e)
                                 }
-                                aria-label="Subir archivo de marca"
-                                title="Subir archivo de marca"
+                                title="Seleccionar archivo de marca"
+                                aria-label="Seleccionar archivo de marca"
                               />
                             </label>
                           </div>
@@ -1044,7 +1039,7 @@ export default function ClubForm({
             )}
           </div>
 
-          {/* --- PREVIEW DERECHA --- */}
+          {/* PREVIEW DERECHA */}
           <div className="sticky top-6 hidden lg:block">
             <div className="bg-[#0b0d12] rounded-[2rem] border-[10px] border-slate-800 shadow-2xl overflow-hidden h-[800px] relative flex flex-col">
               <div className="bg-slate-800 py-2 text-center text-xs text-slate-400">
@@ -1060,7 +1055,7 @@ export default function ClubForm({
                         autoPlay
                         loop
                         muted
-                        className="absolute inset-0 w-full h-full object-cover opacity-60"
+                        className="w-full h-full object-cover opacity-60"
                       />
                     ) : (
                       <Image
@@ -1077,7 +1072,6 @@ export default function ClubForm({
                     {formData.logo_url && (
                       <div className="relative w-20 h-20 mx-auto mb-2">
                         <Image
-                          key={formData.logo_url}
                           src={formData.logo_url}
                           alt="Logo"
                           fill
@@ -1085,75 +1079,36 @@ export default function ClubForm({
                         />
                       </div>
                     )}
-                    {!formData.logo_url && (
-                      <h1 className="text-xl font-bold text-white mb-2">
-                        {formData.nombre.toUpperCase()}
-                      </h1>
-                    )}
                     <h2 className="text-xl font-bold text-white mb-1 leading-tight">
                       {formData.texto_bienvenida_titulo}
                     </h2>
                   </div>
                 </div>
 
-                {/* NOSOTROS PREVIEW */}
+                {/* PREVIEW DINÁMICA */}
                 <div
                   className="p-6 bg-[#0b0d12]"
                   style={{ backgroundColor: formData.color_secundario }}
                 >
+                  {/* Título de sección Nosotros si está activa */}
                   <div
                     className="inline-block px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-[10px] font-bold tracking-widest uppercase mb-3"
                     style={{ color: formData.color_primario }}
                   >
-                    Sobre Nosotros
+                    {activeTab === "nosotros"
+                      ? "Sección Nosotros"
+                      : "Contenido"}
                   </div>
                   <h2 className="text-2xl font-bold text-white mb-3">
-                    {nosotrosData.historia_titulo || "Título"}
+                    {activeTab === "nosotros"
+                      ? nosotrosData.historia_titulo || "Título"
+                      : "Título de Sección"}
                   </h2>
                   <p className="text-gray-400 text-sm mb-4 line-clamp-3">
-                    {nosotrosData.hero_descripcion || "Descripción..."}
+                    {activeTab === "nosotros"
+                      ? nosotrosData.hero_descripcion || "Descripción..."
+                      : "Contenido de ejemplo..."}
                   </p>
-
-                  <div className="relative aspect-video w-full bg-slate-800 rounded-lg overflow-hidden border border-white/10">
-                    {nosotrosData.galeria_inicio[0] || newGalleryPreviews[0] ? (
-                      <Image
-                        src={
-                          nosotrosData.galeria_inicio[0] ||
-                          newGalleryPreviews[0]
-                        }
-                        alt="Slide"
-                        fill
-                        className="object-cover"
-                      />
-                    ) : (
-                      <div className="flex items-center justify-center h-full text-slate-500 text-xs">
-                        Slider
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* MARCAS */}
-                <div className="bg-[#050608] py-4 border-y border-white/5 overflow-hidden flex gap-4 px-4 opacity-50">
-                  {formData.marcas.slice(0, 3).map((m) =>
-                    m.tipo === "imagen" && m.valor ? (
-                      <div key={m.id} className="w-8 h-8 relative grayscale">
-                        <Image
-                          src={m.valor}
-                          alt="m"
-                          fill
-                          className="object-contain"
-                        />
-                      </div>
-                    ) : (
-                      <span
-                        key={m.id}
-                        className="text-gray-500 text-xs font-bold"
-                      >
-                        {m.valor}
-                      </span>
-                    )
-                  )}
                 </div>
               </div>
             </div>

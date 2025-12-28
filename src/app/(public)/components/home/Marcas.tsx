@@ -21,7 +21,7 @@ export default function Marcas({ marcas }: { marcas: Marca[] }) {
     dots: false,
     arrows: false,
     infinite: true,
-    speed: 5000, // Ajusta la suavidad del desplazamiento (3000-5000 es ideal)
+    speed: 8000, // Ajusta la suavidad del desplazamiento (3000-5000 es ideal)
     slidesToShow: 5, // Muestra menos slides para que sean más grandes y se muevan sí o sí
     slidesToScroll: 1,
     autoplay: true,

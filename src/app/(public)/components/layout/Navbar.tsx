@@ -2,14 +2,14 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import Image from "next/image"; // Importamos Image
+import Image from "next/image"; // Import Image
 import Container from "../ui/Container";
 import { supabase } from "../../../../lib/supabase/supabaseClient";
 import type { Session } from "@supabase/supabase-js";
 import type { Club } from "@/lib/ObetenerClubUtils/getCurrentClub";
 import { Menu, X, LogOut, User } from "lucide-react";
 
-// 1. TIPOS
+// 1. TYPES
 interface NavbarProps {
   club: Club | null;
   tieneQuincho: boolean;
@@ -22,7 +22,7 @@ type UserProfile = {
   apellido: string | null;
 };
 
-// 2. COMPONENTE
+// 2. COMPONENT
 const Navbar = ({
   club,
   tieneQuincho,
@@ -34,13 +34,13 @@ const Navbar = ({
   const [session, setSession] = useState<Session | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
 
-  // ESTADO PARA EL MENÚ MÓVIL
+  // MOBILE MENU STATE
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   // --- Scroll Logic ---
   useEffect(() => {
     const handleScroll = () => {
-      // Si el menú móvil está abierto, NO ocultamos la barra
+      // If mobile menu is open, DO NOT hide the bar
       if (isMobileMenuOpen) return;
 
       if (window.scrollY > lastScrollY && window.scrollY > 100) {
@@ -100,10 +100,10 @@ const Navbar = ({
     }
   };
 
-  // Cierra el menú al hacer clic en un link
+  // Closes the menu when a link is clicked
   const closeMenu = () => setIsMobileMenuOpen(false);
 
-  // Bloquear el scroll del body cuando el menú está abierto
+  // Lock body scroll when menu is open
   useEffect(() => {
     if (isMobileMenuOpen) {
       document.body.style.overflow = "hidden";
@@ -126,14 +126,14 @@ const Navbar = ({
         }`}
       >
         <Container className="flex items-center justify-between py-4 h-20">
-          {/* --- 1. LOGO + NOMBRE (Izquierda) --- */}
+          {/* --- 1. LOGO + NAME (Left) --- */}
           <Link
             href="/"
             className="flex items-center gap-3 z-50 relative shrink-0 group"
             onClick={closeMenu}
             aria-label="Ir al inicio"
           >
-            {/* Si hay URL de logo, mostramos la imagen */}
+            {/* If there is a logo URL, show the image */}
             {club?.logo_url && (
               <div className="relative w-8 h-8 md:w-10 md:h-10 transition-transform group-hover:scale-105">
                 <Image
@@ -155,7 +155,7 @@ const Navbar = ({
             </span>
           </Link>
 
-          {/* --- 2. DESKTOP NAV (Oculto en móvil STRICTAMENTE) --- */}
+          {/* --- 2. DESKTOP NAV (Strictly hidden on mobile) --- */}
           <div className="hidden md:flex items-center gap-6">
             <nav className="flex items-center gap-6 text-sm font-medium text-neutral-300">
               {showProfesores && (
@@ -219,7 +219,7 @@ const Navbar = ({
             )}
           </div>
 
-          {/* --- 3. MOBILE HAMBURGER BUTTON (Solo visible en móvil) --- */}
+          {/* --- 3. MOBILE HAMBURGER BUTTON (Visible only on mobile) --- */}
           <button
             className="md:hidden text-white z-50 relative p-2 focus:outline-none"
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
@@ -230,93 +230,101 @@ const Navbar = ({
         </Container>
       </header>
 
-      {/* --- 4. MOBILE MENU OVERLAY (Pantalla completa) --- */}
+      {/* --- 4. MOBILE MENU OVERLAY (Full Screen) --- */}
       <div
         className={`fixed inset-0 bg-[#0b0d12] z-40 flex flex-col justify-center items-center gap-8 transition-opacity duration-300 ease-in-out md:hidden ${
           isMobileMenuOpen
             ? "opacity-100 visible"
             : "opacity-0 invisible pointer-events-none"
         }`}
+        // ADDED: Close menu when clicking the overlay
+        onClick={closeMenu}
       >
-        {/* Mobile Links */}
-        <div className="flex flex-col items-center gap-8 text-2xl font-bold text-neutral-300">
-          {showProfesores && (
-            <Link
-              href="/profesores"
-              onClick={closeMenu}
-              className="hover:text-white transition"
-            >
-              Profesores
-            </Link>
-          )}
-          {showNosotros && (
-            <Link
-              href="/nosotros"
-              onClick={closeMenu}
-              className="hover:text-white transition"
-            >
-              Nosotros
-            </Link>
-          )}
-          {tieneQuincho && (
-            <Link
-              href="/quinchos"
-              onClick={closeMenu}
-              className="hover:text-white transition"
-            >
-              Quincho
-            </Link>
-          )}
-
-          <div className="h-px w-20 bg-neutral-800 my-2"></div>
-
-          <Link
-            href="/reserva"
-            onClick={closeMenu}
-            className="text-lg font-bold text-white bg-blue-600 px-8 py-4 rounded-xl shadow-lg shadow-blue-900/20 active:scale-95 transition-transform"
-          >
-            Hacé tu reserva
-          </Link>
-        </div>
-
-        {/* Mobile Auth */}
-        <div className="absolute bottom-12 w-full px-10">
-          {!session ? (
-            <div className="flex flex-col gap-6 text-center border-t border-neutral-800 pt-8">
+        {/* ADDED: Stop propagation to prevent closing when clicking inside the menu content */}
+        <div
+          className="flex flex-col items-center gap-8 w-full"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Mobile Links */}
+          <div className="flex flex-col items-center gap-8 text-2xl font-bold text-neutral-300">
+            {showProfesores && (
               <Link
-                href="/login"
+                href="/profesores"
                 onClick={closeMenu}
-                className="text-xl text-neutral-300 hover:text-white"
+                className="hover:text-white transition"
               >
-                Iniciar sesión
+                Profesores
               </Link>
+            )}
+            {showNosotros && (
               <Link
-                href="/register"
+                href="/nosotros"
                 onClick={closeMenu}
-                className="text-xl text-blue-400 hover:text-blue-300 font-bold"
+                className="hover:text-white transition"
               >
-                Crear cuenta
+                Nosotros
               </Link>
-            </div>
-          ) : (
-            <div className="flex flex-col gap-6 items-center border-t border-neutral-800 pt-8">
-              <div className="flex items-center gap-3 text-neutral-300 text-lg">
-                <User size={24} />
-                <span>
-                  {userProfile ? `${userProfile.nombre}` : "Mi Cuenta"}
-                </span>
+            )}
+            {tieneQuincho && (
+              <Link
+                href="/quinchos"
+                onClick={closeMenu}
+                className="hover:text-white transition"
+              >
+                Quincho
+              </Link>
+            )}
+
+            <div className="h-px w-20 bg-neutral-800 my-2"></div>
+
+            <Link
+              href="/reserva"
+              onClick={closeMenu}
+              className="text-lg font-bold text-white bg-blue-600 px-8 py-4 rounded-xl shadow-lg shadow-blue-900/20 active:scale-95 transition-transform"
+            >
+              Hacé tu reserva
+            </Link>
+          </div>
+
+          {/* Mobile Auth */}
+          <div className="w-full px-10 mt-12">
+            {!session ? (
+              <div className="flex flex-col gap-6 text-center border-t border-neutral-800 pt-8">
+                <Link
+                  href="/login"
+                  onClick={closeMenu}
+                  className="text-xl text-neutral-300 hover:text-white"
+                >
+                  Iniciar sesión
+                </Link>
+                <Link
+                  href="/register"
+                  onClick={closeMenu}
+                  className="text-xl text-blue-400 hover:text-blue-300 font-bold"
+                >
+                  Crear cuenta
+                </Link>
               </div>
-              <button
-                onClick={() => {
-                  handleLogout();
-                  closeMenu();
-                }}
-                className="text-red-400 flex items-center gap-2 font-medium text-lg bg-red-950/30 px-6 py-2 rounded-full"
-              >
-                <LogOut size={20} /> Cerrar Sesión
-              </button>
-            </div>
-          )}
+            ) : (
+              <div className="flex flex-col gap-6 items-center border-t border-neutral-800 pt-8">
+                <div className="flex items-center gap-3 text-neutral-300 text-lg">
+                  <User size={24} />
+                  <span>
+                    {userProfile ? `${userProfile.nombre}` : "Mi Cuenta"}
+                  </span>
+                </div>
+                <button
+                  onClick={() => {
+                    handleLogout();
+                    closeMenu();
+                  }}
+                  className="text-red-400 flex items-center gap-2 font-medium text-lg bg-red-950/30 px-6 py-2 rounded-full"
+                >
+                  <LogOut size={20} /> Cerrar Sesión
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </>

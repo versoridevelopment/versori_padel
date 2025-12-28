@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import Image from "next/image";
 import Cropper from "react-easy-crop";
 import { getCroppedImg } from "@/lib/utils/canvasUtils";
@@ -18,6 +18,10 @@ import {
   Instagram,
   ZoomIn,
   Check,
+  ToggleLeft,
+  ToggleRight,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { buildStaffPath, PUBLIC_MEDIA_BUCKET } from "@/lib/storage/paths";
 
@@ -29,6 +33,7 @@ type Profesor = {
   instagram: string;
   foto_url: string; // Puede ser string vacío "" si no tiene foto
   descripcion?: string;
+  rol?: string; // Agregamos 'rol' si existe en tu BD, si no, puedes quitarlo
   id_club?: number;
 };
 
@@ -36,16 +41,22 @@ interface Props {
   initialData: Profesor[];
   clubId: number;
   subdominio: string;
+  initialActivo: boolean; // Recibimos el estado inicial de la sección
 }
 
 export default function ProfesoresClient({
   initialData,
   clubId,
   subdominio,
+  initialActivo,
 }: Props) {
   const [profesores, setProfesores] = useState<Profesor[]>(initialData);
   const [editingId, setEditingId] = useState<number | "new" | null>(null);
   const [saving, setSaving] = useState(false);
+
+  // Estado del Toggle Principal (Sección Activa/Inactiva)
+  const [seccionActiva, setSeccionActiva] = useState(initialActivo);
+  const [updatingToggle, setUpdatingToggle] = useState(false);
 
   // --- ESTADOS PARA CROPPER ---
   const [crop, setCrop] = useState({ x: 0, y: 0 });
@@ -61,13 +72,39 @@ export default function ProfesoresClient({
     instagram: "",
     foto_url: "",
     descripcion: "",
+    rol: "Entrenador",
   });
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
   // --- ACCIONES ---
 
+  // 1. TOGGLE SECCIÓN COMPLETA
+  const handleToggleSeccion = async () => {
+    setUpdatingToggle(true);
+    const nuevoEstado = !seccionActiva;
+
+    try {
+      const { error } = await supabase
+        .from("clubes")
+        .update({ activo_profesores: nuevoEstado })
+        .eq("id_club", clubId);
+
+      if (error) throw error;
+
+      setSeccionActiva(nuevoEstado);
+    } catch (error) {
+      console.error("Error actualizando estado sección:", error);
+      alert("No se pudo cambiar el estado de la sección.");
+    } finally {
+      setUpdatingToggle(false);
+    }
+  };
+
   const handleEdit = (prof: Profesor) => {
-    setFormData(prof);
+    setFormData({
+      ...prof,
+      rol: prof.rol || "Entrenador", // Valor por defecto
+    });
     setEditingId(prof.id_profesor!);
     setSelectedFile(null);
   };
@@ -79,6 +116,7 @@ export default function ProfesoresClient({
       instagram: "",
       foto_url: "",
       descripcion: "",
+      rol: "Entrenador",
     });
     setEditingId("new");
     setSelectedFile(null);
@@ -100,7 +138,6 @@ export default function ProfesoresClient({
 
   // --- MANEJO DE IMÁGENES ---
 
-  // 1. Seleccionar archivo y abrir Cropper
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       const file = e.target.files[0];
@@ -122,7 +159,6 @@ export default function ProfesoresClient({
     []
   );
 
-  // 2. Guardar Recorte
   const handleCropSave = async () => {
     try {
       if (!tempImgSrc || !croppedAreaPixels) return;
@@ -141,12 +177,10 @@ export default function ProfesoresClient({
     }
   };
 
-  // 3. NUEVO: Eliminar Foto (Volver a la genérica)
   const handleRemovePhoto = () => {
     if (!confirm("¿Quitar la foto de perfil?")) return;
-
-    setFormData((prev) => ({ ...prev, foto_url: "" })); // URL vacía activa la imagen genérica
-    setSelectedFile(null); // Limpiamos cualquier archivo pendiente de subida
+    setFormData((prev) => ({ ...prev, foto_url: "" }));
+    setSelectedFile(null);
   };
 
   // --- GUARDAR EN DB ---
@@ -157,7 +191,6 @@ export default function ProfesoresClient({
     try {
       let finalUrl = formData.foto_url;
 
-      // Si hay un archivo seleccionado (nuevo recorte), lo subimos
       if (selectedFile) {
         const path = buildStaffPath(clubId, selectedFile);
         const { error: upErr } = await supabase.storage
@@ -173,13 +206,13 @@ export default function ProfesoresClient({
         finalUrl = data.publicUrl;
       }
 
-      // Payload para la base de datos
       const payload = {
         nombre: formData.nombre,
         telefono: formData.telefono,
         instagram: formData.instagram,
         descripcion: formData.descripcion,
-        foto_url: finalUrl, // Si se borró, esto enviará "" (string vacío)
+        rol: formData.rol, // Guardamos el rol
+        foto_url: finalUrl,
         id_club: clubId,
       };
 
@@ -216,7 +249,7 @@ export default function ProfesoresClient({
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 p-6 md:p-10 -m-6 md:-m-10 relative">
-      {/* MODAL CROPPER */}
+      {/* --- CROPPER MODAL --- */}
       {isCropping && tempImgSrc && (
         <div className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center p-4 animate-in fade-in">
           <div className="relative w-full max-w-2xl h-[60vh] bg-gray-800 rounded-xl overflow-hidden shadow-2xl border border-gray-700">
@@ -224,7 +257,7 @@ export default function ProfesoresClient({
               image={tempImgSrc}
               crop={crop}
               zoom={zoom}
-              aspect={3 / 4}
+              aspect={3 / 4} // Formato vertical para las cards nuevas
               onCropChange={setCrop}
               onCropComplete={onCropComplete}
               onZoomChange={setZoom}
@@ -267,9 +300,9 @@ export default function ProfesoresClient({
         </div>
       )}
 
-      {/* CONTENIDO PRINCIPAL */}
+      {/* --- HEADER PAGINA --- */}
       <div className="max-w-[1600px] mx-auto space-y-8 pb-32">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
           <div>
             <h1 className="text-3xl font-extrabold text-slate-900">
               Equipo de Profesores
@@ -281,21 +314,69 @@ export default function ProfesoresClient({
               </span>
             </p>
           </div>
-          {!editingId && (
-            <button
-              type="button"
-              onClick={handleNew}
-              className="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg transition-transform hover:-translate-y-1"
+
+          <div className="flex gap-4">
+            {/* TOGGLE GENERAL */}
+            <div
+              className={`flex items-center gap-3 px-5 py-3 rounded-xl border-2 transition-colors ${
+                seccionActiva
+                  ? "bg-green-50 border-green-200"
+                  : "bg-slate-100 border-slate-200"
+              }`}
             >
-              <Plus className="w-5 h-5" /> Nuevo Profesor
-            </button>
-          )}
+              <div className="flex flex-col">
+                <span
+                  className={`text-xs font-bold uppercase tracking-wider ${
+                    seccionActiva ? "text-green-700" : "text-slate-500"
+                  }`}
+                >
+                  Estado Sección
+                </span>
+                <span
+                  className={`font-bold ${
+                    seccionActiva ? "text-green-800" : "text-slate-600"
+                  }`}
+                >
+                  {seccionActiva ? "Visible en Web" : "Oculta"}
+                </span>
+              </div>
+              <button
+                onClick={handleToggleSeccion}
+                disabled={updatingToggle}
+                className={`transition-colors ${
+                  seccionActiva
+                    ? "text-green-600 hover:text-green-700"
+                    : "text-slate-400 hover:text-slate-600"
+                }`}
+                title={seccionActiva ? "Ocultar sección" : "Mostrar sección"}
+              >
+                {updatingToggle ? (
+                  <Loader2 className="w-8 h-8 animate-spin" />
+                ) : seccionActiva ? (
+                  <ToggleRight className="w-10 h-10" />
+                ) : (
+                  <ToggleLeft className="w-10 h-10" />
+                )}
+              </button>
+            </div>
+
+            {!editingId && (
+              <button
+                type="button"
+                onClick={handleNew}
+                className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg transition-transform hover:-translate-y-1 h-full"
+              >
+                <Plus className="w-5 h-5" /> Nuevo Profesor
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 items-start">
-          {/* EDITOR */}
+          {/* COLUMNA IZQUIERDA: EDITOR O LISTA */}
           <div className="space-y-6">
             {editingId ? (
+              // --- FORMULARIO EDICIÓN ---
               <section className="bg-white p-8 rounded-2xl border border-slate-200 shadow-lg animate-in fade-in slide-in-from-bottom-4">
                 <div className="flex justify-between items-center mb-6 pb-4 border-b border-slate-100">
                   <h2 className="text-xl font-bold text-slate-800">
@@ -314,7 +395,7 @@ export default function ProfesoresClient({
                 </div>
 
                 <div className="space-y-6">
-                  {/* FOTO DE PERFIL */}
+                  {/* FOTO */}
                   <div className="flex items-center gap-6">
                     <div className="relative w-28 h-36 bg-slate-100 rounded-lg overflow-hidden border-2 border-slate-200 flex-shrink-0 shadow-sm group">
                       {formData.foto_url ? (
@@ -325,7 +406,6 @@ export default function ProfesoresClient({
                           className="object-cover"
                         />
                       ) : (
-                        // IMAGEN POR DEFECTO GENÉRICA
                         <div className="w-full h-full flex items-center justify-center bg-slate-50">
                           <User className="w-12 h-12 text-slate-300" />
                         </div>
@@ -333,51 +413,39 @@ export default function ProfesoresClient({
                     </div>
 
                     <div className="flex flex-col gap-2">
-                      <label
-                        htmlFor="upload_prof"
-                        className="cursor-pointer bg-blue-50 text-blue-600 px-4 py-2 rounded-lg font-bold hover:bg-blue-100 transition-colors flex gap-2 items-center text-sm w-fit"
-                      >
+                      <label className="cursor-pointer bg-blue-50 text-blue-600 px-4 py-2 rounded-lg font-bold hover:bg-blue-100 transition-colors flex gap-2 items-center text-sm w-fit">
                         <UploadCloud className="w-4 h-4" />
                         {formData.foto_url ? "Cambiar Foto" : "Subir Foto"}
                         <input
-                          id="upload_prof"
                           type="file"
                           accept="image/*"
                           className="hidden"
                           onChange={handleFileChange}
-                          title="Subir foto del profesor"
                         />
                       </label>
 
-                      {/* BOTÓN ELIMINAR FOTO */}
                       {formData.foto_url && (
                         <button
                           type="button"
                           onClick={handleRemovePhoto}
                           className="bg-red-50 text-red-600 px-4 py-2 rounded-lg font-bold hover:bg-red-100 transition-colors flex gap-2 items-center text-sm w-fit"
-                          title="Eliminar foto de perfil"
                         >
                           <Trash2 className="w-4 h-4" /> Eliminar Foto
                         </button>
                       )}
-
                       <p className="text-xs text-slate-400 mt-1">
                         Formato vertical 3:4.
                       </p>
                     </div>
                   </div>
 
-                  {/* Campos */}
+                  {/* CAMPOS DE TEXTO */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                     <div className="col-span-2">
-                      <label
-                        htmlFor="nombre"
-                        className="block text-sm font-semibold text-slate-700 mb-2"
-                      >
+                      <label className="block text-sm font-semibold text-slate-700 mb-2">
                         Nombre Completo
                       </label>
                       <input
-                        id="nombre"
                         type="text"
                         value={formData.nombre}
                         onChange={(e) =>
@@ -388,40 +456,42 @@ export default function ProfesoresClient({
                       />
                     </div>
                     <div>
-                      <label
-                        htmlFor="telefono"
-                        className="block text-sm font-semibold text-slate-700 mb-2"
-                      >
-                        Teléfono
+                      <label className="block text-sm font-semibold text-slate-700 mb-2">
+                        Rol / Título
                       </label>
-                      <div className="relative">
-                        <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                        <input
-                          id="telefono"
-                          type="text"
-                          value={formData.telefono}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              telefono: e.target.value,
-                            })
-                          }
-                          className="w-full pl-10 pr-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500/20 outline-none"
-                          placeholder="+54 9..."
-                        />
-                      </div>
+                      <input
+                        type="text"
+                        value={formData.rol}
+                        onChange={(e) =>
+                          setFormData({ ...formData, rol: e.target.value })
+                        }
+                        className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500/20 outline-none"
+                        placeholder="Ej: Entrenador Principal"
+                      />
                     </div>
                     <div>
-                      <label
-                        htmlFor="instagram"
-                        className="block text-sm font-semibold text-slate-700 mb-2"
-                      >
-                        Instagram
+                      <label className="block text-sm font-semibold text-slate-700 mb-2">
+                        Teléfono
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.telefono}
+                        onChange={(e) =>
+                          setFormData({ ...formData, telefono: e.target.value })
+                        }
+                        className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500/20 outline-none"
+                        placeholder="+54 9..."
+                      />
+                    </div>
+                    <div className="col-span-2">
+                      <label className="block text-sm font-semibold text-slate-700 mb-2">
+                        Instagram (sin @)
                       </label>
                       <div className="relative">
-                        <Instagram className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                        <span className="absolute left-4 top-3 text-slate-400">
+                          @
+                        </span>
                         <input
-                          id="instagram"
                           type="text"
                           value={formData.instagram}
                           onChange={(e) =>
@@ -430,31 +500,10 @@ export default function ProfesoresClient({
                               instagram: e.target.value,
                             })
                           }
-                          className="w-full pl-10 pr-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500/20 outline-none"
-                          placeholder="@usuario"
+                          className="w-full pl-8 pr-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500/20 outline-none"
+                          placeholder="usuario"
                         />
                       </div>
-                    </div>
-                    <div className="col-span-2">
-                      <label
-                        htmlFor="bio"
-                        className="block text-sm font-semibold text-slate-700 mb-2"
-                      >
-                        Descripción (Opcional)
-                      </label>
-                      <textarea
-                        id="bio"
-                        rows={2}
-                        value={formData.descripcion}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            descripcion: e.target.value,
-                          })
-                        }
-                        className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500/20 outline-none"
-                        placeholder="Breve bio..."
-                      />
                     </div>
                   </div>
 
@@ -470,19 +519,20 @@ export default function ProfesoresClient({
                       type="button"
                       onClick={handleSave}
                       disabled={saving}
-                      className="bg-green-600 hover:bg-green-700 text-white px-8 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg disabled:opacity-70"
+                      className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg disabled:opacity-70"
                     >
                       {saving ? (
                         <Loader2 className="animate-spin w-5 h-5" />
                       ) : (
                         <Save className="w-5 h-5" />
-                      )}{" "}
+                      )}
                       Guardar
                     </button>
                   </div>
                 </div>
               </section>
             ) : (
+              // --- LISTA DE PROFESORES ---
               <div className="grid gap-4">
                 {profesores.length === 0 && (
                   <div className="text-center py-16 bg-white rounded-2xl border-2 border-dashed border-slate-200">
@@ -492,6 +542,9 @@ export default function ProfesoresClient({
                     <h3 className="text-lg font-medium text-slate-900">
                       No hay profesores aún
                     </h3>
+                    <p className="text-slate-500 text-sm mt-1">
+                      Agrega al primero para que aparezca en la web.
+                    </p>
                   </div>
                 )}
                 {profesores.map((prof) => (
@@ -499,7 +552,7 @@ export default function ProfesoresClient({
                     key={prof.id_profesor}
                     className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-5 hover:shadow-md transition-all group"
                   >
-                    <div className="relative w-16 h-20 bg-slate-100 rounded-lg overflow-hidden border border-slate-200 shadow-sm flex items-center justify-center">
+                    <div className="relative w-16 h-20 bg-slate-100 rounded-lg overflow-hidden border border-slate-200 shadow-sm flex items-center justify-center shrink-0">
                       {prof.foto_url ? (
                         <Image
                           src={prof.foto_url}
@@ -515,20 +568,18 @@ export default function ProfesoresClient({
                       <h3 className="font-bold text-slate-900 text-lg truncate">
                         {prof.nombre}
                       </h3>
-                      <div className="flex flex-wrap gap-3 mt-1">
-                        {prof.telefono && (
-                          <div className="flex items-center gap-1 text-xs text-slate-500">
-                            <Phone className="w-3 h-3 text-green-600" />{" "}
-                            {prof.telefono}
-                          </div>
-                        )}
+                      <p className="text-sm text-blue-600 font-medium mb-1">
+                        {prof.rol || "Entrenador"}
+                      </p>
+                      <div className="flex items-center gap-3 text-xs text-slate-500">
+                        {prof.telefono && <span>📞 {prof.telefono}</span>}
                       </div>
                     </div>
                     <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button
                         type="button"
                         onClick={() => handleEdit(prof)}
-                        className="p-2.5 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg"
+                        className="p-2.5 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
                         title="Editar"
                       >
                         <Edit2 className="w-5 h-5" />
@@ -536,7 +587,7 @@ export default function ProfesoresClient({
                       <button
                         type="button"
                         onClick={() => handleDelete(prof.id_profesor!)}
-                        className="p-2.5 text-red-600 bg-red-50 hover:bg-red-100 rounded-lg"
+                        className="p-2.5 text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors"
                         title="Eliminar"
                       >
                         <Trash2 className="w-5 h-5" />
@@ -548,19 +599,46 @@ export default function ProfesoresClient({
             )}
           </div>
 
-          {/* PREVIEW EN TIEMPO REAL */}
+          {/* COLUMNA DERECHA: PREVIEW */}
           <div className="xl:col-span-1 xl:sticky xl:top-6 hidden xl:block">
-            <div className="bg-[#0b0d12] rounded-[2rem] border-[10px] border-slate-800 shadow-2xl overflow-hidden h-[850px] flex flex-col relative">
+            <div
+              className={`bg-[#0b0d12] rounded-[2rem] border-[10px] border-slate-800 shadow-2xl overflow-hidden h-[850px] flex flex-col relative transition-opacity duration-300 ${
+                !seccionActiva ? "opacity-50 grayscale" : ""
+              }`}
+            >
+              {/* Barra URL Fake */}
               <div className="bg-slate-800 px-5 py-4 flex justify-center relative shrink-0">
-                <div className="bg-slate-700 text-slate-300 text-xs font-medium px-4 py-1.5 rounded-full">
-                  🔒 {subdominio}.versori.com/profesores
+                <div className="bg-slate-700 text-slate-300 text-xs font-medium px-4 py-1.5 rounded-full flex items-center gap-2">
+                  <span>🔒 {subdominio}.versori.com/profesores</span>
                 </div>
               </div>
+
+              {/* Overlay si está oculto */}
+              {!seccionActiva && (
+                <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+                  <div className="bg-white/10 p-6 rounded-2xl border border-white/20 text-center">
+                    <EyeOff className="w-12 h-12 text-white mx-auto mb-2 opacity-50" />
+                    <h3 className="text-white font-bold text-xl">
+                      Sección Oculta
+                    </h3>
+                    <p className="text-gray-400 text-sm mt-1">
+                      Los usuarios no pueden ver esto.
+                    </p>
+                  </div>
+                </div>
+              )}
+
               <div className="flex-1 overflow-y-auto custom-scrollbar bg-gradient-to-b from-[#0b0d12] to-[#0e1a2b] p-8">
-                <h2 className="text-center text-3xl font-bold text-white mb-10">
-                  » PROFESORES «
-                </h2>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-10">
+                <div className="text-center mb-10 space-y-2">
+                  <h2 className="text-3xl font-bold text-white">
+                    Nuestro Equipo
+                  </h2>
+                  <p className="text-gray-400">
+                    Profesionales dedicados a tu evolución.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                   {(editingId
                     ? [
                         ...profesores.filter(
@@ -572,9 +650,9 @@ export default function ProfesoresClient({
                   ).map((prof, idx) => (
                     <div
                       key={idx}
-                      className="flex flex-col items-center text-center"
+                      className="bg-[#12141a] rounded-xl overflow-hidden border border-white/5 pb-4"
                     >
-                      <div className="relative w-full aspect-[3/4] overflow-hidden rounded-lg shadow-lg border border-blue-900/40 bg-[#0e1a2b] flex items-center justify-center">
+                      <div className="relative w-full aspect-[3/4] bg-[#0e1a2b] flex items-center justify-center overflow-hidden">
                         {prof.foto_url ? (
                           <Image
                             src={prof.foto_url}
@@ -583,38 +661,37 @@ export default function ProfesoresClient({
                             className="object-cover"
                           />
                         ) : (
-                          // PREVIEW DE LA IMAGEN GENÉRICA
-                          <div className="w-full h-full flex flex-col items-center justify-center text-slate-500">
-                            <User className="w-20 h-20 opacity-30 mb-2" />
-                            <span className="text-xs uppercase tracking-widest opacity-50 font-bold"></span>
+                          <div className="flex flex-col items-center justify-center h-full text-slate-600">
+                            <span className="text-xs uppercase tracking-widest font-bold">
+                              Sin Foto
+                            </span>
                           </div>
                         )}
+                        {/* Degradado inferior */}
+                        <div className="absolute inset-0 bg-gradient-to-t from-[#12141a] via-transparent to-transparent opacity-90" />
                       </div>
-                      <h3 className="text-white font-semibold text-lg mt-4">
-                        {prof.nombre || "Nombre del Profesor"}
-                      </h3>
-                      <div className="flex flex-col items-center text-sm text-gray-400 mt-2 space-y-1">
-                        {prof.telefono && (
-                          <div className="flex items-center gap-2">
-                            <Phone className="w-4 h-4 text-green-400" />
-                            <span>{prof.telefono}</span>
-                          </div>
-                        )}
-                        {prof.instagram && (
-                          <div className="flex items-center gap-2">
-                            <Instagram className="w-4 h-4 text-pink-500" />
-                            <span>{prof.instagram}</span>
-                          </div>
-                        )}
+
+                      <div className="px-4 -mt-8 relative text-center">
+                        <h3 className="text-white font-bold text-lg mb-0.5">
+                          {prof.nombre || "Nombre"}
+                        </h3>
+                        <p className="text-blue-500 text-xs font-bold uppercase tracking-wider">
+                          {prof.rol || "Entrenador"}
+                        </p>
                       </div>
                     </div>
                   ))}
                 </div>
               </div>
             </div>
-            <p className="text-center text-sm text-slate-500 mt-4 font-medium">
-              Vista previa en tiempo real
-            </p>
+            <div className="text-center mt-4 space-y-1">
+              <p className="text-sm font-bold text-slate-700">
+                Vista Previa en tiempo real
+              </p>
+              <p className="text-xs text-slate-500">
+                Así ven tus clientes la sección de profesores.
+              </p>
+            </div>
           </div>
         </div>
       </div>
