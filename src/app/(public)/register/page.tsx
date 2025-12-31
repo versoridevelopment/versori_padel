@@ -36,6 +36,10 @@ const RegisterPage: FC = () => {
   const [clubLoading, setClubLoading] = useState(true);
   const [subdomain, setSubdomain] = useState<string | null>(null);
 
+  // NUEVO: Branding
+  const [clubLogo, setClubLogo] = useState<string | null>(null);
+  const [clubName, setClubName] = useState<string>("Club");
+
   useEffect(() => {
     const identifyClub = async () => {
       try {
@@ -58,7 +62,8 @@ const RegisterPage: FC = () => {
         if (currentSubdomain) {
           const { data, error } = await supabase
             .from("clubes")
-            .select("id_club")
+            // ACTUALIZADO: Seleccionamos logo y nombre
+            .select("id_club, logo_url, nombre")
             .eq("subdominio", currentSubdomain)
             .single();
 
@@ -66,6 +71,8 @@ const RegisterPage: FC = () => {
             console.error("Error buscando club:", error);
           } else if (data) {
             setClubId(data.id_club);
+            setClubLogo(data.logo_url);
+            setClubName(data.nombre);
           }
         }
       } catch (err) {
@@ -200,6 +207,10 @@ const RegisterPage: FC = () => {
     );
   }
 
+  // Logo a mostrar
+  const logoSrc = clubLogo || "/sponsors/versori/VERSORI_TRANSPARENTE.PNG";
+  const logoAlt = clubLogo ? `${clubName} Logo` : "Versori Logo";
+
   if (isSubmitted) {
     return (
       <section className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-b from-[#001a33] to-[#002b5b] text-white px-6">
@@ -231,14 +242,19 @@ const RegisterPage: FC = () => {
         transition={{ duration: 0.8 }}
         className="bg-[#0b2545] border border-[#1b4e89] rounded-3xl p-8 w-full max-w-lg shadow-2xl text-center"
       >
-        <Image
-          src="/sponsors/versori/VERSORI_TRANSPARENTE.PNG"
-          alt="Versori Logo"
-          width={80}
-          height={80}
-          className="mx-auto mb-4 opacity-90"
-        />
-        <h1 className="text-2xl font-bold mb-2">Crear Cuenta</h1>
+        {/* IMAGEN DE LOGO DINÁMICA */}
+        <div className="relative w-24 h-24 mx-auto mb-4">
+          <Image
+            src={logoSrc}
+            alt={logoAlt}
+            fill
+            className="object-contain opacity-90"
+            sizes="96px"
+            priority
+          />
+        </div>
+
+        <h1 className="text-2xl font-bold mb-2">Crear Cuenta en {clubName}</h1>
 
         {message && (
           <div

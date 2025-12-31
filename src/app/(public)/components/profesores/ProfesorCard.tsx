@@ -36,6 +36,7 @@ export default function ProfesorCard({
             alt={nombre}
             fill
             className="object-cover transition-transform duration-500 group-hover:scale-105"
+            sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
           />
         ) : (
           <div className="w-full h-full bg-[#0e1a2b] flex flex-col items-center justify-center text-gray-500">

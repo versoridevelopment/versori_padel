@@ -61,7 +61,14 @@ export default function Nosotros({ config, clubColors }: Props) {
           <Slider {...settings}>
             {images.map((src: string, index: number) => (
               <div key={index} className="relative h-[400px] w-full">
-                <Image src={src} alt="Nosotros" fill className="object-cover" />
+                <Image
+                  src={src}
+                  alt="Nosotros"
+                  fill
+                  className="object-cover"
+                  // CORRECCIÓN: Sizes para slider (aprox 50% de pantalla en desktop)
+                  sizes="(max-width: 768px) 100vw, 50vw"
+                />
               </div>
             ))}
           </Slider>
