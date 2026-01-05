@@ -77,12 +77,6 @@ const Hero = ({ clubData, titulo, subtitulo }: HeroProps) => {
         <div className="max-w-3xl space-y-6 animate-in fade-in slide-in-from-bottom-8 duration-1000">
           {/* Título con el color primario como acento */}
           <h1 className="text-5xl md:text-7xl font-black text-white leading-tight tracking-tight drop-shadow-lg">
-            <span
-              className="block text-[0.6em] md:text-[0.5em] font-bold uppercase tracking-widest mb-2 opacity-90"
-              style={{ color: primaryColor }}
-            >
-              Bienvenido a
-            </span>
             {titulo || "TU CLUB DE PÁDEL"}
           </h1>
 
