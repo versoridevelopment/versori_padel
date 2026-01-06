@@ -1,8 +1,28 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import Image from "next/image";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import Cropper from "react-easy-crop";
+import { getCroppedImg } from "@/lib/utils/canvasUtils";
+import {
+  ArrowLeft,
+  Save,
+  Loader2,
+  DollarSign,
+  Type,
+  AlignLeft,
+  UploadCloud,
+  CheckCircle2,
+  Trophy,
+  Sun,
+  Umbrella,
+  ImageIcon,
+  Power,
+  Trash2,
+  ZoomIn,
+} from "lucide-react";
 
 type ApiError = { error: string };
 
@@ -22,98 +42,114 @@ type Cancha = {
   es_exterior: boolean;
   activa: boolean;
   estado: boolean;
-
-  // NUEVO
   id_tarifario: number | null;
-  tarifario_nombre?: string | null;
-
-  tipo_nombre?: string;
-  deporte_nombre?: string;
 };
 
-function PreviewCanchaCard(props: { cancha: Cancha; imgPreview?: string | null }) {
-  const { cancha, imgPreview } = props;
+// --- COMPONENTE PREVIEW ---
+function PreviewCard({
+  nombre,
+  descripcion,
+  precio,
+  imgPreview,
+  imgCurrent,
+  esExterior,
+  activa,
+  estado,
+}: {
+  nombre: string;
+  descripcion: string;
+  precio: string | number;
+  imgPreview: string | null;
+  imgCurrent: string | null;
+  esExterior: boolean;
+  activa: boolean;
+  estado: boolean;
+}) {
+  // Lógica de imagen: Prioridad Nueva > Actual > Placeholder
+  const displayImage = imgPreview || imgCurrent;
 
   return (
-    <div className="rounded-2xl border border-gray-200 overflow-hidden bg-white shadow-sm">
-      <div
-        className="p-5"
-        style={{
-          background: "linear-gradient(135deg, #003366, #00284f)",
-          color: "#ffffff",
-        }}
-      >
-        <div className="text-sm opacity-90">
-          Preview (Cancha) · {cancha.estado ? "Activa" : "Inactiva"}
-        </div>
-
-        <div className="mt-2 text-2xl font-extrabold tracking-tight">
-          {cancha.nombre || "Nombre de la cancha"}
-        </div>
-
-        <div className="mt-1 text-sm opacity-90">
-          {cancha.descripcion || "Descripción"}
-        </div>
-
-        <div className="mt-4 text-xs opacity-90">
-          Precio:{" "}
-          <span className="font-semibold">
-            ${Number(cancha.precio_hora || 0).toLocaleString("es-AR")}
-          </span>{" "}
-          / hora
-        </div>
-
-        {(cancha.deporte_nombre || cancha.tipo_nombre) && (
-          <div className="mt-2 text-xs opacity-90">
-            {cancha.deporte_nombre ? `Deporte: ${cancha.deporte_nombre}` : ""}
-            {cancha.deporte_nombre && cancha.tipo_nombre ? " · " : ""}
-            {cancha.tipo_nombre ? `Tipo: ${cancha.tipo_nombre}` : ""}
-          </div>
-        )}
-
-        <div className="mt-2 text-xs opacity-90">
-          Tarifario:{" "}
-          <span className="font-semibold">
-            {cancha.id_tarifario ? `#${cancha.id_tarifario}` : "Default del tipo"}
+    <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm sticky top-6">
+      <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
+        <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider">
+          Vista Previa
+        </h3>
+        {!estado && (
+          <span className="text-[10px] bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-bold">
+            DADA DE BAJA
           </span>
-        </div>
+        )}
       </div>
 
-      <div className="p-5 space-y-3">
-        <div className="rounded-xl border border-gray-200 p-3">
-          <div className="text-xs font-semibold text-gray-700">Imagen</div>
-          <div className="mt-2">
-            {imgPreview ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={imgPreview}
-                alt="preview"
-                className="h-28 w-full object-cover rounded-lg border"
-              />
-            ) : cancha.imagen_url ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={cancha.imagen_url}
-                alt="actual"
-                className="h-28 w-full object-cover rounded-lg border"
+      <div className="p-5">
+        <div
+          className={`flex gap-4 p-4 rounded-xl border border-slate-200 bg-white shadow-sm ${
+            !estado ? "opacity-50 grayscale" : ""
+          }`}
+        >
+          {/* Imagen */}
+          <div className="relative w-24 h-24 bg-slate-100 rounded-lg overflow-hidden shrink-0 border border-slate-100">
+            {displayImage ? (
+              <Image
+                src={displayImage}
+                alt="Preview"
+                fill
+                className="object-cover"
               />
             ) : (
-              <div className="h-28 w-full rounded-lg border border-dashed border-gray-200 bg-gray-50 flex items-center justify-center text-xs text-gray-500">
-                Sin imagen
+              <div className="w-full h-full flex flex-col items-center justify-center text-slate-300">
+                <ImageIcon className="w-8 h-8 mb-1" />
+                <span className="text-[10px] font-medium">Sin foto</span>
               </div>
             )}
           </div>
-        </div>
 
-        <div className="text-xs text-gray-500">
-          Para cambiarla, seleccioná un archivo y guardá. Se sube al Storage y se
-          actualiza la DB automáticamente.
+          {/* Info */}
+          <div className="flex-1 min-w-0 flex flex-col justify-center">
+            <div className="flex items-center gap-2 mb-1">
+              <h4 className="text-lg font-bold text-slate-900 truncate">
+                {nombre || "Nombre de la Cancha"}
+              </h4>
+              <span
+                className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                  activa
+                    ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                    : "bg-slate-100 text-slate-500 border-slate-200"
+                }`}
+              >
+                {activa ? "Operativa" : "Mantenimiento"}
+              </span>
+            </div>
+
+            <p className="text-sm text-slate-500 line-clamp-1 mb-2">
+              {descripcion || "Descripción breve..."}
+            </p>
+
+            <div className="flex items-center justify-between mt-auto">
+              <div className="flex gap-2">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 text-xs font-bold border border-slate-200">
+                  {esExterior ? (
+                    <Sun className="w-3 h-3" />
+                  ) : (
+                    <Umbrella className="w-3 h-3" />
+                  )}
+                  {esExterior ? "Exterior" : "Techada"}
+                </span>
+              </div>
+              <div className="text-right">
+                <p className="text-lg font-black text-slate-900">
+                  ${precio ? Number(precio).toLocaleString("es-AR") : "0"}
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
+// --- CLIENTE PRINCIPAL ---
 export default function EditarCanchaClient({
   clubId,
   clubNombre,
@@ -125,41 +161,51 @@ export default function EditarCanchaClient({
 }) {
   const router = useRouter();
 
+  // Estados de carga y datos
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-
   const [cancha, setCancha] = useState<Cancha | null>(null);
-
   const [tarifarios, setTarifarios] = useState<Tarifario[]>([]);
 
-  const [file, setFile] = useState<File | null>(null);
-  const imgPreview = useMemo(() => (file ? URL.createObjectURL(file) : null), [file]);
+  // Estados Cropper
+  const [file, setFile] = useState<File | null>(null); // Archivo final
+  const [tempImgSrc, setTempImgSrc] = useState<string | null>(null); // Imagen base para recortar
+  const [isCropping, setIsCropping] = useState(false);
+  const [crop, setCrop] = useState({ x: 0, y: 0 });
+  const [zoom, setZoom] = useState(1);
+  const [croppedAreaPixels, setCroppedAreaPixels] = useState<any>(null);
 
+  // Preview de la imagen NUEVA (recortada)
+  const imgPreview = useMemo(
+    () => (file ? URL.createObjectURL(file) : null),
+    [file]
+  );
+
+  // --- DATA FETCHING ---
   async function load() {
     setLoading(true);
     try {
-      const res = await fetch(`/api/admin/canchas/${idCancha}`, { cache: "no-store" });
-
+      const res = await fetch(`/api/admin/canchas/${idCancha}`, {
+        cache: "no-store",
+      });
       if (!res.ok) {
         const err = (await res.json().catch(() => null)) as ApiError | null;
         throw new Error(err?.error || "No se pudo cargar la cancha");
       }
-
       const data = (await res.json()) as Cancha;
 
-      // seguridad multi-tenant (no editar canchas de otro club)
-      if (data.id_club !== clubId) {
-        throw new Error("La cancha no pertenece al club actual.");
-      }
+      // Seguridad básica frontend
+      if (data.id_club !== clubId)
+        throw new Error("Acceso denegado a esta cancha.");
 
-      // Por si la vista vieja no trae id_tarifario, aseguramos defaults en front
+      // Sanitización de datos
       const safe: Cancha = {
         ...data,
         id_tarifario: (data as any).id_tarifario ?? null,
       };
 
       setCancha(safe);
-      setFile(null);
+      setFile(null); // Resetear archivo nuevo al recargar
     } catch (err: any) {
       alert(err?.message || "Error al cargar cancha");
       router.push("/admin/personalizacion/canchas");
@@ -170,12 +216,12 @@ export default function EditarCanchaClient({
 
   async function loadTarifarios() {
     try {
-      const res = await fetch(`/api/admin/tarifarios?id_club=${clubId}`, { cache: "no-store" });
+      const res = await fetch(`/api/admin/tarifarios?id_club=${clubId}`, {
+        cache: "no-store",
+      });
       if (!res.ok) return;
-
       const payload = await res.json();
       const items = (payload?.tarifarios ?? []) as any[];
-
       setTarifarios(
         items
           .filter((t) => t.activo === true)
@@ -185,9 +231,7 @@ export default function EditarCanchaClient({
             activo: t.activo,
           }))
       );
-    } catch {
-      // best-effort
-    }
+    } catch {}
   }
 
   useEffect(() => {
@@ -196,6 +240,45 @@ export default function EditarCanchaClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idCancha]);
 
+  // --- HANDLERS CROPPER ---
+  const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const selectedFile = e.target.files[0];
+      const reader = new FileReader();
+      reader.onload = () => {
+        setTempImgSrc(reader.result as string);
+        setIsCropping(true);
+        setZoom(1);
+        setCrop({ x: 0, y: 0 });
+      };
+      reader.readAsDataURL(selectedFile);
+      e.target.value = "";
+    }
+  };
+
+  const onCropComplete = useCallback(
+    (croppedArea: any, croppedAreaPixels: any) => {
+      setCroppedAreaPixels(croppedAreaPixels);
+    },
+    []
+  );
+
+  const onCropSave = async () => {
+    try {
+      if (!tempImgSrc || !croppedAreaPixels) return;
+      const croppedBlob = await getCroppedImg(tempImgSrc, croppedAreaPixels);
+      const croppedFile = new File([croppedBlob], "cancha_updated.jpg", {
+        type: "image/jpeg",
+      });
+      setFile(croppedFile);
+      setIsCropping(false);
+      setTempImgSrc(null);
+    } catch (e) {
+      alert("Error al recortar");
+    }
+  };
+
+  // --- HANDLERS GUARDADO ---
   const canSubmit = useMemo(() => {
     if (!cancha) return false;
     return (
@@ -218,12 +301,11 @@ export default function EditarCanchaClient({
       fd.append("es_exterior", String(cancha.es_exterior));
       fd.append("activa", String(cancha.activa));
       fd.append("estado", String(cancha.estado));
+      fd.append(
+        "id_tarifario",
+        cancha.id_tarifario === null ? "" : String(cancha.id_tarifario)
+      );
 
-      // NUEVO: id_tarifario
-      // "" => null (default del tipo)
-      fd.append("id_tarifario", cancha.id_tarifario === null ? "" : String(cancha.id_tarifario));
-
-      // Si hay archivo, tu API lo sube y además borra el anterior (cleanup)
       if (file) fd.append("imagen", file);
 
       const res = await fetch(`/api/admin/canchas/${idCancha}`, {
@@ -233,11 +315,11 @@ export default function EditarCanchaClient({
 
       if (!res.ok) {
         const err = (await res.json().catch(() => null)) as ApiError | null;
-        throw new Error(err?.error || "No se pudo guardar la cancha");
+        throw new Error(err?.error || "Error al guardar");
       }
 
-      await load();
-      alert("Cambios guardados.");
+      await load(); // Recargar datos frescos
+      alert("Cambios guardados exitosamente.");
     } catch (err: any) {
       alert(err?.message || "Error al guardar");
     } finally {
@@ -245,226 +327,429 @@ export default function EditarCanchaClient({
     }
   }
 
-  async function onDesactivar() {
-    if (!confirm("¿Desactivar esta cancha? (baja lógica)")) return;
+  // --- ACCIONES HEADER ---
+  async function onToggleEstado(nuevoEstado: boolean) {
+    if (!nuevoEstado && !confirm("¿Dar de baja esta cancha? (Baja lógica)"))
+      return;
 
     try {
-      const res = await fetch(`/api/admin/canchas/${idCancha}`, { method: "DELETE" });
+      // Usamos el endpoint adecuado según la acción para coherencia
+      const method = nuevoEstado ? "PATCH" : "DELETE";
+      const body = nuevoEstado ? JSON.stringify({ estado: true }) : undefined;
+      const headers = nuevoEstado
+        ? { "Content-Type": "application/json" }
+        : undefined;
 
-      if (!res.ok) {
-        const err = (await res.json().catch(() => null)) as ApiError | null;
-        throw new Error(err?.error || "No se pudo desactivar");
-      }
-
-      await load();
-    } catch (err: any) {
-      alert(err?.message || "Error al desactivar");
-    }
-  }
-
-  async function onActivar() {
-    try {
       const res = await fetch(`/api/admin/canchas/${idCancha}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ estado: true }),
+        method,
+        headers,
+        body,
       });
 
-      if (!res.ok) {
-        const err = (await res.json().catch(() => null)) as ApiError | null;
-        throw new Error(err?.error || "No se pudo activar");
-      }
-
+      if (!res.ok) throw new Error("Error al cambiar estado");
       await load();
     } catch (err: any) {
-      alert(err?.message || "Error al activar");
+      alert(err.message);
     }
   }
 
   if (loading || !cancha) {
     return (
-      <div className="rounded-2xl border border-gray-200 bg-white p-6 text-sm text-gray-600">
-        Cargando cancha…
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-extrabold tracking-tight">
-            Editar cancha #{cancha.id_cancha}
-          </h1>
-          <p className="text-sm text-gray-600 mt-1">
-            {clubNombre} · {cancha.nombre}
-          </p>
-        </div>
-
-        <div className="flex gap-2">
-          <Link
-            href="/admin/personalizacion/canchas"
-            className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-semibold hover:bg-gray-50"
-          >
-            Volver
-          </Link>
-
-          {cancha.estado ? (
-            <button
-              onClick={onDesactivar}
-              className="rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700"
-            >
-              Desactivar
-            </button>
-          ) : (
-            <button
-              onClick={onActivar}
-              className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
-            >
-              Activar
-            </button>
-          )}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <form
-          onSubmit={onSave}
-          className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm space-y-4"
-        >
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="md:col-span-2">
-              <label className="text-sm font-semibold text-gray-700">Nombre</label>
+    <div className="min-h-screen bg-slate-50 p-6 md:p-10 -m-6 md:-m-10 relative">
+      {/* MODAL CROPPER */}
+      {isCropping && tempImgSrc && (
+        <div className="fixed inset-0 z-[9999] bg-black/90 flex flex-col items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="relative w-full max-w-4xl h-[60vh] bg-gray-900 rounded-xl overflow-hidden shadow-2xl border border-gray-800">
+            <Cropper
+              image={tempImgSrc}
+              crop={crop}
+              zoom={zoom}
+              aspect={16 / 9}
+              onCropChange={setCrop}
+              onCropComplete={onCropComplete}
+              onZoomChange={setZoom}
+            />
+          </div>
+          <div className="mt-6 flex flex-col items-center w-full max-w-md gap-4">
+            <div className="flex items-center gap-4 bg-gray-800 p-3 rounded-xl border border-gray-700 w-full">
+              <ZoomIn className="text-gray-400 w-5 h-5" />
               <input
-                className="mt-1 w-full rounded-xl border border-gray-200 px-4 py-2 text-sm"
-                value={cancha.nombre}
-                onChange={(e) =>
-                  setCancha((prev) => (prev ? { ...prev, nombre: e.target.value } : prev))
-                }
+                type="range"
+                value={zoom}
+                min={1}
+                max={3}
+                step={0.1}
+                onChange={(e) => setZoom(Number(e.target.value))}
+                className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-500"
               />
             </div>
-
-            <div className="md:col-span-2">
-              <label className="text-sm font-semibold text-gray-700">Descripción</label>
-              <input
-                className="mt-1 w-full rounded-xl border border-gray-200 px-4 py-2 text-sm"
-                value={cancha.descripcion ?? ""}
-                onChange={(e) =>
-                  setCancha((prev) => (prev ? { ...prev, descripcion: e.target.value } : prev))
-                }
-              />
-            </div>
-
-            <div>
-              <label className="text-sm font-semibold text-gray-700">Precio por hora</label>
-              <input
-                className="mt-1 w-full rounded-xl border border-gray-200 px-4 py-2 text-sm"
-                value={String(cancha.precio_hora)}
-                onChange={(e) =>
-                  setCancha((prev) =>
-                    prev
-                      ? { ...prev, precio_hora: Number(e.target.value.replace(/[^\d]/g, "")) || 0 }
-                      : prev
-                  )
-                }
-              />
-            </div>
-
-            <div>
-              <label className="text-sm font-semibold text-gray-700">Imagen (reemplazar)</label>
-              <input
-                type="file"
-                accept="image/*"
-                className="mt-1 w-full rounded-xl border border-gray-200 px-4 py-2 text-sm bg-white"
-                onChange={(e) => setFile(e.target.files?.[0] || null)}
-              />
-              <div className="mt-1 text-xs text-gray-500">
-                Opcional. Se sube al guardar y se elimina la anterior.
-              </div>
-            </div>
-
-            {/* NUEVO: Tarifario */}
-            <div className="md:col-span-2">
-              <label className="text-sm font-semibold text-gray-700">
-                Tarifario (opcional)
-              </label>
-
-              <select
-                className="mt-1 w-full rounded-xl border border-gray-200 px-4 py-2 text-sm bg-white"
-                value={cancha.id_tarifario ?? ""}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setCancha((prev) =>
-                    prev ? { ...prev, id_tarifario: v === "" ? null : Number(v) } : prev
-                  );
+            <div className="flex gap-4 w-full">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsCropping(false);
+                  setTempImgSrc(null);
                 }}
+                className="flex-1 px-6 py-3 bg-gray-800 text-white rounded-xl hover:bg-gray-700 font-semibold"
               >
-                <option value="">Usar default del tipo de cancha</option>
-                {tarifarios.map((t) => (
-                  <option key={t.id_tarifario} value={t.id_tarifario}>
-                    {t.nombre}
-                  </option>
-                ))}
-              </select>
-
-              <div className="mt-1 text-xs text-gray-500">
-                Si dejás “Default”, la cancha toma el tarifario definido en Personalización → Tarifarios (default por tipo).
-              </div>
-            </div>
-
-            <div className="md:col-span-2 flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={!!cancha.es_exterior}
-                onChange={(e) =>
-                  setCancha((prev) => (prev ? { ...prev, es_exterior: e.target.checked } : prev))
-                }
-              />
-              <span className="text-sm text-gray-700">Es exterior</span>
-            </div>
-
-            <div className="md:col-span-2 flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={!!cancha.activa}
-                onChange={(e) =>
-                  setCancha((prev) => (prev ? { ...prev, activa: e.target.checked } : prev))
-                }
-              />
-              <span className="text-sm text-gray-700">Operativa (activa = 1)</span>
-            </div>
-
-            <div className="md:col-span-2 flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={!!cancha.estado}
-                onChange={(e) =>
-                  setCancha((prev) => (prev ? { ...prev, estado: e.target.checked } : prev))
-                }
-              />
-              <span className="text-sm text-gray-700">Cancha activa (estado = 1)</span>
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={onCropSave}
+                className="flex-1 px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-500 font-bold shadow-lg"
+              >
+                Recortar y Guardar
+              </button>
             </div>
           </div>
+        </div>
+      )}
 
-          <div className="flex gap-2 justify-end">
+      <div className="max-w-5xl mx-auto space-y-8 pb-32">
+        {/* --- HEADER --- */}
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
+          <div>
+            <div className="flex items-center gap-2 mb-2 text-slate-500 text-sm font-medium">
+              <Link
+                href="/admin/personalizacion/canchas"
+                className="hover:text-blue-600 transition-colors"
+              >
+                Canchas
+              </Link>
+              <span>/</span>
+              <span className="text-slate-900">Editar</span>
+            </div>
+            <h1 className="text-3xl font-extrabold text-slate-900 flex items-center gap-3">
+              {cancha.nombre}
+              {!cancha.estado && (
+                <span className="text-sm bg-red-100 text-red-700 px-3 py-1 rounded-full font-bold">
+                  Inactiva
+                </span>
+              )}
+            </h1>
+            <p className="text-slate-500 mt-1 text-lg">
+              Editando detalles de la cancha #{cancha.id_cancha}
+            </p>
+          </div>
+
+          <div className="flex gap-3">
             <Link
               href="/admin/personalizacion/canchas"
-              className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-semibold hover:bg-gray-50"
+              className="px-5 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-700 font-bold hover:bg-slate-50 transition-colors flex items-center gap-2 shadow-sm"
             >
-              Cancelar
+              <ArrowLeft className="w-4 h-4" /> Volver
             </Link>
 
+            {/* Botón de Baja/Alta Lógica */}
+            {cancha.estado ? (
+              <button
+                onClick={() => onToggleEstado(false)}
+                className="px-5 py-2.5 rounded-xl bg-red-50 text-red-600 font-bold hover:bg-red-100 border border-red-200 transition-colors flex items-center gap-2"
+              >
+                <Trash2 className="w-4 h-4" /> Dar de Baja
+              </button>
+            ) : (
+              <button
+                onClick={() => onToggleEstado(true)}
+                className="px-5 py-2.5 rounded-xl bg-emerald-50 text-emerald-600 font-bold hover:bg-emerald-100 border border-emerald-200 transition-colors flex items-center gap-2"
+              >
+                <Power className="w-4 h-4" /> Reactivar
+              </button>
+            )}
+
             <button
-              type="submit"
-              className="rounded-xl bg-[#003366] px-4 py-2 text-sm font-semibold text-white hover:bg-[#00284f] disabled:opacity-60"
+              onClick={onSave}
               disabled={!canSubmit || isSaving}
+              className="px-6 py-2.5 rounded-xl bg-blue-600 text-white font-bold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-blue-900/20 flex items-center gap-2"
             >
-              {isSaving ? "Guardando..." : "Guardar cambios"}
+              {isSaving ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Save className="w-4 h-4" />
+              )}
+              {isSaving ? "Guardando..." : "Guardar Cambios"}
             </button>
           </div>
-        </form>
+        </div>
 
-        <PreviewCanchaCard cancha={cancha} imgPreview={imgPreview} />
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
+          {/* --- FORMULARIO (2/3) --- */}
+          <div className="lg:col-span-2 space-y-6">
+            <form className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm space-y-6">
+              {/* Info Básica */}
+              <div>
+                <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+                  <Type className="w-5 h-5 text-blue-500" /> Información Básica
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-bold text-slate-700 mb-1.5">
+                      Nombre
+                    </label>
+                    <input
+                      value={cancha.nombre}
+                      onChange={(e) =>
+                        setCancha({ ...cancha, nombre: e.target.value })
+                      }
+                      className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-slate-400"
+                    />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-bold text-slate-700 mb-1.5">
+                      Descripción{" "}
+                      <span className="text-slate-400 font-normal">
+                        (Opcional)
+                      </span>
+                    </label>
+                    <div className="relative">
+                      <AlignLeft className="absolute left-3 top-3.5 w-4 h-4 text-slate-400" />
+                      <input
+                        value={cancha.descripcion ?? ""}
+                        onChange={(e) =>
+                          setCancha({ ...cancha, descripcion: e.target.value })
+                        }
+                        className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-slate-400"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <hr className="border-slate-100" />
+
+              {/* Configuración */}
+              <div>
+                <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+                  <Trophy className="w-5 h-5 text-blue-500" /> Detalles & Precio
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                  {/* Precio */}
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1.5">
+                      Precio por Hora
+                    </label>
+                    <div className="relative">
+                      <DollarSign className="absolute left-3 top-3.5 w-4 h-4 text-slate-400" />
+                      <input
+                        value={String(cancha.precio_hora)}
+                        onChange={(e) =>
+                          setCancha({
+                            ...cancha,
+                            precio_hora: Number(
+                              e.target.value.replace(/[^\d]/g, "")
+                            ),
+                          })
+                        }
+                        className="w-full pl-9 pr-4 py-3 rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all font-mono font-medium text-lg"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Tarifario */}
+                  <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1.5">
+                      Tarifario
+                    </label>
+                    <select
+                      className="w-full px-4 py-3 rounded-xl border border-slate-300 bg-slate-50 text-slate-700 focus:ring-2 focus:ring-blue-500/20 outline-none transition-all"
+                      value={cancha.id_tarifario ?? ""}
+                      onChange={(e) =>
+                        setCancha({
+                          ...cancha,
+                          id_tarifario:
+                            e.target.value === ""
+                              ? null
+                              : Number(e.target.value),
+                        })
+                      }
+                    >
+                      <option value="">(Default del tipo de cancha)</option>
+                      {tarifarios.map((t) => (
+                        <option key={t.id_tarifario} value={t.id_tarifario}>
+                          {t.nombre}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Toggles Visuales */}
+                  <div className="md:col-span-2 flex flex-col sm:flex-row gap-4 pt-2">
+                    {/* Toggle Exterior */}
+                    <label
+                      className={`flex-1 flex items-center justify-between p-4 rounded-xl border cursor-pointer transition-all ${
+                        cancha.es_exterior
+                          ? "border-blue-200 bg-blue-50/50"
+                          : "border-slate-200 hover:border-slate-300"
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div
+                          className={`p-2 rounded-lg ${
+                            cancha.es_exterior
+                              ? "bg-blue-100 text-blue-600"
+                              : "bg-slate-100 text-slate-500"
+                          }`}
+                        >
+                          {cancha.es_exterior ? (
+                            <Sun className="w-5 h-5" />
+                          ) : (
+                            <Umbrella className="w-5 h-5" />
+                          )}
+                        </div>
+                        <div>
+                          <span className="block font-bold text-slate-700">
+                            Ubicación
+                          </span>
+                          <span className="text-xs text-slate-500">
+                            {cancha.es_exterior
+                              ? "Al aire libre"
+                              : "Cancha Techada"}
+                          </span>
+                        </div>
+                      </div>
+                      <input
+                        type="checkbox"
+                        className="hidden"
+                        checked={cancha.es_exterior}
+                        onChange={(e) =>
+                          setCancha({
+                            ...cancha,
+                            es_exterior: e.target.checked,
+                          })
+                        }
+                      />
+                      <div
+                        className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                          cancha.es_exterior
+                            ? "border-blue-500 bg-blue-500"
+                            : "border-slate-300"
+                        }`}
+                      >
+                        {cancha.es_exterior && (
+                          <CheckCircle2 className="w-3.5 h-3.5 text-white" />
+                        )}
+                      </div>
+                    </label>
+
+                    {/* Toggle Activa (Operativa) */}
+                    <label
+                      className={`flex-1 flex items-center justify-between p-4 rounded-xl border cursor-pointer transition-all ${
+                        cancha.activa
+                          ? "border-emerald-200 bg-emerald-50/50"
+                          : "border-slate-200 hover:border-slate-300"
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div
+                          className={`p-2 rounded-lg ${
+                            cancha.activa
+                              ? "bg-emerald-100 text-emerald-600"
+                              : "bg-slate-100 text-slate-500"
+                          }`}
+                        >
+                          <CheckCircle2 className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <span className="block font-bold text-slate-700">
+                            Operativa
+                          </span>
+                          <span className="text-xs text-slate-500">
+                            {cancha.activa
+                              ? "Disponible reservas"
+                              : "En mantenimiento"}
+                          </span>
+                        </div>
+                      </div>
+                      <input
+                        type="checkbox"
+                        className="hidden"
+                        checked={cancha.activa}
+                        onChange={(e) =>
+                          setCancha({ ...cancha, activa: e.target.checked })
+                        }
+                      />
+                      <div
+                        className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                          cancha.activa
+                            ? "border-emerald-500 bg-emerald-500"
+                            : "border-slate-300"
+                        }`}
+                      >
+                        {cancha.activa && (
+                          <CheckCircle2 className="w-3.5 h-3.5 text-white" />
+                        )}
+                      </div>
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              <hr className="border-slate-100" />
+
+              {/* Sección Imagen */}
+              <div>
+                <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+                  <ImageIcon className="w-5 h-5 text-blue-500" /> Imagen de
+                  Portada
+                </h3>
+                <label className="flex flex-col items-center justify-center w-full h-40 border-2 border-slate-300 border-dashed rounded-xl cursor-pointer hover:bg-slate-50 hover:border-blue-400 transition-all group overflow-hidden relative">
+                  {file ? (
+                    <div className="flex flex-col items-center text-emerald-600">
+                      <CheckCircle2 className="w-10 h-10 mb-2" />
+                      <p className="font-bold text-sm">
+                        Nueva imagen recortada lista
+                      </p>
+                      <p className="text-xs text-slate-400">
+                        Clic para cambiar
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                      <UploadCloud className="w-10 h-10 text-slate-400 group-hover:text-blue-500 mb-2 transition-colors" />
+                      <p className="text-sm text-slate-500 group-hover:text-blue-600">
+                        <span className="font-semibold">
+                          Haz clic para subir
+                        </span>{" "}
+                        o arrastra
+                      </p>
+                      <p className="text-xs text-slate-400 mt-1">
+                        JPG, PNG (Recorte 16:9 automático)
+                      </p>
+                    </div>
+                  )}
+                  <input
+                    type="file"
+                    className="hidden"
+                    accept="image/*"
+                    onChange={onFileChange}
+                  />
+                </label>
+              </div>
+            </form>
+          </div>
+
+          {/* --- PREVIEW (1/3) --- */}
+          <div className="lg:col-span-1">
+            <PreviewCard
+              nombre={cancha.nombre}
+              descripcion={cancha.descripcion ?? ""}
+              precio={cancha.precio_hora}
+              imgPreview={imgPreview}
+              imgCurrent={cancha.imagen_url}
+              esExterior={cancha.es_exterior}
+              activa={cancha.activa}
+              estado={cancha.estado}
+            />
+          </div>
+        </div>
       </div>
     </div>
   );

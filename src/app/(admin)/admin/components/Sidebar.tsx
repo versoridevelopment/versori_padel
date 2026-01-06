@@ -20,6 +20,7 @@ import {
   Menu, // Icono Hamburguesa
   X, // Icono Cerrar
   BookOpen, // Icono para Nosotros
+  LayoutGrid, // Icono para el grupo de Canchas
 } from "lucide-react";
 import { Rol } from "@/lib/roles";
 
@@ -28,7 +29,8 @@ export function Sidebar() {
   const [userRole] = useState<Rol>("Administrador");
 
   // Estado para desplegables
-  const [isPersonalizacionOpen, setIsPersonalizacionOpen] = useState(true);
+  const [isCanchasOpen, setIsCanchasOpen] = useState(true); // Nuevo estado
+  const [isPersonalizacionOpen, setIsPersonalizacionOpen] = useState(false); // Por defecto cerrado para no saturar
 
   // Estado para menú móvil
   const [isMobileOpen, setIsMobileOpen] = useState(false);
@@ -36,7 +38,7 @@ export function Sidebar() {
   const user = {
     nombreCompleto: "Juan Cruz",
     rol: "Administrador",
-    fotoPerfil: "/placeholder-avatar.png", // Asegúrate de que esta imagen exista en public o cambia la ruta
+    fotoPerfil: "/placeholder-avatar.png",
   };
 
   // Enlaces principales del Dashboard
@@ -67,31 +69,11 @@ export function Sidebar() {
     },
   ];
 
-  // --- SUBMENÚ REORGANIZADO (PERSONALIZACIÓN) ---
-  const personalizacionLinks = [
-    {
-      href: "/admin/personalizacion/club",
-      label: "Home / Config General", // Contiene Identidad, Portada y Slider Home
-      icon: <Building2 size={14} />,
-    },
-    {
-      href: "/admin/personalizacion/nosotros", // Página "Nosotros" dedicada
-      label: "Página Nosotros",
-      icon: <BookOpen size={14} />,
-    },
-    {
-      href: "/admin/personalizacion/profesores", // Página "Profesores"
-      label: "Página Profesores",
-      icon: <Users2 size={14} />,
-    },
-    {
-      href: "/admin/quinchos", // Página "Quincho"
-      label: "Página Quincho",
-      icon: <Home size={14} />,
-    },
+  // --- NUEVO GRUPO: CANCHAS & TARIFAS ---
+  const canchasLinks = [
     {
       href: "/admin/personalizacion/canchas",
-      label: "Gestión de Canchas",
+      label: "Mis Canchas",
       icon: <Trophy size={14} />,
     },
     {
@@ -101,15 +83,36 @@ export function Sidebar() {
     },
   ];
 
+  // --- SUBMENÚ PERSONALIZACIÓN (Sin canchas) ---
+  const personalizacionLinks = [
+    {
+      href: "/admin/personalizacion/club",
+      label: "Home / Config General",
+      icon: <Building2 size={14} />,
+    },
+    {
+      href: "/admin/personalizacion/nosotros",
+      label: "Página Nosotros",
+      icon: <BookOpen size={14} />,
+    },
+    {
+      href: "/admin/personalizacion/profesores",
+      label: "Página Profesores",
+      icon: <Users2 size={14} />,
+    },
+    {
+      href: "/admin/quinchos",
+      label: "Página Quincho",
+      icon: <Home size={14} />,
+    },
+  ];
+
   const handleLogout = () => {
-    // Aquí iría tu lógica real de logout (supabase.auth.signOut())
     alert("Sesión cerrada");
   };
 
-  // Función para cerrar el menú al hacer clic en un link (Solo móvil)
   const closeMobileMenu = () => setIsMobileOpen(false);
 
-  // Bloquear scroll cuando el menú móvil está abierto
   useEffect(() => {
     if (isMobileOpen) {
       document.body.style.overflow = "hidden";
@@ -120,7 +123,7 @@ export function Sidebar() {
 
   return (
     <>
-      {/* --- 1. BOTÓN HAMBURGUESA MÓVIL (Flotante) --- */}
+      {/* --- 1. BOTÓN HAMBURGUESA MÓVIL --- */}
       <button
         onClick={() => setIsMobileOpen(!isMobileOpen)}
         className="md:hidden fixed top-4 left-4 z-50 p-2 bg-[#0d1b2a] text-white rounded-lg shadow-lg border border-gray-700 hover:bg-[#1b263b] transition-colors"
@@ -129,7 +132,7 @@ export function Sidebar() {
         {isMobileOpen ? <X size={24} /> : <Menu size={24} />}
       </button>
 
-      {/* --- 2. OVERLAY OSCURO (Solo Móvil) --- */}
+      {/* --- 2. OVERLAY OSCURO --- */}
       {isMobileOpen && (
         <div
           className="fixed inset-0 bg-black/60 backdrop-blur-sm z-30 md:hidden"
@@ -137,7 +140,7 @@ export function Sidebar() {
         />
       )}
 
-      {/* --- 3. SIDEBAR (Aside) --- */}
+      {/* --- 3. SIDEBAR --- */}
       <aside
         className={`
           fixed md:sticky top-0 left-0 h-screen w-64 
@@ -150,7 +153,7 @@ export function Sidebar() {
           }
         `}
       >
-        {/* --- SECCIÓN USUARIO (Cabecera) --- */}
+        {/* --- CABECERA USUARIO --- */}
         <div className="flex flex-col items-center p-6 border-b border-gray-800 bg-[#0b1623]">
           <Link
             href="/admin/usuario"
@@ -158,7 +161,6 @@ export function Sidebar() {
             onClick={closeMobileMenu}
           >
             <div className="relative w-16 h-16 mx-auto transition-transform duration-300 group-hover:scale-105">
-              {/* Imagen de perfil con fallback si no carga */}
               <div className="rounded-full overflow-hidden border-2 border-blue-500/30 w-16 h-16 bg-gray-800 relative">
                 <Image
                   src={user.fotoPerfil}
@@ -169,7 +171,6 @@ export function Sidebar() {
                   priority
                 />
               </div>
-              {/* Indicador Online */}
               <div className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-green-500 border-2 border-[#0b1623] rounded-full"></div>
             </div>
           </Link>
@@ -181,8 +182,9 @@ export function Sidebar() {
           </span>
         </div>
 
-        {/* --- NAVEGACIÓN PRINCIPAL (Cuerpo) --- */}
+        {/* --- NAVEGACIÓN --- */}
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto custom-scrollbar">
+          {/* LINKS PRINCIPALES */}
           {links.map((link) => (
             <Link
               key={link.key}
@@ -197,8 +199,51 @@ export function Sidebar() {
             </Link>
           ))}
 
-          {/* --- MENÚ DESPLEGABLE PERSONALIZACIÓN --- */}
-          <div className="pt-2 mt-2 border-t border-gray-800/50">
+          {/* --- GRUPO: GESTIÓN DE CANCHAS (NUEVO) --- */}
+          <div className="pt-4 mt-2 border-t border-gray-800/50">
+            <button
+              onClick={() => setIsCanchasOpen(!isCanchasOpen)}
+              className={`flex w-full items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 text-sm ${
+                isCanchasOpen
+                  ? "bg-[#1b263b] text-white"
+                  : "text-gray-400 hover:bg-[#1b263b] hover:text-white"
+              }`}
+            >
+              <LayoutGrid
+                size={18}
+                className={isCanchasOpen ? "text-green-400" : ""}
+              />
+              <span className="font-medium flex-1 text-left">
+                Gestión de Canchas
+              </span>
+              {isCanchasOpen ? (
+                <ChevronDown size={14} className="text-gray-500" />
+              ) : (
+                <ChevronRight size={14} className="text-gray-500" />
+              )}
+            </button>
+
+            {isCanchasOpen && (
+              <div className="mt-1 ml-3 space-y-0.5 border-l border-gray-700 pl-3">
+                {canchasLinks.map((subLink) => (
+                  <Link
+                    key={subLink.href}
+                    href={subLink.href}
+                    onClick={closeMobileMenu}
+                    className="flex items-center gap-2 px-3 py-2 text-xs font-medium text-gray-400 hover:text-white hover:bg-[#1b263b]/50 rounded-md transition-all duration-200"
+                  >
+                    <span className="opacity-70 text-green-300">
+                      {subLink.icon}
+                    </span>
+                    {subLink.label}
+                  </Link>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* --- GRUPO: PERSONALIZACIÓN --- */}
+          <div className="pt-2 mt-2">
             <button
               onClick={() => setIsPersonalizacionOpen(!isPersonalizacionOpen)}
               className={`flex w-full items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 text-sm ${
@@ -221,7 +266,6 @@ export function Sidebar() {
               )}
             </button>
 
-            {/* Submenú Dinámico */}
             {isPersonalizacionOpen && (
               <div className="mt-1 ml-3 space-y-0.5 border-l border-gray-700 pl-3">
                 {personalizacionLinks.map((subLink) => (
@@ -242,7 +286,7 @@ export function Sidebar() {
           </div>
         </nav>
 
-        {/* --- LOGOUT (Pie de página) --- */}
+        {/* --- PIE DE PÁGINA --- */}
         <div className="p-3 border-t border-gray-800 bg-[#0b1623]">
           <button
             onClick={() => {
