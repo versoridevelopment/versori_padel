@@ -21,7 +21,7 @@ import {
   ToggleLeft,
   ToggleRight,
   X,
-  LayoutTemplate, // Icono para el botón del home
+  LayoutTemplate,
 } from "lucide-react";
 
 // --- TIPOS ---
@@ -42,7 +42,7 @@ type ClubData = {
   calle: string;
   altura: string;
   barrio: string;
-  activo_contacto_home: boolean; // <--- NUEVO CAMPO
+  activo_contacto_home: boolean;
 };
 
 type Valor = { titulo: string; contenido: string };
@@ -54,7 +54,7 @@ type NosotrosData = {
   historia_contenido: string;
   frase_cierre: string;
   historia_imagen_url: string | null;
-  galeria_inicio: string[];
+  galeria_inicio: string[]; // Array de URLs
   valores: Valor[];
 };
 
@@ -72,11 +72,10 @@ export default function ClubForm({
   // --- ESTADO GENERAL ---
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<
-    "identidad" | "nosotros" | "estilo" | "contacto" | "marcas"
+    "identidad" | "estilo" | "contacto" | "marcas"
   >("identidad");
 
   // --- ESTADO CLUB ---
-  // Inicializamos incluyendo el nuevo campo (si no viene de la DB, default false)
   const [formData, setFormData] = useState<ClubData>({
     ...initialData,
     activo_contacto_home: initialData.activo_contacto_home ?? false,
@@ -100,6 +99,7 @@ export default function ClubForm({
     }
   );
 
+  // Estados para imágenes nuevas de la galería
   const [newGalleryFiles, setNewGalleryFiles] = useState<File[]>([]);
   const [newGalleryPreviews, setNewGalleryPreviews] = useState<string[]>([]);
 
@@ -108,28 +108,20 @@ export default function ClubForm({
 
   // === EFECTO FAVICON ===
   useEffect(() => {
-    const updateFavicon = (url: string) => {
-      let link = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
-      if (!link) {
-        link = document.createElement("link");
-        link.rel = "icon";
-        document.head.appendChild(link);
-      }
-      link.href = url;
-    };
-
     if (formData.logo_url) {
+      const link =
+        (document.querySelector("link[rel~='icon']") as HTMLLinkElement) ||
+        document.createElement("link");
+      link.rel = "icon";
+      document.head.appendChild(link);
       const isRemote = formData.logo_url.startsWith("http");
-      const faviconUrl = isRemote
-        ? `${formData.logo_url}?t=${new Date().getTime()}`
+      link.href = isRemote
+        ? `${formData.logo_url}?t=${Date.now()}`
         : formData.logo_url;
-      updateFavicon(faviconUrl);
-    } else {
-      updateFavicon("/icon.png");
     }
   }, [formData.logo_url]);
 
-  // === HANDLERS ===
+  // === HANDLERS PRINCIPALES ===
   const handleChange = (field: keyof ClubData, value: any) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
@@ -161,7 +153,7 @@ export default function ClubForm({
     setFormData((prev) => ({ ...prev, logo_url: null }));
   };
 
-  // Marcas Handlers
+  // === MARCAS HANDLERS ===
   const addMarca = () =>
     setFormData((prev) => ({
       ...prev,
@@ -212,27 +204,39 @@ export default function ClubForm({
     }
   };
 
-  // Nosotros Handlers
+  // === NOSOTROS HANDLERS ===
   const handleNosotrosChange = (field: keyof NosotrosData, value: any) => {
     setNosotrosData((prev) => ({ ...prev, [field]: value }));
   };
 
+  // --- LÓGICA DE GALERÍA (Multi-imágenes) ---
   const handleGallerySelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       const files = Array.from(e.target.files);
+
+      // Agregamos al array de archivos nuevos
       setNewGalleryFiles((prev) => [...prev, ...files]);
-      setNewGalleryPreviews((prev) => [
-        ...prev,
-        ...files.map((f) => URL.createObjectURL(f)),
-      ]);
+
+      // Agregamos a las previsualizaciones
+      const newPreviews = files.map((f) => URL.createObjectURL(f));
+      setNewGalleryPreviews((prev) => [...prev, ...newPreviews]);
+
+      // IMPORTANTE: Limpiar el input para permitir subir de nuevo si se borra
+      e.target.value = "";
     }
   };
 
   const removeGalleryImage = (index: number, isNew: boolean) => {
     if (isNew) {
+      // Borrar de los nuevos (aún no subidos)
       setNewGalleryFiles((prev) => prev.filter((_, i) => i !== index));
-      setNewGalleryPreviews((prev) => prev.filter((_, i) => i !== index));
+      setNewGalleryPreviews((prev) => {
+        // Liberar memoria del blob
+        URL.revokeObjectURL(prev[index]);
+        return prev.filter((_, i) => i !== index);
+      });
     } else {
+      // Borrar de las imágenes existentes en la DB
       setNosotrosData((prev) => ({
         ...prev,
         galeria_inicio: prev.galeria_inicio.filter((_, i) => i !== index),
@@ -240,60 +244,34 @@ export default function ClubForm({
     }
   };
 
-  // === SAVE ===
+  // === SAVE (Enviar todo al backend) ===
   const handleSave = async () => {
     setSaving(true);
     try {
       const formDataToSend = new FormData();
       formDataToSend.append("clubId", clubId.toString());
 
-      // ⚠️ IMPORTANTE: Aseguramos que 'activo_contacto_home' se envía en el JSON
-      formDataToSend.append(
-        "clubData",
-        JSON.stringify({
-          nombre: formData.nombre,
-          subdominio: formData.subdominio,
-          color_primario: formData.color_primario,
-          color_secundario: formData.color_secundario,
-          color_texto: formData.color_texto,
-          texto_bienvenida_titulo: formData.texto_bienvenida_titulo,
-          texto_bienvenida_subtitulo: formData.texto_bienvenida_subtitulo,
-          marcas: formData.marcas,
-          logo_url: formData.logo_url,
-          imagen_hero_url: formData.imagen_hero_url,
-          email: formData.email,
-          usuario_instagram: formData.usuario_instagram,
-          telefono: formData.telefono,
-          calle: formData.calle,
-          altura: formData.altura,
-          barrio: formData.barrio,
-          activo_contacto_home: formData.activo_contacto_home, // <--- CAMPO CLAVE
-        })
-      );
+      // Datos Club
+      formDataToSend.append("clubData", JSON.stringify(formData));
 
-      formDataToSend.append(
-        "nosotrosData",
-        JSON.stringify({
-          activo_nosotros: nosotrosData.activo_nosotros,
-          historia_titulo: nosotrosData.historia_titulo,
-          hero_descripcion: nosotrosData.hero_descripcion,
-          historia_contenido: nosotrosData.historia_contenido,
-          frase_cierre: nosotrosData.frase_cierre,
-          galeria_inicio: nosotrosData.galeria_inicio,
-          valores: nosotrosData.valores,
-        })
-      );
+      // Datos Nosotros (Aquí van las URLs viejas que quedan)
+      formDataToSend.append("nosotrosData", JSON.stringify(nosotrosData));
 
+      // Archivos individuales
       if (logoFile) formDataToSend.append("logoFile", logoFile);
       if (heroFile) formDataToSend.append("heroFile", heroFile);
+
+      // Marcas
+      Object.keys(brandFiles).forEach((brandId) => {
+        formDataToSend.append(`brand_file_${brandId}`, brandFiles[brandId]);
+      });
+
+      // GALERÍA: Enviamos cada archivo nuevo bajo la misma key 'galleryFiles'
       if (newGalleryFiles.length > 0) {
         newGalleryFiles.forEach((file) =>
           formDataToSend.append("galleryFiles", file)
         );
       }
-      Object.keys(brandFiles).forEach((brandId) => {
-        formDataToSend.append(`brand_file_${brandId}`, brandFiles[brandId]);
-      });
 
       const response = await fetch("/api/admin/club/update", {
         method: "POST",
@@ -301,8 +279,9 @@ export default function ClubForm({
       });
 
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Error");
+      if (!response.ok) throw new Error(result.error || "Error al guardar");
 
+      // Limpieza de estados locales tras guardado exitoso
       setBrandFiles({});
       setLogoFile(null);
       setHeroFile(null);
@@ -310,7 +289,7 @@ export default function ClubForm({
       setNewGalleryPreviews([]);
 
       alert("¡Cambios guardados correctamente!");
-      window.location.reload();
+      window.location.reload(); // Recargar para ver los cambios reflejados
     } catch (error: any) {
       console.error(error);
       alert(`Error: ${error.message}`);
@@ -334,7 +313,7 @@ export default function ClubForm({
           disabled={saving}
           className="bg-green-600 text-white w-14 h-14 rounded-full shadow-2xl flex items-center justify-center border-2 border-white/20 active:scale-95 transition-all hover:bg-green-700"
           title="Guardar cambios"
-          aria-label="Guardar todos los cambios"
+          aria-label="Guardar cambios"
         >
           {saving ? (
             <Loader2 className="animate-spin w-6 h-6" />
@@ -345,6 +324,7 @@ export default function ClubForm({
       </div>
 
       <div className="max-w-7xl mx-auto space-y-8 pb-32">
+        {/* Header */}
         <div className="flex justify-between items-end">
           <div>
             <h1 className="text-3xl font-extrabold text-slate-900">
@@ -354,7 +334,6 @@ export default function ClubForm({
               Gestiona la identidad y el contenido.
             </p>
           </div>
-          {/* Botón Desktop */}
           <button
             type="button"
             onClick={handleSave}
@@ -372,11 +351,10 @@ export default function ClubForm({
           </button>
         </div>
 
-        {/* --- TABS --- */}
+        {/* Tabs */}
         <div className="flex space-x-1 bg-white p-1 rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
           {[
             { id: "identidad", label: "Identidad", icon: Monitor },
-            { id: "nosotros", label: "Nosotros", icon: BookOpen },
             { id: "estilo", label: "Estilo", icon: Palette },
             { id: "contacto", label: "Contacto", icon: MapPin },
             { id: "marcas", label: "Marcas", icon: Type },
@@ -443,16 +421,15 @@ export default function ClubForm({
                     </div>
                     <label
                       className="cursor-pointer bg-blue-50 text-blue-600 px-4 py-2 rounded-lg font-bold hover:bg-blue-100 text-sm"
-                      title="Subir un nuevo logo"
+                      title="Subir logo"
                     >
-                      Subir Logo
+                      Subir Logo{" "}
                       <input
                         type="file"
                         accept="image/*"
                         className="hidden"
                         onChange={(e) => handleFileSelect(e, "logo")}
-                        title="Seleccionar archivo de logo"
-                        aria-label="Seleccionar archivo de logo"
+                        title="Seleccionar archivo logo"
                       />
                     </label>
                     {formData.logo_url && (
@@ -498,16 +475,15 @@ export default function ClubForm({
                     )}
                     <label
                       className="absolute bottom-4 right-4 cursor-pointer bg-white text-slate-800 px-4 py-2 rounded-lg font-bold shadow-md hover:bg-slate-50 text-sm flex items-center gap-2"
-                      title="Cambiar imagen de portada"
+                      title="Cambiar portada"
                     >
-                      <UploadCloud className="w-4 h-4" /> Cambiar
+                      <UploadCloud className="w-4 h-4" /> Cambiar{" "}
                       <input
                         type="file"
                         accept="image/*,video/mp4,video/webm"
                         className="hidden"
                         onChange={(e) => handleFileSelect(e, "hero")}
-                        title="Seleccionar archivo de portada"
-                        aria-label="Seleccionar archivo de portada"
+                        title="Seleccionar archivo portada"
                       />
                     </label>
                   </div>
@@ -549,7 +525,7 @@ export default function ClubForm({
                       <ToggleRight className="w-6 h-6" />
                     ) : (
                       <ToggleLeft className="w-6 h-6" />
-                    )}
+                    )}{" "}
                     {nosotrosData.activo_nosotros ? "Visible" : "Oculto"}
                   </button>
                 </section>
@@ -570,8 +546,7 @@ export default function ClubForm({
                       }
                       className="w-full px-4 py-2 border border-slate-300 rounded-xl"
                       placeholder="Ej: Nuestra Historia"
-                      title="Título de la sección nosotros"
-                      aria-label="Título de la sección nosotros"
+                      title="Título nosotros"
                     />
                   </div>
                   <div>
@@ -590,48 +565,50 @@ export default function ClubForm({
                       }
                       className="w-full px-4 py-2 border border-slate-300 rounded-xl resize-none"
                       placeholder="Breve descripción..."
-                      title="Resumen para el home"
-                      aria-label="Resumen para el home"
+                      title="Resumen nosotros"
                     />
                   </div>
                 </section>
+
+                {/* --- SECCIÓN GALERÍA CORREGIDA --- */}
                 <section className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
                   <div className="flex justify-between items-center mb-4">
                     <h2 className="text-lg font-bold text-slate-800">
                       Galería (Slider Home)
                     </h2>
                     <label
-                      className="cursor-pointer text-blue-600 text-xs font-bold hover:bg-blue-50 px-3 py-1.5 rounded-lg flex gap-1 items-center"
+                      className="cursor-pointer text-blue-600 text-xs font-bold hover:bg-blue-50 px-3 py-1.5 rounded-lg flex gap-1 items-center transition-colors"
                       title="Agregar imágenes"
                     >
-                      <Plus className="w-4 h-4" /> Agregar
+                      <Plus className="w-4 h-4" /> Agregar{" "}
                       <input
                         type="file"
                         accept="image/*"
                         multiple
                         className="hidden"
                         onChange={handleGallerySelect}
-                        title="Seleccionar imágenes para slider"
-                        aria-label="Seleccionar imágenes para slider"
+                        title="Seleccionar imágenes"
                       />
                     </label>
                   </div>
-                  <div className="grid grid-cols-4 gap-2">
+                  <div className="grid grid-cols-4 gap-3">
+                    {/* Imágenes Existentes (Guardadas en DB) */}
                     {nosotrosData.galeria_inicio.map((url, i) => (
                       <div
                         key={`saved-${i}`}
-                        className="relative aspect-square rounded-lg overflow-hidden border group"
+                        className="relative aspect-square rounded-xl overflow-hidden border border-slate-200 group shadow-sm hover:shadow-md transition-shadow"
                       >
                         <Image
                           src={url}
-                          alt="Gallery"
+                          alt={`Galería ${i}`}
                           fill
                           className="object-cover"
                         />
+                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
                         <button
                           type="button"
                           onClick={() => removeGalleryImage(i, false)}
-                          className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                          className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600"
                           title="Eliminar imagen"
                           aria-label="Eliminar imagen"
                         >
@@ -639,28 +616,38 @@ export default function ClubForm({
                         </button>
                       </div>
                     ))}
+                    {/* Imágenes Nuevas (Pendientes) */}
                     {newGalleryPreviews.map((url, i) => (
                       <div
                         key={`new-${i}`}
-                        className="relative aspect-square rounded-lg overflow-hidden border-2 border-green-400 group"
+                        className="relative aspect-square rounded-xl overflow-hidden border-2 border-green-400 group shadow-sm bg-green-50"
                       >
                         <Image
                           src={url}
-                          alt="New"
+                          alt="Nueva"
                           fill
-                          className="object-cover"
+                          className="object-cover opacity-90"
                         />
                         <button
                           type="button"
                           onClick={() => removeGalleryImage(i, true)}
-                          className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                          className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600"
                           title="Cancelar subida"
                           aria-label="Cancelar subida"
                         >
                           <X className="w-3 h-3" />
                         </button>
+                        <div className="absolute bottom-0 left-0 right-0 bg-green-500 text-white text-[9px] font-bold text-center py-0.5 uppercase tracking-wide">
+                          Nueva
+                        </div>
                       </div>
                     ))}
+                    {nosotrosData.galeria_inicio.length === 0 &&
+                      newGalleryPreviews.length === 0 && (
+                        <div className="col-span-4 py-8 text-center text-slate-400 text-sm border-2 border-dashed border-slate-200 rounded-xl bg-slate-50">
+                          No hay imágenes en la galería.
+                        </div>
+                      )}
                   </div>
                 </section>
               </div>
@@ -692,9 +679,8 @@ export default function ClubForm({
                           )
                         }
                         className="w-full px-4 py-2 border border-slate-300 rounded-xl"
-                        title="Título principal del home"
-                        aria-label="Título principal del home"
-                        placeholder="Título del home"
+                        title="Título home"
+                        placeholder="Bienvenido..."
                       />
                     </div>
                     <div>
@@ -715,9 +701,8 @@ export default function ClubForm({
                           )
                         }
                         className="w-full px-4 py-2 border border-slate-300 rounded-xl"
-                        title="Subtítulo del home"
-                        aria-label="Subtítulo del home"
-                        placeholder="Subtítulo del home"
+                        title="Subtítulo home"
+                        placeholder="El mejor lugar..."
                       />
                     </div>
                   </div>
@@ -743,8 +728,7 @@ export default function ClubForm({
                             handleChange("color_primario", e.target.value)
                           }
                           className="h-10 w-16 rounded cursor-pointer border"
-                          title="Seleccionar color primario"
-                          aria-label="Seleccionar color primario"
+                          title="Color primario"
                         />
                         <input
                           type="text"
@@ -753,9 +737,8 @@ export default function ClubForm({
                             handleChange("color_primario", e.target.value)
                           }
                           className="flex-1 px-4 border border-slate-300 rounded-xl uppercase"
+                          title="Código color primario"
                           placeholder="#000000"
-                          title="Código hexadecimal color primario"
-                          aria-label="Código hexadecimal color primario"
                         />
                       </div>
                     </div>
@@ -775,8 +758,7 @@ export default function ClubForm({
                             handleChange("color_secundario", e.target.value)
                           }
                           className="h-10 w-16 rounded cursor-pointer border"
-                          title="Seleccionar color secundario"
-                          aria-label="Seleccionar color secundario"
+                          title="Color secundario"
                         />
                         <input
                           type="text"
@@ -785,9 +767,8 @@ export default function ClubForm({
                             handleChange("color_secundario", e.target.value)
                           }
                           className="flex-1 px-4 border border-slate-300 rounded-xl uppercase"
+                          title="Código color secundario"
                           placeholder="#000000"
-                          title="Código hexadecimal color secundario"
-                          aria-label="Código hexadecimal color secundario"
                         />
                       </div>
                     </div>
@@ -796,7 +777,7 @@ export default function ClubForm({
               </div>
             )}
 
-            {/* TAB CONTACTO (MODIFICADO) */}
+            {/* TAB CONTACTO */}
             {activeTab === "contacto" && (
               <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
                 <section className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
@@ -822,8 +803,7 @@ export default function ClubForm({
                           }
                           className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-xl"
                           placeholder="contacto@email.com"
-                          title="Email de contacto"
-                          aria-label="Email de contacto"
+                          title="Email"
                         />
                       </div>
                     </div>
@@ -845,8 +825,7 @@ export default function ClubForm({
                           }
                           className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-xl"
                           placeholder="@usuario"
-                          title="Usuario de instagram"
-                          aria-label="Usuario de instagram"
+                          title="Instagram"
                         />
                       </div>
                     </div>
@@ -868,13 +847,10 @@ export default function ClubForm({
                           }
                           className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-xl"
                           placeholder="+54 9..."
-                          title="Número de whatsapp"
-                          aria-label="Número de whatsapp"
+                          title="WhatsApp"
                         />
                       </div>
                     </div>
-
-                    {/* --- NUEVO BLOQUE: TOGGLE ACCESO DIRECTO HOME --- */}
                     <div className="mt-6 pt-6 border-t border-slate-100">
                       <div className="flex items-center justify-between bg-blue-50/50 p-4 rounded-xl border border-blue-100">
                         <div className="flex items-start gap-3">
@@ -886,12 +862,11 @@ export default function ClubForm({
                               Acceso directo en Home
                             </h4>
                             <p className="text-xs text-slate-500 mt-0.5 max-w-xs leading-relaxed">
-                              Activa un botón de `Consultar` en la portada que
+                              Activa un botón de "Consultar" en la portada que
                               lleva directamente a este WhatsApp.
                             </p>
                           </div>
                         </div>
-
                         <button
                           type="button"
                           onClick={() =>
@@ -903,10 +878,9 @@ export default function ClubForm({
                           className="transition-transform active:scale-95 focus:outline-none ml-4"
                           title={
                             formData.activo_contacto_home
-                              ? "Desactivar botón en home"
-                              : "Activar botón en home"
+                              ? "Desactivar botón"
+                              : "Activar botón"
                           }
-                          aria-label="Alternar visibilidad del botón de whatsapp en home"
                         >
                           {formData.activo_contacto_home ? (
                             <ToggleRight className="w-10 h-10 text-green-500 transition-colors" />
@@ -937,8 +911,7 @@ export default function ClubForm({
                         onChange={(e) => handleChange("calle", e.target.value)}
                         className="w-full px-4 py-2 border border-slate-300 rounded-xl"
                         placeholder="Calle Principal"
-                        title="Nombre de la calle"
-                        aria-label="Nombre de la calle"
+                        title="Calle"
                       />
                     </div>
                     <div>
@@ -955,8 +928,7 @@ export default function ClubForm({
                         onChange={(e) => handleChange("altura", e.target.value)}
                         className="w-full px-4 py-2 border border-slate-300 rounded-xl"
                         placeholder="123"
-                        title="Altura o numeración"
-                        aria-label="Altura o numeración"
+                        title="Altura"
                       />
                     </div>
                     <div>
@@ -973,8 +945,7 @@ export default function ClubForm({
                         onChange={(e) => handleChange("barrio", e.target.value)}
                         className="w-full px-4 py-2 border border-slate-300 rounded-xl"
                         placeholder="Centro"
-                        title="Barrio o localidad"
-                        aria-label="Barrio o localidad"
+                        title="Barrio"
                       />
                     </div>
                   </div>
@@ -992,14 +963,13 @@ export default function ClubForm({
                       type="button"
                       onClick={addMarca}
                       className="text-sm bg-blue-50 text-blue-600 px-3 py-1.5 rounded-lg font-bold hover:bg-blue-100 flex items-center gap-1"
-                      title="Agregar nueva marca"
-                      aria-label="Agregar nueva marca"
+                      title="Agregar marca"
                     >
                       <Plus className="w-4 h-4" /> Agregar
                     </button>
                   </div>
                   <div className="space-y-4">
-                    {formData.marcas.map((marca, i) => (
+                    {formData.marcas.map((marca) => (
                       <div
                         key={marca.id}
                         className="flex flex-col gap-2 p-4 border border-slate-100 rounded-xl bg-slate-50"
@@ -1014,8 +984,7 @@ export default function ClubForm({
                                   ? "bg-blue-100 text-blue-600"
                                   : "text-slate-400"
                               }`}
-                              title="Usar texto"
-                              aria-label="Usar texto"
+                              title="Tipo texto"
                             >
                               <AlignLeft className="w-4 h-4" />
                             </button>
@@ -1027,8 +996,7 @@ export default function ClubForm({
                                   ? "bg-blue-100 text-blue-600"
                                   : "text-slate-400"
                               }`}
-                              title="Usar imagen"
-                              aria-label="Usar imagen"
+                              title="Tipo imagen"
                             >
                               <ImageIcon className="w-4 h-4" />
                             </button>
@@ -1038,7 +1006,6 @@ export default function ClubForm({
                             onClick={() => removeMarca(marca.id)}
                             className="text-red-400 hover:text-red-600 p-1"
                             title="Eliminar marca"
-                            aria-label="Eliminar marca"
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
@@ -1052,8 +1019,7 @@ export default function ClubForm({
                             }
                             className="w-full bg-white px-3 py-2 border border-slate-200 rounded-lg"
                             placeholder="Nombre de marca"
-                            title="Nombre de la marca"
-                            aria-label="Nombre de la marca"
+                            title="Nombre marca"
                           />
                         ) : (
                           <div className="flex items-center gap-4">
@@ -1071,9 +1037,9 @@ export default function ClubForm({
                             </div>
                             <label
                               className="cursor-pointer bg-white border border-slate-200 text-slate-600 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-slate-50"
-                              title="Subir archivo de marca"
+                              title="Subir imagen"
                             >
-                              Subir Archivo
+                              Subir Archivo{" "}
                               <input
                                 type="file"
                                 accept="image/*"
@@ -1081,8 +1047,7 @@ export default function ClubForm({
                                 onChange={(e) =>
                                   handleBrandFileChange(marca.id, e)
                                 }
-                                title="Seleccionar archivo de marca"
-                                aria-label="Seleccionar archivo de marca"
+                                title="Seleccionar archivo marca"
                               />
                             </label>
                           </div>
@@ -1102,7 +1067,6 @@ export default function ClubForm({
                 Vista Previa: {getPreviewTitle()}
               </div>
               <div className="flex-1 overflow-y-auto custom-scrollbar relative flex flex-col">
-                {/* HERO PREVIEW */}
                 <div className="relative h-[300px] shrink-0 flex items-center justify-center">
                   {formData.imagen_hero_url ? (
                     isVideo(formData.imagen_hero_url) ? (
@@ -1140,8 +1104,6 @@ export default function ClubForm({
                     </h2>
                   </div>
                 </div>
-
-                {/* PREVIEW DINÁMICA */}
                 <div
                   className="p-6 bg-[#0b0d12]"
                   style={{ backgroundColor: formData.color_secundario }}
@@ -1164,6 +1126,27 @@ export default function ClubForm({
                       ? nosotrosData.hero_descripcion || "Descripción..."
                       : "Contenido de ejemplo..."}
                   </p>
+
+                  {/* Preview de galería en simulador */}
+                  {activeTab === "nosotros" && (
+                    <div className="grid grid-cols-3 gap-2 mt-4 opacity-70">
+                      {[...nosotrosData.galeria_inicio, ...newGalleryPreviews]
+                        .slice(0, 3)
+                        .map((src, i) => (
+                          <div
+                            key={i}
+                            className="aspect-square bg-white/10 rounded-lg overflow-hidden relative"
+                          >
+                            <Image
+                              src={src}
+                              alt="p"
+                              fill
+                              className="object-cover"
+                            />
+                          </div>
+                        ))}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

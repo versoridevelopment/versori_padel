@@ -207,12 +207,9 @@ export default function NosotrosClient({ config }: Props) {
             <div className="relative z-10 grid md:grid-cols-2 gap-12 items-center">
               <div>
                 <h2 className="text-3xl md:text-4xl font-bold mb-6 text-white">
-                  ¿Querés formar parte?
+                  Conocé nuestro Equipo
                 </h2>
-                <p className="text-lg text-gray-300 mb-8">
-                  Siempre estamos buscando profesionales apasionados por el
-                  pádel. Conocé a nuestro equipo actual o unite a nosotros.
-                </p>
+                <p className="text-lg text-gray-300 mb-8"></p>
                 <div className="flex flex-wrap gap-4">
                   <Link
                     href="/profesores"

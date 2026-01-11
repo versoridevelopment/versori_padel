@@ -86,40 +86,6 @@ export default function ProfesoresUI({ profesores, teamPhotoUrl }: Props) {
           </div>
         </section>
       )}
-
-      {/* --- CONTACTO WHATSAPP --- */}
-      <section className="py-16 text-center border-t border-blue-900/30 px-4">
-        <motion.h3
-          className="text-2xl font-semibold text-white mb-6"
-          initial={{ opacity: 0, y: 30 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8 }}
-          viewport={{ once: true }}
-        >
-          ¿Sos profesor de pádel?
-        </motion.h3>
-        <motion.p
-          className="text-gray-400 mb-8"
-          initial={{ opacity: 0 }}
-          whileInView={{ opacity: 1 }}
-          transition={{ duration: 0.9 }}
-          viewport={{ once: true }}
-        >
-          Contactate con nuestro equipo administrativo y sumate al club.
-        </motion.p>
-
-        <motion.a
-          href="https://api.whatsapp.com/send?phone=5493794000000&text=Hola!%20Me%20gustaría%20postularme%20como%20profesor%20de%20pádel."
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg transition-all duration-200 shadow-md"
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.97 }}
-        >
-          <MessageCircle className="w-5 h-5" />
-          Contactarme por WhatsApp
-        </motion.a>
-      </section>
     </main>
   );
 }

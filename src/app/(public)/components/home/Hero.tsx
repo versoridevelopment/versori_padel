@@ -114,13 +114,6 @@ const Hero = ({
                 WhatsApp
               </a>
             )}
-
-            {/* 3. Botón Conoce el Club */}
-            <Link href="/nosotros">
-              <button className="px-8 py-4 rounded-xl font-bold text-white border-2 border-white/30 hover:bg-white/10 transition-colors backdrop-blur-sm">
-                Conocé el Club
-              </button>
-            </Link>
           </div>
         </div>
       </Container>

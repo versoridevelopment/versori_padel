@@ -22,7 +22,7 @@ export default function Profesores({ profesores }: { profesores: any[] }) {
             Nuestro Equipo
           </h2>
           <p className="text-gray-400 text-lg max-w-2xl mx-auto">
-            Contamos con profesionales dedicados a potenciar tu juego en cada
+            Contamos con profesores dedicados a potenciar tu juego en cada
             entrenamiento.
           </p>
         </div>
