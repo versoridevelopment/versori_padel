@@ -1,3 +1,4 @@
+// src/app/login/page.tsx
 "use client";
 
 import { useState, useEffect, FormEvent, FC } from "react";
@@ -27,30 +28,23 @@ const LoginPage: FC = () => {
   const [subdomain, setSubdomain] = useState<string | null>(null);
   const [clubLoading, setClubLoading] = useState<boolean>(true);
 
-  // NUEVO: Estado para branding del club
-  const [clubLogo, setClubLogo] = useState<string | null>(null);
-  const [clubName, setClubName] = useState<string>("Club");
-
   // Detectar club por subdominio
   useEffect(() => {
     const fetchClub = async () => {
       try {
-        const host = window.location.host;
-        const hostname = host.split(":")[0];
+        const host = window.location.host; // ej: "padelcentral.localhost:3000"
+        const hostname = host.split(":")[0]; // "padelcentral.localhost"
         const sub = getSubdomainFromHost(hostname);
         setSubdomain(sub);
 
         if (!sub) {
-          console.error("[Login] No se pudo detectar subdominio.");
+          console.error("[Login] No se pudo detectar subdominio desde host:", host);
           return;
         }
 
         const club = await getClubBySubdomain(sub);
         if (club) {
           setClubId(club.id_club);
-          // GUARDAMOS EL LOGO Y NOMBRE
-          setClubLogo(club.logo_url);
-          setClubName(club.nombre);
         } else {
           console.error("[Login] No se encontró club para subdominio:", sub);
         }
@@ -94,6 +88,7 @@ const LoginPage: FC = () => {
   const handleLogin = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
+    // limpiar mensajes previos
     setMessage(null);
     setMessageType(null);
     setErrors({});
@@ -109,11 +104,14 @@ const LoginPage: FC = () => {
 
     setIsLoading(true);
 
-    const { data: loginData, error: loginError } =
-      await supabase.auth.signInWithPassword({
-        email: email.trim(),
-        password,
-      });
+    // 1️⃣ Login con Supabase Auth
+    const {
+      data: loginData,
+      error: loginError,
+    } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password,
+    });
 
     if (loginError || !loginData?.user) {
       console.error("[Login] Error signInWithPassword:", loginError);
@@ -125,6 +123,7 @@ const LoginPage: FC = () => {
 
     const userId = loginData.user.id;
 
+    // 2️⃣ Crear / asegurar membresía en club_usuarios via API
     try {
       const response = await fetch("/api/memberships/add", {
         method: "POST",
@@ -135,8 +134,10 @@ const LoginPage: FC = () => {
       });
 
       const result = await response.json();
+      console.log("[Login] Membership result:", result);
 
       if (!response.ok || !result.success) {
+        // Si no podemos asociar el usuario al club, cerramos la sesión
         await supabase.auth.signOut();
         setMessage(
           "No se pudo asociar tu cuenta a este club. Intentá nuevamente."
@@ -156,10 +157,12 @@ const LoginPage: FC = () => {
       return;
     }
 
+    // 3️⃣ Login + membresía OK
     setIsLoading(false);
     router.push("/");
   };
 
+  // --- LOGIN CON GOOGLE (se mantiene igual; la membresía se maneja en /auth/callback) ---
   const handleGoogleLogin = async () => {
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? window.location.origin;
 
@@ -179,6 +182,7 @@ const LoginPage: FC = () => {
     }
   };
 
+  // Loader mientras se resuelve el club
   if (clubLoading) {
     return (
       <section className="min-h-screen flex items-center justify-center bg-gradient-to-b from-[#001a33] to-[#002b5b] text-white px-6">
@@ -186,10 +190,6 @@ const LoginPage: FC = () => {
       </section>
     );
   }
-
-  // Logo a mostrar: Si hay logo del club, usalo. Si no, usa el de Versori por defecto.
-  const logoSrc = clubLogo || "/sponsors/versori/VERSORI_TRANSPARENTE.PNG";
-  const logoAlt = clubLogo ? `${clubName} Logo` : "Versori Logo";
 
   return (
     <section className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-b from-[#001a33] to-[#002b5b] text-white px-6 pt-32 pb-12">
@@ -199,23 +199,19 @@ const LoginPage: FC = () => {
         transition={{ duration: 0.8 }}
         className="bg-[#0b2545] border border-[#1b4e89] rounded-3xl p-10 w-full max-w-md shadow-2xl text-center"
       >
-        {/* IMAGEN DE LOGO DINÁMICA */}
-        <div className="relative w-24 h-24 mx-auto mb-6">
-          <Image
-            src={logoSrc}
-            alt={logoAlt}
-            fill
-            className="object-contain opacity-90"
-            sizes="96px"
-            priority
-          />
-        </div>
-
+        <Image
+          src="/sponsors/versori/VERSORI_TRANSPARENTE.PNG"
+          alt="Versori Logo"
+          width={90}
+          height={90}
+          className="mx-auto mb-6 opacity-90"
+        />
         <h1 className="text-3xl font-bold mb-2">Iniciar sesión</h1>
         <p className="text-neutral-400 text-sm mb-8">
-          Accedé con tus datos para continuar con tus reservas en {clubName}
+          Accedé con tus datos para continuar con tus reservas
         </p>
 
+        {/* Mensajes inline */}
         {message && (
           <div
             className={`mb-4 text-sm p-3 rounded-xl text-left border ${
@@ -292,10 +288,7 @@ const LoginPage: FC = () => {
         </p>
         <p className="text-gray-400 text-sm mt-4">
           ¿Olvidaste tu contraseña?{" "}
-          <Link
-            href="/forgot-password"
-            className="text-blue-400 hover:underline"
-          >
+          <Link href="/forgot-password" className="text-blue-400 hover:underline">
             Recuperarla
           </Link>
         </p>
@@ -306,6 +299,7 @@ const LoginPage: FC = () => {
             <span className="w-10 h-px bg-gray-600"></span>
           </div>
 
+          {/* Botón Google */}
           <button
             onClick={handleGoogleLogin}
             className="flex items-center justify-center gap-3 bg.white bg-white hover:bg-gray-100 text-gray-800 font-semibold px-6 py-3 rounded-xl shadow-md w-full transition-all"
