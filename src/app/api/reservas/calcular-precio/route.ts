@@ -1,4 +1,3 @@
-// src/app/api/reservas/calcular-precio/route.ts
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/supabaseAdmin";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
@@ -11,10 +10,25 @@ type Body = {
   fecha: string; // YYYY-MM-DD (fecha REAL del inicio)
   inicio: string; // HH:MM
   fin: string; // HH:MM
-  // segmento?: "publico" | "profe"; // <-- ignorado (server decide)
 };
 
 type Segmento = "publico" | "profe";
+
+type Regla = {
+  id_regla: number;
+  id_tarifario: number;
+  segmento: Segmento;
+  dow: number | null;
+  vigente_desde: string;
+  vigente_hasta: string | null;
+  hora_desde: string;
+  hora_hasta: string;
+  cruza_medianoche: boolean;
+  duracion_min: number;
+  precio: number;
+  prioridad: number;
+  activo: boolean;
+};
 
 function toMin(hhmm: string) {
   const [h, m] = (hhmm || "").split(":").map(Number);
@@ -22,26 +36,67 @@ function toMin(hhmm: string) {
 }
 
 function weekday0Sun(fechaISO: string) {
-  // JS: 0=Dom .. 6=Sáb (coincide con tu DOW)
   const d = new Date(`${fechaISO}T00:00:00`);
-  return d.getDay();
+  return d.getDay(); // 0..6
 }
 
 function timeToMinFromDB(hms: string) {
-  // "HH:MM:SS" o "HH:MM"
   return toMin((hms || "").slice(0, 5));
 }
 
-function overlap(a0: number, a1: number, b0: number, b1: number) {
-  // intervalos [a0,a1) y [b0,b1) (a1>a0, b1>b0)
-  return a0 < b1 && b0 < a1;
+function addDaysISO(dateISO: string, add: number) {
+  const [y, m, d] = dateISO.split("-").map(Number);
+  const dt = new Date(y, m - 1, d + add);
+  const yy = dt.getFullYear();
+  const mm = String(dt.getMonth() + 1).padStart(2, "0");
+  const dd = String(dt.getDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
 }
 
-/**
- * Resuelve el segmento real del usuario logueado (profe/publico) para un club.
- * - Si no hay usuario logueado => "publico"
- * - Si el usuario tiene rol "profe" en club_usuarios => "profe"
- */
+// ¿inicio cae dentro de ventana?
+function startInWindow(params: {
+  startMin: number; // 0..1439
+  fromMin: number; // 0..1439
+  toMin: number; // 0..1439
+  cruza_medianoche: boolean;
+}) {
+  const { startMin, fromMin, toMin, cruza_medianoche } = params;
+  const crosses = cruza_medianoche || toMin <= fromMin;
+  if (!crosses) return startMin >= fromMin && startMin < toMin;
+  return startMin >= fromMin || startMin < toMin;
+}
+
+function pickBestRuleForStart(params: {
+  reglas: Regla[];
+  startMinInDay: number; // 0..1439
+  dow: number; // 0..6
+}) {
+  const { reglas, startMinInDay, dow } = params;
+
+  const matches = reglas.filter((r) => {
+    if (r.dow !== null && Number(r.dow) !== dow) return false;
+    const from = timeToMinFromDB(r.hora_desde);
+    const to = timeToMinFromDB(r.hora_hasta);
+    return startInWindow({
+      startMin: startMinInDay,
+      fromMin: from,
+      toMin: to,
+      cruza_medianoche: !!r.cruza_medianoche,
+    });
+  });
+
+  if (matches.length === 0) return null;
+
+  matches.sort((a, b) => {
+    if (Number(b.prioridad) !== Number(a.prioridad)) return Number(b.prioridad) - Number(a.prioridad);
+    const aSpec = a.dow === null ? 0 : 1;
+    const bSpec = b.dow === null ? 0 : 1;
+    return bSpec - aSpec;
+  });
+
+  return matches[0];
+}
+
 async function resolveSegmentoForUser(params: {
   userId: string | null;
   id_club: number;
@@ -49,17 +104,8 @@ async function resolveSegmentoForUser(params: {
   const { userId, id_club } = params;
   if (!userId) return "publico";
 
-  // Tipado simple para evitar TS issues del join
-  type Row = {
-    id_usuario: string;
-    id_club: number;
-    roles: { nombre: string } | { nombre: string }[] | null;
-  };
-
   const { data, error } = await supabaseAdmin
     .from("club_usuarios")
-    // Importante: el join con roles depende de tu FK.
-    // Si tu FK se llama distinto, cambiá "roles" por el nombre real de la relación.
     .select("id_usuario,id_club,roles!inner(nombre)")
     .eq("id_usuario", userId)
     .eq("id_club", id_club)
@@ -71,12 +117,10 @@ async function resolveSegmentoForUser(params: {
     return "publico";
   }
 
-  const rows = (data || []) as Row[];
-  return rows.length > 0 ? "profe" : "publico";
+  return (data || []).length > 0 ? "profe" : "publico";
 }
 
 async function resolveTarifarioId(id_club: number, id_cancha: number) {
-  // 1) Cancha con tarifario asignado directo
   const { data: cancha, error: cErr } = await supabaseAdmin
     .from("canchas")
     .select("id_cancha,id_club,id_tipo_cancha,id_tarifario")
@@ -88,13 +132,9 @@ async function resolveTarifarioId(id_club: number, id_cancha: number) {
   if (!cancha) return { error: "Cancha no encontrada para este club" as const };
 
   if (cancha.id_tarifario) {
-    return {
-      id_tarifario: Number(cancha.id_tarifario),
-      id_tipo_cancha: Number(cancha.id_tipo_cancha),
-    };
+    return { id_tarifario: Number(cancha.id_tarifario), id_tipo_cancha: Number(cancha.id_tipo_cancha) };
   }
 
-  // 2) Default por tipo de cancha
   const { data: def, error: dErr } = await supabaseAdmin
     .from("club_tarifarios_default")
     .select("id_tarifario")
@@ -105,14 +145,100 @@ async function resolveTarifarioId(id_club: number, id_cancha: number) {
   if (dErr) throw dErr;
 
   if (def?.id_tarifario) {
-    return {
-      id_tarifario: Number(def.id_tarifario),
-      id_tipo_cancha: Number(cancha.id_tipo_cancha),
-    };
+    return { id_tarifario: Number(def.id_tarifario), id_tipo_cancha: Number(cancha.id_tipo_cancha) };
   }
 
-  // Sin fallback a precio_hora. Esto es configuración obligatoria.
   return { error: "No hay tarifario asignado (cancha ni default por tipo)" as const };
+}
+
+async function fetchReglas(params: {
+  id_tarifario: number;
+  segmento: Segmento;
+  duracion_min: number;
+  fechaISO: string;
+}) {
+  const { id_tarifario, segmento, duracion_min, fechaISO } = params;
+
+  const { data, error } = await supabaseAdmin
+    .from("canchas_tarifas_reglas")
+    .select("*")
+    .eq("id_tarifario", id_tarifario)
+    .eq("segmento", segmento)
+    .eq("duracion_min", duracion_min)
+    .eq("activo", true)
+    .lte("vigente_desde", fechaISO)
+    .or(`vigente_hasta.is.null,vigente_hasta.gte.${fechaISO}`)
+    .order("prioridad", { ascending: false });
+
+  if (error) throw error;
+  return (data || []) as Regla[];
+}
+
+function fmtHHMM(minInDay: number) {
+  const hh = String(Math.floor(minInDay / 60)).padStart(2, "0");
+  const mm = String(minInDay % 60).padStart(2, "0");
+  return `${hh}:${mm}`;
+}
+
+/**
+ * Calcula costo mínimo para un tramo homogéneo de N steps de 30 min,
+ * manteniendo descuentos del tarifario:
+ * - 30 => (precio60 / 2)
+ * - 60 => precio60
+ * - 90 => precio90
+ * - 120 => precio120
+ *
+ * Usamos DP sobre steps (N <= 4 en tu caso real, pero lo dejamos genérico).
+ */
+function minCostForGroup(params: {
+  steps: number; // cada step=30 min
+  price60: number;
+  price90?: number | null;
+  price120?: number | null;
+}) {
+  const { steps, price60, price90, price120 } = params;
+
+  const INF = 1e18;
+  const dp = new Array<number>(steps + 1).fill(INF);
+  const prev = new Array<{ from: number; take: number; cost: number } | null>(steps + 1).fill(null);
+  dp[0] = 0;
+
+  // costos por pieza (en steps)
+  const pieceCosts: Array<{ take: number; cost: number; label: "30" | "60" | "90" | "120" }> = [
+    { take: 1, cost: price60 / 2, label: "30" },
+    { take: 2, cost: price60, label: "60" },
+  ];
+
+  if (price90 != null) pieceCosts.push({ take: 3, cost: price90, label: "90" });
+  if (price120 != null) pieceCosts.push({ take: 4, cost: price120, label: "120" });
+
+  for (let i = 0; i <= steps; i++) {
+    if (dp[i] >= INF) continue;
+    for (const p of pieceCosts) {
+      const j = i + p.take;
+      if (j > steps) continue;
+      const v = dp[i] + p.cost;
+      if (v < dp[j]) {
+        dp[j] = v;
+        prev[j] = { from: i, take: p.take, cost: p.cost };
+      }
+    }
+  }
+
+  if (dp[steps] >= INF) return { ok: false as const, cost: 0, pieces: [] as any[] };
+
+  // reconstrucción de piezas (solo para debug/breakdown)
+  const pieces: Array<{ takeSteps: number; cost: number }> = [];
+  let cur = steps;
+  while (cur > 0) {
+    const p = prev[cur];
+    if (!p) break;
+    pieces.push({ takeSteps: p.take, cost: p.cost });
+    cur = p.from;
+  }
+  pieces.reverse();
+
+  return { ok: true as const, cost: dp[steps], pieces };
 }
 
 export async function POST(req: Request) {
@@ -140,131 +266,178 @@ export async function POST(req: Request) {
 
     const startMin = toMin(inicio);
     let endMin = toMin(fin);
-
-    // ✅ cruza medianoche (ej 23:30 -> 01:00)
-    // si fin <= inicio, interpretamos fin como "día siguiente"
-    if (endMin <= startMin) {
-      endMin += 1440;
-    }
+    if (endMin <= startMin) endMin += 1440;
 
     const duracion_min = endMin - startMin;
-
-    // Permitidas según tus reglas actuales
     if (![60, 90, 120].includes(duracion_min)) {
-      return NextResponse.json(
-        { error: "Duración no soportada por tarifario (permitido: 60/90/120 min)", duracion_min },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Duración no soportada (60/90/120)", duracion_min }, { status: 400 });
     }
 
-    // ✅ Usuario logueado (cookie-based)
+    // auth + segmento
     const sb = await getSupabaseServerClient();
     const { data: auth } = await sb.auth.getUser();
     const userId = auth?.user?.id ?? null;
-
-    // ✅ Segmento real (server decide)
     const segmento = await resolveSegmentoForUser({ userId, id_club });
 
+    // tarifario
     const resolved = await resolveTarifarioId(id_club, id_cancha);
-    if ("error" in resolved) {
-      return NextResponse.json({ error: resolved.error }, { status: 409 });
-    }
-
+    if ("error" in resolved) return NextResponse.json({ error: resolved.error }, { status: 409 });
     const id_tarifario = resolved.id_tarifario;
-    const dow = weekday0Sun(fecha);
 
-    // Reglas candidatas
-    const { data: reglas, error: rErr } = await supabaseAdmin
-      .from("canchas_tarifas_reglas")
-      .select("*")
-      .eq("id_tarifario", id_tarifario)
-      .eq("segmento", segmento)
-      .eq("duracion_min", duracion_min)
-      .eq("activo", true)
-      .lte("vigente_desde", fecha)
-      .or(`vigente_hasta.is.null,vigente_hasta.gte.${fecha}`)
-      .order("prioridad", { ascending: false });
+    const STEP_MIN = 30;
+    const needsNextDay = endMin > 1440;
 
-    if (rErr) {
-      console.error("[calcular-precio] reglas error:", rErr);
-      return NextResponse.json({ error: "Error al consultar reglas" }, { status: 500 });
+    const fecha0 = fecha;
+    const dow0 = weekday0Sun(fecha0);
+    const fecha1 = needsNextDay ? addDaysISO(fecha0, 1) : null;
+    const dow1 = needsNextDay ? (dow0 + 1) % 7 : null;
+
+    // Traemos reglas por duración (60/90/120) para ambos días (si aplica)
+    const reglas60_0 = await fetchReglas({ id_tarifario, segmento, duracion_min: 60, fechaISO: fecha0 });
+    const reglas90_0 = await fetchReglas({ id_tarifario, segmento, duracion_min: 90, fechaISO: fecha0 });
+    const reglas120_0 = await fetchReglas({ id_tarifario, segmento, duracion_min: 120, fechaISO: fecha0 });
+
+    const reglas60_1 = needsNextDay && fecha1 ? await fetchReglas({ id_tarifario, segmento, duracion_min: 60, fechaISO: fecha1 }) : [];
+    const reglas90_1 = needsNextDay && fecha1 ? await fetchReglas({ id_tarifario, segmento, duracion_min: 90, fechaISO: fecha1 }) : [];
+    const reglas120_1 = needsNextDay && fecha1 ? await fetchReglas({ id_tarifario, segmento, duracion_min: 120, fechaISO: fecha1 }) : [];
+
+    const getRuleAt = (tAbs: number, reglas0: Regla[], reglas1: Regla[]) => {
+      if (tAbs < 1440) return pickBestRuleForStart({ reglas: reglas0, startMinInDay: tAbs, dow: dow0 });
+      if (!needsNextDay || dow1 === null) return null;
+      return pickBestRuleForStart({ reglas: reglas1, startMinInDay: tAbs - 1440, dow: dow1 });
+    };
+
+    const rule60At = (tAbs: number) => getRuleAt(tAbs, reglas60_0, reglas60_1);
+    const rule90At = (tAbs: number) => getRuleAt(tAbs, reglas90_0, reglas90_1);
+    const rule120At = (tAbs: number) => getRuleAt(tAbs, reglas120_0, reglas120_1);
+
+    // Armamos grupos homogéneos según la regla de 60 (eso define “la tarifa vigente”)
+    type Group = { startAbs: number; endAbs: number; rule60: Regla };
+    const groups: Group[] = [];
+
+    let t = startMin;
+    let curRule60 = rule60At(t);
+    if (!curRule60) {
+      return NextResponse.json({ error: "Faltan reglas de 60 min para cubrir el inicio" }, { status: 409 });
     }
+    let curStart = t;
 
-    const start = startMin; // puede ser >1440? no, porque viene HH:MM del día
-    const end = endMin;     // puede ser >1440 si cruza medianoche
-
-    // Filtrado por DOW y franja horaria, robusto para cruza medianoche
-    const matches = (reglas ?? []).filter((r: any) => {
-      if (r.dow !== null && Number(r.dow) !== dow) return false;
-
-      const from = timeToMinFromDB(r.hora_desde);
-      const toBase = timeToMinFromDB(r.hora_hasta);
-
-      // ⚠️ robustez: si to <= from, lo tratamos como cruce aunque cruza_medianoche esté mal
-      const crosses = !!r.cruza_medianoche || toBase <= from;
-
-      if (crosses) {
-        const win0 = from;
-        const win1 = toBase + 1440;
-
-        // turno puede venir como:
-        // - 23:30 -> 01:00 => [1410, 1500]
-        // - 00:30 -> 02:00 => [30, 120]
-        // Para ventana cruzada, contemplamos también turno +1440 por si fuera necesario
-        const a0 = start;
-        const a1 = end;
-        const b0 = start + 1440;
-        const b1 = end + 1440;
-
-        return overlap(a0, a1, win0, win1) || overlap(b0, b1, win0, win1);
-      } else {
-        const win0 = from;
-        const win1 = toBase;
-
-        // si el turno cruza medianoche, end puede ser >1440 y jamás matchearía una ventana normal
-        // eso es correcto: una ventana normal no debería cubrir un turno que cruza.
-        // (si querés permitirlo, la regla debe ser cruzada)
-        return overlap(start, end, win0, win1);
+    for (; t < endMin; t += STEP_MIN) {
+      const r = rule60At(t);
+      if (!r) {
+        return NextResponse.json({ error: "Faltan reglas de 60 min para cubrir un tramo del turno", tramo_abs: t }, { status: 409 });
       }
-    });
+      if (r.id_regla !== curRule60.id_regla) {
+        groups.push({ startAbs: curStart, endAbs: t, rule60: curRule60 });
+        curRule60 = r;
+        curStart = t;
+      }
+    }
+    groups.push({ startAbs: curStart, endAbs: endMin, rule60: curRule60 });
 
-    if (matches.length === 0) {
-      return NextResponse.json(
-        {
-          error: "No hay una regla que cubra ese horario/fecha/duración",
-          id_tarifario,
-          segmento,
-          duracion_min,
-          fecha,
-          inicio,
-          fin,
-        },
-        { status: 409 }
-      );
+    // Si solo hay 1 grupo (no cruza), devolvemos precio directo por duración como antes
+    if (groups.length === 1) {
+      const direct =
+        duracion_min === 60 ? rule60At(startMin) : duracion_min === 90 ? rule90At(startMin) : rule120At(startMin);
+
+      if (!direct) {
+        return NextResponse.json({ error: "No hay regla directa para esa duración que cubra el inicio" }, { status: 409 });
+      }
+
+      return NextResponse.json({
+        ok: true,
+        id_club,
+        id_cancha,
+        id_tarifario,
+        id_regla: direct.id_regla,
+        user_id: userId,
+        segmento,
+        fecha,
+        inicio,
+        fin,
+        duracion_min,
+        precio_total: Number(direct.precio),
+        prorrateado: false,
+        regla: direct,
+      });
     }
 
-    // Mejor por prioridad; empate: DOW específico > null
-    const best = matches.sort((a: any, b: any) => {
-      if (b.prioridad !== a.prioridad) return Number(b.prioridad) - Number(a.prioridad);
-      const aSpec = a.dow === null ? 0 : 1;
-      const bSpec = b.dow === null ? 0 : 1;
-      return bSpec - aSpec;
-    })[0];
+    // Caso híbrido: suma por grupos, manteniendo “paquetes” dentro de cada grupo
+    let total = 0;
+
+    const breakdown: Array<{
+      desde: string;
+      hasta: string;
+      minutos: number;
+      dayOffset: 0 | 1;
+      id_regla_60: number;
+      precio_60: number;
+      precio_90?: number | null;
+      precio_120?: number | null;
+      subtotal: number;
+    }> = [];
+
+    for (const g of groups) {
+      const minutes = g.endAbs - g.startAbs;
+      const steps = Math.round(minutes / STEP_MIN); // debería ser entero
+
+      // precios de paquetes para ESTE grupo (por su inicio)
+      const r60 = g.rule60;
+      const r90 = rule90At(g.startAbs);
+      const r120 = rule120At(g.startAbs);
+
+      const price60 = Number(r60.precio);
+      const price90 = r90 ? Number(r90.precio) : null;
+      const price120 = r120 ? Number(r120.precio) : null;
+
+      const dp = minCostForGroup({ steps, price60, price90, price120 });
+      if (!dp.ok) {
+        return NextResponse.json(
+          {
+            error: "No se pudo componer el precio del grupo con paquetes 30/60/90/120",
+            grupo: { startAbs: g.startAbs, endAbs: g.endAbs, minutes, steps },
+          },
+          { status: 409 }
+        );
+      }
+
+      total += dp.cost;
+
+      const dayOffset = g.startAbs >= 1440 ? 1 : 0;
+      const sDay = dayOffset ? g.startAbs - 1440 : g.startAbs;
+      const eDay = dayOffset ? g.endAbs - 1440 : g.endAbs;
+
+      breakdown.push({
+        desde: `${fmtHHMM(sDay)}${dayOffset ? " (+1)" : ""}`,
+        hasta: `${fmtHHMM(eDay)}${dayOffset ? " (+1)" : ""}`,
+        minutos: minutes,
+        dayOffset: dayOffset as 0 | 1,
+        id_regla_60: r60.id_regla,
+        precio_60: price60,
+        precio_90: price90,
+        precio_120: price120,
+        subtotal: dp.cost,
+      });
+    }
+
+    const precio_total = Math.round(total);
 
     return NextResponse.json({
       ok: true,
       id_club,
       id_cancha,
       id_tarifario,
-      id_regla: best.id_regla,
+      id_regla: groups[0]?.rule60?.id_regla ?? null,
       user_id: userId,
-      segmento, // ✅ devolvemos el segmento para UI/draft
+      segmento,
       fecha,
       inicio,
       fin,
       duracion_min,
-      precio_total: Number(best.precio),
-      regla: best,
+      precio_total,
+      prorrateado: true,
+      modo: "hibrido",
+      breakdown,
     });
   } catch (err: any) {
     console.error("[calcular-precio] ex:", err);
