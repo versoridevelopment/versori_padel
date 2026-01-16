@@ -117,7 +117,7 @@ export default function NosotrosClient({ config }: Props) {
                 <Quote className="w-6 h-6 md:w-8 md:h-8 text-blue-500 shrink-0 opacity-50 mt-1" />
                 <div>
                   <p className="italic text-base md:text-lg text-white font-medium leading-relaxed">
-                    "{config.frase_cierre}"
+                    `{config.frase_cierre}`
                   </p>
                 </div>
               </div>

@@ -15,7 +15,9 @@ import {
   Trash2,
   Heart,
   Users,
-  LayoutTemplate, // Icono para el tab Home
+  LayoutTemplate,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 
 interface Valor {
@@ -30,38 +32,28 @@ interface Props {
 
 export default function NosotrosPageForm({ clubId, initialData }: Props) {
   const [saving, setSaving] = useState(false);
-
-  // Agregamos el tab 'home'
   const [activeTab, setActiveTab] = useState<
     "home" | "general" | "galeria" | "valores" | "equipo"
   >("home");
 
   // --- ESTADOS PARA ARCHIVOS ---
-
-  // 1. Galería Interna
   const [newGalleryFiles, setNewGalleryFiles] = useState<File[]>([]);
   const [newGalleryPreviews, setNewGalleryPreviews] = useState<string[]>([]);
 
-  // 2. Slider Home (NUEVO)
   const [newHomeSliderFiles, setNewHomeSliderFiles] = useState<File[]>([]);
   const [newHomeSliderPreviews, setNewHomeSliderPreviews] = useState<string[]>(
     []
   );
 
-  // 3. Imagen Equipo
   const [teamImageFile, setTeamImageFile] = useState<File | null>(null);
   const [teamImagePreview, setTeamImagePreview] = useState<string | null>(null);
 
   // --- ESTADO PRINCIPAL ---
   const [data, setData] = useState({
     activo_nosotros: initialData?.activo_nosotros ?? true,
-
-    // DATOS HOME (Movidos aquí)
     home_titulo: initialData?.home_titulo || "",
     home_descripcion: initialData?.home_descripcion || "",
     galeria_inicio: (initialData?.galeria_inicio as string[]) || [],
-
-    // DATOS PÁGINA INTERNA
     historia_titulo: initialData?.historia_titulo || "Nuestra Historia",
     hero_descripcion: initialData?.hero_descripcion || "",
     historia_contenido: initialData?.historia_contenido || "",
@@ -73,15 +65,102 @@ export default function NosotrosPageForm({ clubId, initialData }: Props) {
     recruitment_message: initialData?.recruitment_message || "",
   });
 
-  // --- HANDLERS GALERÍA INTERNA ---
+  // ========================================================================
+  // LÓGICA DE REORDENAMIENTO
+  // ========================================================================
+
+  const moveItem = <T,>(
+    array: T[],
+    index: number,
+    direction: "left" | "right"
+  ): T[] => {
+    const newArray = [...array];
+    const targetIndex = direction === "left" ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= newArray.length) return array;
+    [newArray[index], newArray[targetIndex]] = [
+      newArray[targetIndex],
+      newArray[index],
+    ];
+    return newArray;
+  };
+
+  // 1. Mover Home Guardadas
+  const moveHomeSaved = (index: number, direction: "left" | "right") => {
+    setData((prev) => ({
+      ...prev,
+      galeria_inicio: moveItem(prev.galeria_inicio, index, direction),
+    }));
+  };
+
+  // 2. Mover Home Nuevas (Sincronizado)
+  const moveHomeNew = (index: number, direction: "left" | "right") => {
+    const nextFiles = moveItem(newHomeSliderFiles, index, direction);
+    const nextPreviews = moveItem(newHomeSliderPreviews, index, direction);
+
+    // Validamos que el movimiento sea posible antes de setear estado
+    if (
+      index >= 0 &&
+      (direction === "left" ? index > 0 : index < newHomeSliderFiles.length - 1)
+    ) {
+      setNewHomeSliderFiles(nextFiles);
+      setNewHomeSliderPreviews(nextPreviews);
+    }
+  };
+
+  // 3. Mover Galería Interna Guardadas
+  const movePageSaved = (index: number, direction: "left" | "right") => {
+    setData((prev) => ({
+      ...prev,
+      galeria_pagina: moveItem(prev.galeria_pagina, index, direction),
+    }));
+  };
+
+  // 4. Mover Galería Interna Nuevas (Sincronizado)
+  const movePageNew = (index: number, direction: "left" | "right") => {
+    const nextFiles = moveItem(newGalleryFiles, index, direction);
+    const nextPreviews = moveItem(newGalleryPreviews, index, direction);
+
+    if (
+      index >= 0 &&
+      (direction === "left" ? index > 0 : index < newGalleryFiles.length - 1)
+    ) {
+      setNewGalleryFiles(nextFiles);
+      setNewGalleryPreviews(nextPreviews);
+    }
+  };
+
+  // ========================================================================
+  // HANDLERS
+  // ========================================================================
+
   const handleGallerySelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       const filesArr = Array.from(e.target.files);
       setNewGalleryFiles((prev) => [...prev, ...filesArr]);
       const newUrls = filesArr.map((f) => URL.createObjectURL(f));
       setNewGalleryPreviews((prev) => [...prev, ...newUrls]);
+      e.target.value = "";
     }
   };
+
+  const handleHomeSliderSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const filesArr = Array.from(e.target.files);
+      setNewHomeSliderFiles((prev) => [...prev, ...filesArr]);
+      const newUrls = filesArr.map((f) => URL.createObjectURL(f));
+      setNewHomeSliderPreviews((prev) => [...prev, ...newUrls]);
+      e.target.value = "";
+    }
+  };
+
+  const handleTeamImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setTeamImageFile(file);
+      setTeamImagePreview(URL.createObjectURL(file));
+    }
+  };
+
   const removeExistingImage = (index: number) => {
     setData((prev) => ({
       ...prev,
@@ -91,16 +170,6 @@ export default function NosotrosPageForm({ clubId, initialData }: Props) {
   const removeNewImage = (index: number) => {
     setNewGalleryFiles((prev) => prev.filter((_, i) => i !== index));
     setNewGalleryPreviews((prev) => prev.filter((_, i) => i !== index));
-  };
-
-  // --- HANDLERS SLIDER HOME (NUEVO) ---
-  const handleHomeSliderSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
-      const filesArr = Array.from(e.target.files);
-      setNewHomeSliderFiles((prev) => [...prev, ...filesArr]);
-      const newUrls = filesArr.map((f) => URL.createObjectURL(f));
-      setNewHomeSliderPreviews((prev) => [...prev, ...newUrls]);
-    }
   };
   const removeExistingHomeSlider = (index: number) => {
     setData((prev) => ({
@@ -113,16 +182,6 @@ export default function NosotrosPageForm({ clubId, initialData }: Props) {
     setNewHomeSliderPreviews((prev) => prev.filter((_, i) => i !== index));
   };
 
-  // --- HANDLERS EQUIPO ---
-  const handleTeamImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setTeamImageFile(file);
-      setTeamImagePreview(URL.createObjectURL(file));
-    }
-  };
-
-  // --- HANDLERS VALORES ---
   const addValor = () => {
     setData((prev) => ({
       ...prev,
@@ -144,39 +203,20 @@ export default function NosotrosPageForm({ clubId, initialData }: Props) {
     }));
   };
 
-  // --- GUARDAR ---
   const handleSave = async () => {
     setSaving(true);
     try {
       const formData = new FormData();
       formData.append("clubId", clubId.toString());
-
-      // Enviamos todos los textos y URLs viejas en el JSON 'settings'
       formData.append("settings", JSON.stringify(data));
-
-      // 1. Archivos Galería Interna (COINCIDE con backend: galleryFiles)
       newGalleryFiles.forEach((f) => formData.append("galleryFiles", f));
-
-      // 2. Archivos Slider Home (COINCIDE con backend: homeSliderFiles)
-      // ¡OJO! Tu estado se llama 'newHomeSliderFiles' en el código que te di antes.
-      // Si usas el código que pegaste arriba, asegúrate de tener el estado creado.
-      // Si no tienes el estado creado para el home slider en el código que pegaste recién,
-      // agrégalo como hicimos en el paso anterior:
-
-      // (Si usaste mi código anterior completo, esta variable existe)
       newHomeSliderFiles.forEach((f) => formData.append("homeSliderFiles", f));
+      if (teamImageFile) formData.append("teamImageFile", teamImageFile);
 
-      // 3. Archivo Equipo (COINCIDE con backend: teamImageFile)
-      if (teamImageFile) {
-        formData.append("teamImageFile", teamImageFile);
-      }
-
-      // Asegúrate que la ruta sea esta
       const res = await fetch("/api/admin/nosotros/update", {
         method: "POST",
         body: formData,
       });
-
       const result = await res.json();
       if (!res.ok) throw new Error(result.error || "Error al guardar");
 
@@ -191,415 +231,545 @@ export default function NosotrosPageForm({ clubId, initialData }: Props) {
   };
 
   return (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
-      {/* HEADER & VISIBILIDAD */}
-      <section className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex justify-between items-center">
-        <div>
-          <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-            <BookOpen className="w-5 h-5 text-blue-600" /> Configuración
-            &quot;Nosotros&quot;
-          </h2>
-          <p className="text-sm text-slate-500">
-            Administra el contenido institucional y su visualización en Home.
-          </p>
-        </div>
+    <div className="min-h-screen bg-slate-50 text-slate-900 p-6 md:p-10 -m-6 md:-m-10">
+      {/* BOTÓN FLOTANTE MÓVIL */}
+      <div className="md:hidden fixed bottom-6 right-6 z-[9999]">
         <button
-          onClick={() =>
-            setData((prev) => ({
-              ...prev,
-              activo_nosotros: !prev.activo_nosotros,
-            }))
-          }
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold transition-all ${
-            data.activo_nosotros
-              ? "bg-green-100 text-green-700"
-              : "bg-slate-100 text-slate-500"
-          }`}
-        >
-          {data.activo_nosotros ? (
-            <ToggleRight className="w-6 h-6" />
-          ) : (
-            <ToggleLeft className="w-6 h-6" />
-          )}
-          {data.activo_nosotros ? "Sección Activa" : "Sección Inactiva"}
-        </button>
-      </section>
-
-      {/* TABS DE NAVEGACIÓN */}
-      <div className="flex space-x-1 bg-slate-100 p-1 rounded-xl w-fit overflow-x-auto">
-        {[
-          { id: "home", label: "En Home", icon: LayoutTemplate },
-          { id: "general", label: "Página Interna", icon: FileText },
-          { id: "galeria", label: "Galería Interna", icon: ImageIcon },
-          { id: "valores", label: "Valores", icon: Heart },
-          { id: "equipo", label: "Equipo", icon: Users },
-        ].map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id as any)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all whitespace-nowrap ${
-              activeTab === tab.id
-                ? "bg-white text-blue-600 shadow-sm"
-                : "text-slate-500 hover:text-slate-700"
-            }`}
-          >
-            <tab.icon className="w-4 h-4" /> {tab.label}
-          </button>
-        ))}
-      </div>
-
-      {data.activo_nosotros && (
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm min-h-[400px]">
-          {/* --- TAB HOME (NUEVO) --- */}
-          {activeTab === "home" && (
-            <div className="space-y-8 animate-in fade-in">
-              <div className="grid md:grid-cols-2 gap-6">
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">
-                    Título en Home (Corto)
-                  </label>
-                  <input
-                    type="text"
-                    value={data.home_titulo}
-                    onChange={(e) =>
-                      setData({ ...data, home_titulo: e.target.value })
-                    }
-                    className="w-full px-4 py-2 border border-slate-300 rounded-xl"
-                    placeholder="Ej: El Club"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">
-                    Resumen en Home (Bajada)
-                  </label>
-                  <textarea
-                    rows={3}
-                    value={data.home_descripcion}
-                    onChange={(e) =>
-                      setData({ ...data, home_descripcion: e.target.value })
-                    }
-                    className="w-full px-4 py-2 border border-slate-300 rounded-xl resize-none"
-                    placeholder="Breve descripción para la portada..."
-                  />
-                </div>
-              </div>
-
-              {/* SLIDER DEL HOME */}
-              <div className="border-t border-slate-100 pt-6">
-                <div className="flex justify-between items-center mb-4">
-                  <div>
-                    <h3 className="font-bold text-slate-800">
-                      Slider del Home
-                    </h3>
-                    <p className="text-xs text-slate-500">
-                      Imágenes que aparecen junto al resumen en la portada.
-                    </p>
-                  </div>
-                  <label className="cursor-pointer bg-blue-50 text-blue-600 px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-blue-100 flex gap-2 items-center">
-                    <Plus className="w-4 h-4" /> Agregar
-                    <input
-                      type="file"
-                      accept="image/*"
-                      multiple
-                      className="hidden"
-                      onChange={handleHomeSliderSelect}
-                    />
-                  </label>
-                </div>
-
-                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                  {/* Existentes Home */}
-                  {data.galeria_inicio.map((url, i) => (
-                    <div
-                      key={`home-saved-${i}`}
-                      className="relative aspect-square rounded-xl overflow-hidden border border-slate-200 group"
-                    >
-                      <Image
-                        src={url}
-                        alt="Saved"
-                        fill
-                        className="object-cover"
-                      />
-                      <button
-                        onClick={() => removeExistingHomeSlider(i)}
-                        className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                    </div>
-                  ))}
-                  {/* Nuevas Home */}
-                  {newHomeSliderPreviews.map((url, i) => (
-                    <div
-                      key={`home-new-${i}`}
-                      className="relative aspect-square rounded-xl overflow-hidden border-2 border-green-400 group"
-                    >
-                      <Image
-                        src={url}
-                        alt="New"
-                        fill
-                        className="object-cover"
-                      />
-                      <div className="absolute top-0 left-0 bg-green-500 text-white text-[10px] px-2 py-0.5 font-bold">
-                        NUEVA
-                      </div>
-                      <button
-                        onClick={() => removeNewHomeSlider(i)}
-                        className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                    </div>
-                  ))}
-                  {data.galeria_inicio.length === 0 &&
-                    newHomeSliderPreviews.length === 0 && (
-                      <div className="col-span-full py-8 text-center text-slate-400 text-sm border-2 border-dashed rounded-xl bg-slate-50">
-                        Sin imágenes para el home.
-                      </div>
-                    )}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* --- TAB GENERAL (Página Interna) --- */}
-          {activeTab === "general" && (
-            <div className="space-y-6 animate-in fade-in">
-              <div className="grid md:grid-cols-2 gap-6">
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">
-                    Título Página Interna
-                  </label>
-                  <input
-                    type="text"
-                    value={data.historia_titulo}
-                    onChange={(e) =>
-                      setData({ ...data, historia_titulo: e.target.value })
-                    }
-                    className="w-full px-4 py-2 border border-slate-300 rounded-xl"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">
-                    Bajada / Introducción
-                  </label>
-                  <input
-                    type="text"
-                    value={data.hero_descripcion}
-                    onChange={(e) =>
-                      setData({ ...data, hero_descripcion: e.target.value })
-                    }
-                    className="w-full px-4 py-2 border border-slate-300 rounded-xl"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1">
-                  Historia Completa (Contenido Rico)
-                </label>
-                <textarea
-                  rows={10}
-                  value={data.historia_contenido}
-                  onChange={(e) =>
-                    setData({ ...data, historia_contenido: e.target.value })
-                  }
-                  className="w-full px-4 py-2 border border-slate-300 rounded-xl resize-none font-mono text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1">
-                  Frase de Cierre
-                </label>
-                <input
-                  type="text"
-                  value={data.frase_cierre}
-                  onChange={(e) =>
-                    setData({ ...data, frase_cierre: e.target.value })
-                  }
-                  className="w-full px-4 py-2 border border-slate-300 rounded-xl italic"
-                />
-              </div>
-            </div>
-          )}
-
-          {/* --- TAB GALERÍA (Página Interna) --- */}
-          {activeTab === "galeria" && (
-            <div className="space-y-6 animate-in fade-in">
-              <div className="flex justify-between items-center">
-                <h3 className="font-bold text-slate-800">
-                  Galería Página Interna
-                </h3>
-                <label className="cursor-pointer bg-blue-50 text-blue-600 px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-blue-100 flex gap-2 items-center">
-                  <Plus className="w-4 h-4" /> Agregar
-                  <input
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    className="hidden"
-                    onChange={handleGallerySelect}
-                  />
-                </label>
-              </div>
-              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                {data.galeria_pagina.map((url, i) => (
-                  <div
-                    key={`saved-${i}`}
-                    className="relative aspect-square rounded-xl overflow-hidden border border-slate-200 group"
-                  >
-                    <Image
-                      src={url}
-                      alt="Saved"
-                      fill
-                      className="object-cover"
-                    />
-                    <button
-                      onClick={() => removeExistingImage(i)}
-                      className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </div>
-                ))}
-                {newGalleryPreviews.map((url, i) => (
-                  <div
-                    key={`new-${i}`}
-                    className="relative aspect-square rounded-xl overflow-hidden border-2 border-green-400 group"
-                  >
-                    <Image src={url} alt="New" fill className="object-cover" />
-                    <div className="absolute top-0 left-0 bg-green-500 text-white text-[10px] px-2 py-0.5 font-bold">
-                      NUEVA
-                    </div>
-                    <button
-                      onClick={() => removeNewImage(i)}
-                      className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </div>
-                ))}
-                {data.galeria_pagina.length === 0 &&
-                  newGalleryPreviews.length === 0 && (
-                    <div className="col-span-full py-8 text-center text-slate-400 text-sm border-2 border-dashed rounded-xl bg-slate-50">
-                      Sin imágenes en la galería interna.
-                    </div>
-                  )}
-              </div>
-            </div>
-          )}
-
-          {/* --- TAB VALORES --- */}
-          {activeTab === "valores" && (
-            <div className="space-y-6 animate-in fade-in">
-              <div className="flex justify-between items-center">
-                <h3 className="font-bold text-slate-800">Nuestros Valores</h3>
-                <button
-                  onClick={addValor}
-                  className="bg-blue-50 text-blue-600 px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-blue-100 flex gap-2 items-center"
-                >
-                  <Plus className="w-4 h-4" /> Nuevo Valor
-                </button>
-              </div>
-              <div className="grid gap-4">
-                {data.valores.map((valor, i) => (
-                  <div
-                    key={i}
-                    className="flex gap-4 p-4 border border-slate-200 rounded-xl bg-slate-50 items-start"
-                  >
-                    <div className="mt-2 bg-white p-2 rounded-lg border border-slate-200 text-slate-400">
-                      <Heart className="w-5 h-5" />
-                    </div>
-                    <div className="flex-1 space-y-2">
-                      <input
-                        type="text"
-                        value={valor.titulo}
-                        onChange={(e) =>
-                          updateValor(i, "titulo", e.target.value)
-                        }
-                        className="w-full px-3 py-1.5 border border-slate-200 rounded-lg font-bold text-sm"
-                        placeholder="Título (Ej: Pasión)"
-                      />
-                      <textarea
-                        rows={2}
-                        value={valor.contenido}
-                        onChange={(e) =>
-                          updateValor(i, "contenido", e.target.value)
-                        }
-                        className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-sm resize-none"
-                        placeholder="Descripción..."
-                      />
-                    </div>
-                    <button
-                      onClick={() => removeValor(i)}
-                      className="text-slate-400 hover:text-red-500 p-1"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                ))}
-                {data.valores.length === 0 && (
-                  <p className="text-center text-slate-400 text-sm py-4">
-                    No has agregado valores aún.
-                  </p>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* --- TAB EQUIPO --- */}
-          {activeTab === "equipo" && (
-            <div className="space-y-6 animate-in fade-in">
-              <div className="grid md:grid-cols-2 gap-8">
-                <div>
-                  <h3 className="font-bold text-slate-800 mb-4">
-                    Fondo de la Sección
-                  </h3>
-                  <div className="relative w-full aspect-video bg-slate-100 rounded-xl overflow-hidden border-2 border-dashed border-slate-300 flex flex-col items-center justify-center group hover:border-blue-400 transition-colors">
-                    {teamImagePreview || data.equipo_imagen_url ? (
-                      <Image
-                        src={teamImagePreview || data.equipo_imagen_url || ""}
-                        alt="Team BG"
-                        fill
-                        className="object-cover"
-                      />
-                    ) : (
-                      <div className="text-slate-400 flex flex-col items-center">
-                        <ImageIcon className="w-8 h-8 mb-2" />
-                        <span className="text-xs">Sin imagen</span>
-                      </div>
-                    )}
-                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                      <label className="cursor-pointer bg-white text-slate-800 px-4 py-2 rounded-lg font-bold text-sm hover:scale-105 transition-transform">
-                        Cambiar Imagen
-                        <input
-                          type="file"
-                          className="hidden"
-                          accept="image/*"
-                          onChange={handleTeamImageSelect}
-                        />
-                      </label>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* BOTÓN GUARDAR */}
-      <div className="flex justify-end pt-4">
-        <button
+          type="button"
           onClick={handleSave}
           disabled={saving}
-          className="flex items-center gap-2 bg-green-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-green-700 disabled:opacity-50 shadow-lg hover:-translate-y-1 transition-all"
+          className="bg-green-600 text-white w-14 h-14 rounded-full shadow-2xl flex items-center justify-center border-2 border-white/20 active:scale-95 transition-all hover:bg-green-700"
+          title="Guardar cambios"
         >
           {saving ? (
-            <Loader2 className="w-5 h-5 animate-spin" />
+            <Loader2 className="animate-spin w-6 h-6" />
           ) : (
-            <Save className="w-5 h-5" />
+            <Save className="w-6 h-6" />
           )}
-          Guardar Cambios
         </button>
+      </div>
+
+      <div className="max-w-7xl mx-auto space-y-8 pb-32">
+        {/* HEADER */}
+        <div className="flex justify-between items-end">
+          <div>
+            <h1 className="text-3xl font-extrabold text-slate-900">
+              Personalización "Nosotros"
+            </h1>
+            <p className="text-slate-500 mt-2 text-lg">
+              Gestiona la historia, valores y equipo.
+            </p>
+          </div>
+          {/* Botón Desktop */}
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={saving}
+            className="hidden md:flex bg-green-600 hover:bg-green-700 text-white px-8 py-3 rounded-xl font-bold gap-2 items-center shadow-lg hover:-translate-y-1 disabled:opacity-70"
+          >
+            {saving ? (
+              <Loader2 className="animate-spin w-5 h-5" />
+            ) : (
+              <Save className="w-5 h-5" />
+            )}
+            Guardar Todo
+          </button>
+        </div>
+
+        {/* TABS (CON SCROLL) */}
+        <div className="flex space-x-1 bg-white p-1 rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
+          {[
+            { id: "home", label: "En Home", icon: LayoutTemplate },
+            { id: "general", label: "Página Interna", icon: FileText },
+            { id: "galeria", label: "Galería Interna", icon: ImageIcon },
+            { id: "valores", label: "Valores", icon: Heart },
+            { id: "equipo", label: "Equipo", icon: Users },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id as any)}
+              className={`flex items-center gap-2 px-6 py-3 rounded-lg font-bold text-sm transition-all whitespace-nowrap ${
+                activeTab === tab.id
+                  ? "bg-slate-900 text-white shadow-md"
+                  : "text-slate-500 hover:bg-slate-100"
+              }`}
+            >
+              <tab.icon className="w-4 h-4" /> {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {/* CONTENIDO PRINCIPAL */}
+        <div className="grid grid-cols-1 gap-8 items-start">
+          <div className="space-y-6">
+            {/* ACTIVAR/DESACTIVAR */}
+            <section className="bg-white p-4 md:p-6 rounded-2xl border border-slate-200 shadow-sm flex justify-between items-center">
+              <div>
+                <h3 className="font-bold text-slate-800">
+                  Visibilidad de la Sección
+                </h3>
+                <p className="text-xs text-slate-500 hidden md:block">
+                  ¿Visible en la web?
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  setData((prev) => ({
+                    ...prev,
+                    activo_nosotros: !prev.activo_nosotros,
+                  }))
+                }
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold transition-all text-sm md:text-base ${
+                  data.activo_nosotros
+                    ? "bg-green-100 text-green-700"
+                    : "bg-slate-100 text-slate-500"
+                }`}
+              >
+                {data.activo_nosotros ? (
+                  <ToggleRight className="w-6 h-6" />
+                ) : (
+                  <ToggleLeft className="w-6 h-6" />
+                )}
+                {data.activo_nosotros ? "Visible" : "Oculto"}
+              </button>
+            </section>
+
+            {data.activo_nosotros && (
+              <>
+                {/* --- TAB HOME --- */}
+                {activeTab === "home" && (
+                  <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
+                    <section className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                      <h2 className="text-lg font-bold text-slate-800 mb-4">
+                        Configuración Home
+                      </h2>
+                      <div className="grid md:grid-cols-2 gap-6 mb-6">
+                        <div>
+                          <label className="block text-sm font-semibold text-slate-700 mb-1">
+                            Título (Corto)
+                          </label>
+                          <input
+                            type="text"
+                            value={data.home_titulo}
+                            onChange={(e) =>
+                              setData({ ...data, home_titulo: e.target.value })
+                            }
+                            className="w-full px-4 py-2 border border-slate-300 rounded-xl"
+                            placeholder="Ej: El Club"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-semibold text-slate-700 mb-1">
+                            Resumen (Bajada)
+                          </label>
+                          <textarea
+                            rows={3}
+                            value={data.home_descripcion}
+                            onChange={(e) =>
+                              setData({
+                                ...data,
+                                home_descripcion: e.target.value,
+                              })
+                            }
+                            className="w-full px-4 py-2 border border-slate-300 rounded-xl resize-none"
+                            placeholder="Breve descripción..."
+                          />
+                        </div>
+                      </div>
+
+                      <div className="border-t border-slate-100 pt-6">
+                        <div className="flex justify-between items-center mb-4">
+                          <h3 className="font-bold text-slate-800 text-sm">
+                            Slider del Home
+                          </h3>
+                          <label className="cursor-pointer bg-blue-50 text-blue-600 px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-blue-100 flex gap-2 items-center">
+                            <Plus className="w-4 h-4" /> Agregar
+                            <input
+                              type="file"
+                              accept="image/*"
+                              multiple
+                              className="hidden"
+                              onChange={handleHomeSliderSelect}
+                            />
+                          </label>
+                        </div>
+
+                        {/* GRID DE IMÁGENES HOME */}
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                          {/* EXISTENTES */}
+                          {data.galeria_inicio.map((url, i) => (
+                            <div
+                              key={`home-saved-${i}`}
+                              className="relative aspect-square rounded-xl overflow-hidden border border-slate-200 group bg-slate-50"
+                            >
+                              <Image
+                                src={url}
+                                alt="Saved"
+                                fill
+                                className="object-cover"
+                              />
+
+                              {/* CONTROLES ORDEN (SIEMPRE VISIBLES EN MÓVIL) */}
+                              <div className="absolute bottom-0 left-0 right-0 bg-black/60 backdrop-blur-sm p-1.5 flex justify-between items-center z-10">
+                                <button
+                                  type="button"
+                                  onClick={() => moveHomeSaved(i, "left")}
+                                  className="text-white hover:text-blue-300 p-1 bg-white/10 rounded-md"
+                                >
+                                  <ChevronLeft className="w-4 h-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => moveHomeSaved(i, "right")}
+                                  className="text-white hover:text-blue-300 p-1 bg-white/10 rounded-md"
+                                >
+                                  <ChevronRight className="w-4 h-4" />
+                                </button>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => removeExistingHomeSlider(i)}
+                                className="absolute top-1 right-1 bg-red-500 text-white p-1.5 rounded-full shadow-md z-20 hover:scale-110 transition-transform"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
+                          ))}
+                          {/* NUEVAS */}
+                          {newHomeSliderPreviews.map((url, i) => (
+                            <div
+                              key={`home-new-${i}`}
+                              className="relative aspect-square rounded-xl overflow-hidden border-2 border-green-400 group bg-slate-50"
+                            >
+                              <Image
+                                src={url}
+                                alt="New"
+                                fill
+                                className="object-cover"
+                              />
+                              <div className="absolute top-0 left-0 bg-green-500 text-white text-[9px] px-2 py-0.5 font-bold z-10 rounded-br-lg">
+                                NUEVA
+                              </div>
+
+                              {/* CONTROLES ORDEN (NUEVAS) */}
+                              <div className="absolute bottom-0 left-0 right-0 bg-black/60 backdrop-blur-sm p-1.5 flex justify-between items-center z-10">
+                                <button
+                                  type="button"
+                                  onClick={() => moveHomeNew(i, "left")}
+                                  className="text-white hover:text-green-300 p-1 bg-white/10 rounded-md"
+                                >
+                                  <ChevronLeft className="w-4 h-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => moveHomeNew(i, "right")}
+                                  className="text-white hover:text-green-300 p-1 bg-white/10 rounded-md"
+                                >
+                                  <ChevronRight className="w-4 h-4" />
+                                </button>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => removeNewHomeSlider(i)}
+                                className="absolute top-1 right-1 bg-red-500 text-white p-1.5 rounded-full shadow-md z-20 hover:scale-110 transition-transform"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </section>
+                  </div>
+                )}
+
+                {/* --- TAB GENERAL --- */}
+                {activeTab === "general" && (
+                  <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
+                    <section className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                      <h2 className="text-lg font-bold text-slate-800 mb-4">
+                        Página Interna
+                      </h2>
+                      <div className="space-y-4">
+                        <div>
+                          <label className="block text-sm font-semibold text-slate-700 mb-1">
+                            Título Principal
+                          </label>
+                          <input
+                            type="text"
+                            value={data.historia_titulo}
+                            onChange={(e) =>
+                              setData({
+                                ...data,
+                                historia_titulo: e.target.value,
+                              })
+                            }
+                            className="w-full px-4 py-2 border border-slate-300 rounded-xl"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-semibold text-slate-700 mb-1">
+                            Introducción
+                          </label>
+                          <input
+                            type="text"
+                            value={data.hero_descripcion}
+                            onChange={(e) =>
+                              setData({
+                                ...data,
+                                hero_descripcion: e.target.value,
+                              })
+                            }
+                            className="w-full px-4 py-2 border border-slate-300 rounded-xl"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-semibold text-slate-700 mb-1">
+                            Historia Completa
+                          </label>
+                          <textarea
+                            rows={8}
+                            value={data.historia_contenido}
+                            onChange={(e) =>
+                              setData({
+                                ...data,
+                                historia_contenido: e.target.value,
+                              })
+                            }
+                            className="w-full px-4 py-2 border border-slate-300 rounded-xl resize-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-semibold text-slate-700 mb-1">
+                            Frase de Cierre
+                          </label>
+                          <input
+                            type="text"
+                            value={data.frase_cierre}
+                            onChange={(e) =>
+                              setData({ ...data, frase_cierre: e.target.value })
+                            }
+                            className="w-full px-4 py-2 border border-slate-300 rounded-xl italic"
+                          />
+                        </div>
+                      </div>
+                    </section>
+                  </div>
+                )}
+
+                {/* --- TAB GALERÍA INTERNA --- */}
+                {activeTab === "galeria" && (
+                  <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
+                    <section className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                      <div className="flex justify-between items-center mb-4">
+                        <h2 className="text-lg font-bold text-slate-800">
+                          Galería Interna
+                        </h2>
+                        <label className="cursor-pointer bg-blue-50 text-blue-600 px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-blue-100 flex gap-2 items-center">
+                          <Plus className="w-4 h-4" /> Agregar
+                          <input
+                            type="file"
+                            accept="image/*"
+                            multiple
+                            className="hidden"
+                            onChange={handleGallerySelect}
+                          />
+                        </label>
+                      </div>
+
+                      {/* GRID DE IMÁGENES INTERNAS */}
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                        {/* EXISTENTES */}
+                        {data.galeria_pagina.map((url, i) => (
+                          <div
+                            key={`saved-${i}`}
+                            className="relative aspect-square rounded-xl overflow-hidden border border-slate-200 group bg-slate-50"
+                          >
+                            <Image
+                              src={url}
+                              alt="Saved"
+                              fill
+                              className="object-cover"
+                            />
+
+                            <div className="absolute bottom-0 left-0 right-0 bg-black/60 backdrop-blur-sm p-1.5 flex justify-between items-center z-10">
+                              <button
+                                type="button"
+                                onClick={() => movePageSaved(i, "left")}
+                                className="text-white hover:text-blue-300 p-1 bg-white/10 rounded-md"
+                              >
+                                <ChevronLeft className="w-4 h-4" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => movePageSaved(i, "right")}
+                                className="text-white hover:text-blue-300 p-1 bg-white/10 rounded-md"
+                              >
+                                <ChevronRight className="w-4 h-4" />
+                              </button>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => removeExistingImage(i)}
+                              className="absolute top-1 right-1 bg-red-500 text-white p-1.5 rounded-full shadow-md z-20 hover:scale-110 transition-transform"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ))}
+                        {/* NUEVAS */}
+                        {newGalleryPreviews.map((url, i) => (
+                          <div
+                            key={`new-${i}`}
+                            className="relative aspect-square rounded-xl overflow-hidden border-2 border-green-400 group bg-slate-50"
+                          >
+                            <Image
+                              src={url}
+                              alt="New"
+                              fill
+                              className="object-cover"
+                            />
+                            <div className="absolute top-0 left-0 bg-green-500 text-white text-[9px] px-2 py-0.5 font-bold z-10 rounded-br-lg">
+                              NUEVA
+                            </div>
+
+                            <div className="absolute bottom-0 left-0 right-0 bg-black/60 backdrop-blur-sm p-1.5 flex justify-between items-center z-10">
+                              <button
+                                type="button"
+                                onClick={() => movePageNew(i, "left")}
+                                className="text-white hover:text-green-300 p-1 bg-white/10 rounded-md"
+                              >
+                                <ChevronLeft className="w-4 h-4" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => movePageNew(i, "right")}
+                                className="text-white hover:text-green-300 p-1 bg-white/10 rounded-md"
+                              >
+                                <ChevronRight className="w-4 h-4" />
+                              </button>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => removeNewImage(i)}
+                              className="absolute top-1 right-1 bg-red-500 text-white p-1.5 rounded-full shadow-md z-20 hover:scale-110 transition-transform"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  </div>
+                )}
+
+                {/* --- TAB VALORES --- */}
+                {activeTab === "valores" && (
+                  <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
+                    <section className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                      <div className="flex justify-between items-center mb-4">
+                        <h2 className="text-lg font-bold text-slate-800">
+                          Nuestros Valores
+                        </h2>
+                        <button
+                          type="button"
+                          onClick={addValor}
+                          className="bg-blue-50 text-blue-600 px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-blue-100 flex gap-2 items-center"
+                        >
+                          <Plus className="w-4 h-4" /> Nuevo Valor
+                        </button>
+                      </div>
+                      <div className="grid gap-4">
+                        {data.valores.map((valor, i) => (
+                          <div
+                            key={i}
+                            className="flex gap-4 p-4 border border-slate-200 rounded-xl bg-slate-50 items-start"
+                          >
+                            <div className="mt-2 bg-white p-2 rounded-lg border border-slate-200 text-slate-400 shrink-0">
+                              <Heart className="w-5 h-5" />
+                            </div>
+                            <div className="flex-1 space-y-2 min-w-0">
+                              <input
+                                type="text"
+                                value={valor.titulo}
+                                onChange={(e) =>
+                                  updateValor(i, "titulo", e.target.value)
+                                }
+                                className="w-full px-3 py-1.5 border border-slate-200 rounded-lg font-bold text-sm"
+                                placeholder="Título"
+                              />
+                              <textarea
+                                rows={2}
+                                value={valor.contenido}
+                                onChange={(e) =>
+                                  updateValor(i, "contenido", e.target.value)
+                                }
+                                className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-sm resize-none"
+                                placeholder="Descripción..."
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => removeValor(i)}
+                              className="text-slate-400 hover:text-red-500 p-1 shrink-0"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  </div>
+                )}
+
+                {/* --- TAB EQUIPO --- */}
+                {activeTab === "equipo" && (
+                  <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
+                    <section className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                      <h2 className="text-lg font-bold text-slate-800 mb-4">
+                        Fondo Sección Equipo
+                      </h2>
+                      <div className="relative w-full aspect-video bg-slate-100 rounded-xl overflow-hidden border-2 border-dashed border-slate-300 flex flex-col items-center justify-center group hover:border-blue-400 transition-colors">
+                        {teamImagePreview || data.equipo_imagen_url ? (
+                          <Image
+                            src={
+                              teamImagePreview || data.equipo_imagen_url || ""
+                            }
+                            alt="Team BG"
+                            fill
+                            className="object-cover"
+                          />
+                        ) : (
+                          <div className="text-slate-400 flex flex-col items-center">
+                            <ImageIcon className="w-8 h-8 mb-2" />
+                            <span className="text-xs">Sin imagen</span>
+                          </div>
+                        )}
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                          <label className="cursor-pointer bg-white text-slate-800 px-4 py-2 rounded-lg font-bold text-sm hover:scale-105 transition-transform">
+                            Cambiar Imagen{" "}
+                            <input
+                              type="file"
+                              className="hidden"
+                              accept="image/*"
+                              onChange={handleTeamImageSelect}
+                            />
+                          </label>
+                        </div>
+                      </div>
+                    </section>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
