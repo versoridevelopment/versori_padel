@@ -79,15 +79,6 @@ export default function Contacto({ data, colors }: Props) {
               </div>
             </div>
           </div>
-
-          {/* Mapa Decorativo (Placeholder o Google Maps Embed si tuvieras la URL) */}
-          <div className="w-full lg:w-1/2 h-80 bg-[#0a0b10] rounded-2xl flex items-center justify-center text-gray-600 border border-white/10 relative overflow-hidden group">
-            <div className="absolute inset-0 bg-[url('/pattern-grid.svg')] opacity-10" />
-            <div className="z-10 flex flex-col items-center gap-2">
-              <MapPin className="w-10 h-10 opacity-50" />
-              <span className="text-sm font-medium">Mapa de Ubicación</span>
-            </div>
-          </div>
         </div>
       </Container>
     </section>

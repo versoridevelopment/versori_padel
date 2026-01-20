@@ -30,7 +30,7 @@ const Hero = ({
   const cleanNumber = whatsappNumber?.replace(/\D/g, ""); // Quitamos espacios/guiones
   const whatsappLink = cleanNumber
     ? `https://wa.me/${cleanNumber}?text=${encodeURIComponent(
-        "Hola! Quisiera hacer una consulta."
+        "Hola! Quisiera hacer una consulta.",
       )}`
     : "#";
 
@@ -92,7 +92,7 @@ const Hero = ({
 
           <div className="pt-4 flex flex-wrap gap-4">
             {/* 1. Botón Reservar */}
-            <Link href="/reservar">
+            <Link href="/reserva">
               <button
                 className="px-8 py-4 rounded-xl font-bold text-white flex items-center gap-2 transition-transform hover:scale-105 shadow-lg shadow-black/20"
                 style={{ backgroundColor: primaryColor }}

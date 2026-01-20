@@ -33,7 +33,7 @@ export default function Header() {
           <a href="#clases" className="hover:text-blue-700">Clases</a>
           <a href="#eventos" className="hover:text-blue-700">Eventos</a>
           <a href="#nosotros" className="hover:text-blue-700">Nosotros</a>
-          <button className="bg-blue-700 text-white px-4 py-2 rounded-full hover:bg-blue-800">
+          <button  className="bg-blue-700 text-white px-4 py-2 rounded-full hover:bg-blue-800">
             Hacé tu reserva
           </button>
         </nav>
