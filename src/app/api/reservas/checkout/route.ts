@@ -154,11 +154,23 @@ export async function POST(req: Request) {
     });
 
     if (rpcErr) {
-      const msg = rpcErr.message || "";
-      if (msg.includes("TURNOS_SOLAPADOS")) {
+      // 23P01 = exclusion_violation (EXCLUDE constraint anti-solape)
+      if (rpcErr.code === "23P01") {
         return NextResponse.json({ error: "Ese horario ya no está disponible" }, { status: 409 });
       }
-      return NextResponse.json({ error: `Error creando reserva pendiente: ${msg}` }, { status: 500 });
+
+      // P0001 suele ser "RAISE EXCEPTION" desde plpgsql (errores de negocio)
+      if (rpcErr.code === "P0001") {
+        return NextResponse.json({ error: "No se pudo confirmar la reserva" }, { status: 409 });
+      }
+
+      return NextResponse.json(
+        {
+          error: "Error creando reserva pendiente",
+          detail: { code: rpcErr.code, message: rpcErr.message },
+        },
+        { status: 500 }
+      );
     }
 
     const row = Array.isArray(created) ? created[0] : created;
@@ -209,6 +221,7 @@ export async function POST(req: Request) {
       .from("reservas_pagos")
       .insert({
         id_reserva,
+        id_club: draft.id_club,
         provider: "mercadopago",
         status: "created",
         amount: monto_anticipo,
@@ -219,7 +232,10 @@ export async function POST(req: Request) {
       .single();
 
     if (pErr) {
-      return NextResponse.json({ error: `Error creando registro de pago: ${pErr.message}` }, { status: 500 });
+      return NextResponse.json(
+        { error: `Error creando registro de pago: ${pErr.message}` },
+        { status: 500 }
+      );
     }
 
     const id_pago = Number(pago?.id_pago);

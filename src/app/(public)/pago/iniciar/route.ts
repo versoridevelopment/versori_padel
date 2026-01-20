@@ -150,9 +150,7 @@ export async function GET(req: Request) {
       ],
       external_reference: String(id_reserva),
 
-      notification_url: `${baseUrl}/api/pagos/mercadopago/webhook?club=${encodeURIComponent(
-        tenant
-      )}`,
+      notification_url: `${baseUrl}/api/pagos/mercadopago/webhook?id_club=${reserva.id_club}`,
 
       back_urls: {
         success: `${baseUrl}/pago/resultado?status=success&id_reserva=${id_reserva}&club=${encodeURIComponent(

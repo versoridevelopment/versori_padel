@@ -5,10 +5,12 @@ export const runtime = "nodejs";
 
 export async function GET(
   req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> } // ✅ params awaited
 ) {
   try {
-    const id_reserva = Number(params.id);
+    const { id } = await params;
+    const id_reserva = Number(id);
+
     if (!id_reserva || Number.isNaN(id_reserva)) {
       return NextResponse.json({ error: "id inválido" }, { status: 400 });
     }
@@ -40,31 +42,21 @@ export async function GET(
 
     const now = new Date();
 
-    // Expirada por tiempo (hold vencido)
+    // Expirada por tiempo
     if (
       data.estado === "pendiente_pago" &&
       data.expires_at &&
       new Date(data.expires_at) <= now
     ) {
-      return NextResponse.json({
-        id_reserva,
-        estado: "expirada",
-      });
+      return NextResponse.json({ id_reserva, estado: "expirada" });
     }
 
-    // Si hay pago rechazado explícito
+    // Rechazada si el último pago fue rejected/cancelled
     const ultimoPago = data.reservas_pagos?.[0];
-    if (
-      ultimoPago &&
-      ["rejected", "cancelled"].includes(ultimoPago.mp_status)
-    ) {
-      return NextResponse.json({
-        id_reserva,
-        estado: "rechazada",
-      });
+    if (ultimoPago && ["rejected", "cancelled"].includes(String(ultimoPago.mp_status))) {
+      return NextResponse.json({ id_reserva, estado: "rechazada" });
     }
 
-    // Estado normal
     return NextResponse.json({
       id_reserva,
       estado: data.estado,

@@ -1,3 +1,4 @@
+// src/app/register/page.tsx
 "use client";
 
 import { useState, useEffect, FormEvent, FC } from "react";
@@ -42,8 +43,8 @@ const RegisterPage: FC = () => {
 
   useEffect(() => {
     const fetchClub = async () => {
-      const host = window.location.host;
-      const hostname = host.split(":")[0];
+      const host = window.location.host; // ej: padelcentral.localhost:3000
+      const hostname = host.split(":")[0]; // padelcentral.localhost
 
       const sub = getSubdomainFromHost(hostname);
       setSubdomain(sub);
@@ -127,7 +128,6 @@ const RegisterPage: FC = () => {
     setMessageType(null);
     setErrors({});
 
-    // Validaciones de campos (ningún campo en blanco)
     const isValid = validateForm();
     if (!isValid) return;
 
@@ -148,9 +148,7 @@ const RegisterPage: FC = () => {
 
     if (profileError) {
       console.error("[Register] Error consultando profiles:", profileError);
-      setMessage(
-        "Ocurrió un error al verificar el usuario. Intentá de nuevo más tarde."
-      );
+      setMessage("Ocurrió un error al verificar el usuario. Intentá más tarde.");
       setMessageType("error");
       setIsLoading(false);
       return;
@@ -159,21 +157,16 @@ const RegisterPage: FC = () => {
     // CASO: Email YA EXISTE en profiles
     if (existingProfile) {
       setMessage(
-        "Atención: este email ya está registrado en el sistema VERSORI. Ya te has registrado en otro club. Iniciá sesión con tu contraseña original o usá 'Olvidé mi contraseña'."
+        "Atención: este email ya está registrado en el sistema VERSORI. Ya te registraste en otro club. Iniciá sesión con tu contraseña original o usá 'Olvidé mi contraseña'."
       );
       setMessageType("warning");
       setIsLoading(false);
       return;
     }
 
-    // CASO: Usuario NUEVO
-    const siteUrl =
-      process.env.NEXT_PUBLIC_SITE_URL ??
-      `${window.location.protocol}//${window.location.host}`;
-
-    const redirectTo = `${siteUrl}/auth/callback?sub=${encodeURIComponent(
-      subdomain
-    )}`;
+    // ✅ CAMBIO CLAVE: el redirect siempre al MISMO host/subdominio actual
+    // Ej: http://padelcentral.localhost:3000/auth/callback
+    const redirectTo = `${window.location.origin}/auth/callback`;
 
     const { error: signUpError } = await supabase.auth.signUp({
       email: email.trim(),
@@ -183,7 +176,7 @@ const RegisterPage: FC = () => {
           nombre: formatName(nombre),
           apellido: formatName(apellido),
           telefono,
-          id_club: clubId, // lo usa el trigger handle_new_auth_user
+          id_club: clubId,
         },
         emailRedirectTo: redirectTo,
       },
@@ -277,7 +270,7 @@ const RegisterPage: FC = () => {
         />
         <h1 className="text-3xl font-bold mb-2">Crear una cuenta</h1>
 
-        {/* Bloque de mensajes inline PREMIUM */}
+        {/* Mensaje inline */}
         {message && (
           <div
             className={`mt-4 mb-4 text-sm p-4 rounded-xl text-left border flex items-start gap-3 ${
@@ -290,7 +283,6 @@ const RegisterPage: FC = () => {
                 : "bg-blue-500/10 text-blue-200 border-blue-500/40"
             }`}
           >
-            {/* Ícono premium (triángulo de alerta) */}
             <svg
               xmlns="http://www.w3.org/2000/svg"
               className="w-5 h-5 flex-shrink-0 mt-0.5"
@@ -364,7 +356,7 @@ const RegisterPage: FC = () => {
               onChange={(e) => {
                 setTelefono(e.target.value);
                 setErrors((prev) => ({ ...prev, telefono: "" }));
-              }}
+                }}
               className={`w-full p-3 rounded-xl bg-[#112d57] border ${
                 errors.telefono ? "border-red-500" : "border-blue-900/40"
               }`}
@@ -424,9 +416,7 @@ const RegisterPage: FC = () => {
                 setErrors((prev) => ({ ...prev, confirmPassword: "" }));
               }}
               className={`w-full p-3 rounded-xl bg-[#112d57] border ${
-                errors.confirmPassword
-                  ? "border-red-500"
-                  : "border-blue-900/40"
+                errors.confirmPassword ? "border-red-500" : "border-blue-900/40"
               }`}
             />
             {errors.confirmPassword && (
