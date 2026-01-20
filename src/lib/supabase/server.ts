@@ -1,15 +1,13 @@
-// src/lib/supabase/server.ts
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
 /**
- * Inicializa el cliente de Supabase en entorno de servidor (Next.js 15 compatible).
+ * Cliente Supabase SSR para Route Handlers / Server Actions (Next.js 15 compatible).
  */
 export async function getSupabaseServerClient() {
-  // ✅ cookies() ahora es ASYNC en Next 15
   const cookieStore = await cookies();
 
-  const supabase = createServerClient(
+  return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
@@ -19,16 +17,14 @@ export async function getSupabaseServerClient() {
         },
         setAll(cookiesToSet) {
           try {
-            for (const { name, value, options } of cookiesToSet) {
-              cookieStore.set({ name, value, ...options });
-            }
+            cookiesToSet.forEach(({ name, value, options }) => {
+              cookieStore.set(name, value, options);
+            });
           } catch {
-            // cookies() puede ser inmutable en SSR puro
+            // En algunos renders SSR, cookies puede ser inmutable.
           }
         },
       },
     }
   );
-
-  return supabase;
 }

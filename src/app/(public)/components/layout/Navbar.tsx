@@ -7,7 +7,7 @@ import Container from "../ui/Container";
 import { supabase } from "../../../../lib/supabase/supabaseClient";
 import type { Session } from "@supabase/supabase-js";
 import type { Club } from "@/lib/ObetenerClubUtils/getCurrentClub";
-import { Menu, X, LogOut, User, Settings } from "lucide-react"; // Agregué Settings por si quieres usarlo, aunque User va bien
+import { Menu, X, LogOut, User } from "lucide-react";
 
 // 1. TIPOS
 interface NavbarProps {
@@ -22,17 +22,24 @@ type UserProfile = {
   apellido: string | null;
 };
 
+type MeOk = {
+  user: { id: string; email: string | null };
+};
+
+function isMeOk(x: any): x is MeOk {
+  return !!x?.user?.id;
+}
+
 // 2. COMPONENTE
-const Navbar = ({
-  club,
-  tieneQuincho,
-  showNosotros,
-  showProfesores,
-}: NavbarProps) => {
+const Navbar = ({ club, tieneQuincho, showNosotros, showProfesores }: NavbarProps) => {
   const [hidden, setHidden] = useState<boolean>(false);
   const [lastScrollY, setLastScrollY] = useState<number>(0);
+
+  // ⬇️ seguimos usando Session para no tocar el render actual (pero la “fuente de verdad” será /api/auth/me)
   const [session, setSession] = useState<Session | null>(null);
+
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [meLoading, setMeLoading] = useState<boolean>(true);
 
   // ESTADO PARA EL MENÚ MÓVIL
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -54,30 +61,56 @@ const Navbar = ({
     return () => window.removeEventListener("scroll", handleScroll);
   }, [lastScrollY, isMobileMenuOpen]);
 
-  // --- Auth Logic ---
+  // --- Auth Logic (robusto): /api/auth/me ---
   useEffect(() => {
-    const fetchSessionAndProfile = async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      setSession(session);
-      if (session) fetchProfile(session.user.id);
-    };
+    let alive = true;
 
-    fetchSessionAndProfile();
+    async function loadMeAndProfile() {
+      try {
+        setMeLoading(true);
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      setSession(session);
-      if (session) {
-        fetchProfile(session.user.id);
-      } else {
+        const res = await fetch("/api/auth/me", { cache: "no-store" });
+        const json = await res.json().catch(() => null);
+
+        if (!alive) return;
+
+        if (!res.ok || !isMeOk(json)) {
+          setSession(null);
+          setUserProfile(null);
+          return;
+        }
+
+        // Creamos una “session mínima” solo para que el JSX no cambie
+        setSession({
+          access_token: "",
+          refresh_token: "",
+          expires_in: 0,
+          expires_at: 0,
+          token_type: "bearer",
+          user: {
+            id: json.user.id,
+            email: json.user.email ?? undefined,
+            app_metadata: {},
+            user_metadata: {},
+            aud: "authenticated",
+            created_at: new Date().toISOString(),
+          } as any,
+        });
+
+        await fetchProfile(json.user.id);
+      } catch {
+        setSession(null);
         setUserProfile(null);
+      } finally {
+        if (alive) setMeLoading(false);
       }
-    });
+    }
 
-    return () => subscription.unsubscribe();
+    loadMeAndProfile();
+
+    return () => {
+      alive = false;
+    };
   }, []);
 
   const fetchProfile = async (userId: string) => {
@@ -86,13 +119,12 @@ const Navbar = ({
       .select("nombre, apellido")
       .eq("id_usuario", userId)
       .single();
+
     setUserProfile(profile ?? null);
   };
 
   const handleLogout = async () => {
-    const isConfirmed = window.confirm(
-      "¿Estás seguro de que querés cerrar sesión?"
-    );
+    const isConfirmed = window.confirm("¿Estás seguro de que querés cerrar sesión?");
     if (isConfirmed) {
       await supabase.auth.signOut();
       window.location.reload();
@@ -156,10 +188,7 @@ const Navbar = ({
           <div className="hidden md:flex items-center gap-6">
             <nav className="flex items-center gap-6 text-sm font-medium text-neutral-300">
               {showProfesores && (
-                <Link
-                  href="/profesores"
-                  className="hover:text-white transition"
-                >
+                <Link href="/profesores" className="hover:text-white transition">
                   Profesores
                 </Link>
               )}
@@ -200,16 +229,16 @@ const Navbar = ({
               </div>
             ) : (
               <div className="flex items-center gap-4 border-l border-neutral-800 pl-6 ml-2">
-                {/* --- AQUI ESTÁ EL CAMBIO PRINCIPAL (DESKTOP) --- */}
-                {/* Convertimos el span en un Link hacia /perfil */}
                 <Link
                   href="/perfil"
                   className="group flex flex-col items-end cursor-pointer"
                   title="Ir a mi perfil"
                 >
                   <span className="text-neutral-400 text-xs text-right whitespace-nowrap group-hover:text-white transition-colors font-medium">
-                    {userProfile
-                      ? `${userProfile.nombre} ${userProfile.apellido}`
+                    {meLoading
+                      ? "Cargando…"
+                      : userProfile
+                      ? `${userProfile.nombre ?? ""} ${userProfile.apellido ?? ""}`.trim() || "Mi Cuenta"
                       : "Mi Cuenta"}
                   </span>
                 </Link>
@@ -239,42 +268,25 @@ const Navbar = ({
       {/* --- 4. MOBILE MENU OVERLAY --- */}
       <div
         className={`fixed inset-0 bg-[#0b0d12] z-40 flex flex-col justify-center items-center gap-8 transition-opacity duration-300 ease-in-out md:hidden ${
-          isMobileMenuOpen
-            ? "opacity-100 visible"
-            : "opacity-0 invisible pointer-events-none"
+          isMobileMenuOpen ? "opacity-100 visible" : "opacity-0 invisible pointer-events-none"
         }`}
         onClick={closeMenu}
       >
-        <div
-          className="flex flex-col items-center gap-8 w-full"
-          onClick={(e) => e.stopPropagation()}
-        >
+        <div className="flex flex-col items-center gap-8 w-full" onClick={(e) => e.stopPropagation()}>
           {/* Mobile Links */}
           <div className="flex flex-col items-center gap-8 text-2xl font-bold text-neutral-300">
             {showProfesores && (
-              <Link
-                href="/profesores"
-                onClick={closeMenu}
-                className="hover:text-white transition"
-              >
+              <Link href="/profesores" onClick={closeMenu} className="hover:text-white transition">
                 Profesores
               </Link>
             )}
             {showNosotros && (
-              <Link
-                href="/nosotros"
-                onClick={closeMenu}
-                className="hover:text-white transition"
-              >
+              <Link href="/nosotros" onClick={closeMenu} className="hover:text-white transition">
                 Nosotros
               </Link>
             )}
             {tieneQuincho && (
-              <Link
-                href="/quinchos"
-                onClick={closeMenu}
-                className="hover:text-white transition"
-              >
+              <Link href="/quinchos" onClick={closeMenu} className="hover:text-white transition">
                 Quincho
               </Link>
             )}
@@ -294,11 +306,7 @@ const Navbar = ({
           <div className="w-full px-10 mt-12">
             {!session ? (
               <div className="flex flex-col gap-6 text-center border-t border-neutral-800 pt-8">
-                <Link
-                  href="/login"
-                  onClick={closeMenu}
-                  className="text-xl text-neutral-300 hover:text-white"
-                >
+                <Link href="/login" onClick={closeMenu} className="text-xl text-neutral-300 hover:text-white">
                   Iniciar sesión
                 </Link>
                 <Link
@@ -311,8 +319,6 @@ const Navbar = ({
               </div>
             ) : (
               <div className="flex flex-col gap-6 items-center border-t border-neutral-800 pt-8">
-                {/* --- CAMBIO PRINCIPAL (MOBILE) --- */}
-                {/* Envolvemos la info de usuario en un Link */}
                 <Link
                   href="/perfil"
                   onClick={closeMenu}
@@ -320,8 +326,10 @@ const Navbar = ({
                 >
                   <User size={24} />
                   <span>
-                    {userProfile
-                      ? `${userProfile.nombre} ${userProfile.apellido}`
+                    {meLoading
+                      ? "Cargando…"
+                      : userProfile
+                      ? `${userProfile.nombre ?? ""} ${userProfile.apellido ?? ""}`.trim() || "Mi Cuenta"
                       : "Mi Cuenta"}
                   </span>
                 </Link>
