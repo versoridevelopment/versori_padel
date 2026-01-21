@@ -15,9 +15,6 @@ export default async function AdminNosotrosPage() {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 p-6 md:p-10 -m-6 md:-m-10">
       <div className="max-w-5xl mx-auto space-y-8 pb-32">
-        <h1 className="text-3xl font-extrabold text-slate-900">
-          Gestión Página Nosotros
-        </h1>
         <NosotrosPageForm clubId={club.id_club} initialData={nosotrosData} />
       </div>
     </div>

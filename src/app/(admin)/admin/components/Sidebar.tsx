@@ -3,6 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { useState, useEffect } from "react";
+import { usePathname } from "next/navigation"; // Para resaltar link activo
 import {
   LayoutDashboard,
   Calendar,
@@ -13,102 +14,148 @@ import {
   ChevronRight,
   LogOut,
   Building2,
-  Users2,
+  Users2, // Icono Profesores
   Trophy,
   Home,
   Tag,
-  Menu, // Icono Hamburguesa
-  X, // Icono Cerrar
-  BookOpen, // Icono para Nosotros
-  LayoutGrid, // Icono para el grupo de Canchas
+  Menu,
+  X,
+  BookOpen,
+  LayoutGrid,
 } from "lucide-react";
-import { Rol } from "@/lib/roles";
+
+// Definimos los roles posibles (esto debería coincidir con tu BD/Auth)
+type UserRole = "admin" | "cajero";
+
+// Tipo para un enlace del menú
+type MenuLink = {
+  key: string;
+  href: string;
+  label: string;
+  icon: React.ReactNode;
+  allowedRoles: UserRole[]; // Quién puede ver esto
+};
 
 export function Sidebar() {
-  // Estado para el rol (Simulado)
-  const [userRole] = useState<Rol>("Administrador");
-
-  // Estado para desplegables
-  const [isCanchasOpen, setIsCanchasOpen] = useState(true); // Nuevo estado
-  const [isPersonalizacionOpen, setIsPersonalizacionOpen] = useState(false); // Por defecto cerrado para no saturar
-
-  // Estado para menú móvil
-  const [isMobileOpen, setIsMobileOpen] = useState(false);
+  // --- ESTADO DEL USUARIO ---
+  // Aquí simulo el rol. En tu app real, esto vendría de tu contexto de Auth o Supabase.
+  // Cambia "admin" por "cajero" para probar la vista restringida.
+  const [userRole, setUserRole] = useState<UserRole>("admin");
 
   const user = {
     nombreCompleto: "Juan Cruz",
-    rol: "Administrador",
+    rol: userRole === "admin" ? "Administrador" : "Cajero",
     fotoPerfil: "/placeholder-avatar.png",
   };
 
-  // Enlaces principales del Dashboard
-  const links = [
+  const pathname = usePathname();
+
+  // --- ESTADOS DE UI ---
+  const [isCanchasOpen, setIsCanchasOpen] = useState(true);
+  const [isPersonalizacionOpen, setIsPersonalizacionOpen] = useState(false);
+  const [isMobileOpen, setIsMobileOpen] = useState(false);
+
+  // ==========================================
+  // CONFIGURACIÓN DEL MENÚ (Centralizada)
+  // ==========================================
+
+  // 1. GRUPO PRINCIPAL
+  const mainLinks: MenuLink[] = [
     {
       key: "dashboard",
       href: "/admin",
       label: "Dashboard",
       icon: <LayoutDashboard size={18} />,
+      allowedRoles: ["admin", "cajero"],
     },
     {
       key: "reservas",
       href: "/admin/reservas",
       label: "Reservas",
       icon: <Calendar size={18} />,
+      allowedRoles: ["admin", "cajero"],
     },
     {
       key: "usuarios",
       href: "/admin/usuarios",
       label: "Usuarios",
       icon: <Users size={18} />,
+      allowedRoles: ["admin", "cajero"],
     },
     {
       key: "pagos",
       href: "/admin/pagos",
-      label: "Pagos",
+      label: "Pagos / Caja",
       icon: <CreditCard size={18} />,
+      allowedRoles: ["admin", "cajero"],
     },
   ];
 
-  // --- NUEVO GRUPO: CANCHAS & TARIFAS ---
-  const canchasLinks = [
+  // 2. GRUPO GESTIÓN (Canchas & Tarifas)
+  const gestionLinks: MenuLink[] = [
     {
+      key: "mis-canchas",
       href: "/admin/personalizacion/canchas",
       label: "Mis Canchas",
       icon: <Trophy size={14} />,
+      allowedRoles: ["admin"], // Solo admin configura canchas
     },
     {
+      key: "tarifarios",
       href: "/admin/personalizacion/tarifarios",
       label: "Tarifarios",
       icon: <Tag size={14} />,
+      allowedRoles: ["admin"], // Solo admin toca precios
     },
   ];
 
-  // --- SUBMENÚ PERSONALIZACIÓN (Sin canchas) ---
-  const personalizacionLinks = [
+  // 3. GRUPO PERSONALIZACIÓN WEB
+  const personalizacionLinks: MenuLink[] = [
     {
+      key: "config-club",
       href: "/admin/personalizacion/club",
-      label: "Home / Config General",
+      label: "Config General / Home",
       icon: <Building2 size={14} />,
+      allowedRoles: ["admin"],
     },
     {
+      key: "pagina-nosotros",
       href: "/admin/personalizacion/nosotros",
       label: "Página Nosotros",
       icon: <BookOpen size={14} />,
+      allowedRoles: ["admin"],
     },
     {
+      key: "pagina-profesores",
       href: "/admin/personalizacion/profesores",
       label: "Página Profesores",
       icon: <Users2 size={14} />,
+      allowedRoles: ["admin"],
     },
     {
+      key: "pagina-quincho",
       href: "/admin/quinchos",
       label: "Página Quincho",
       icon: <Home size={14} />,
+      allowedRoles: ["admin"],
     },
   ];
 
+  // --- FILTRADO DE ENLACES SEGÚN ROL ---
+  const visibleMainLinks = mainLinks.filter((link) =>
+    link.allowedRoles.includes(userRole),
+  );
+  const visibleGestionLinks = gestionLinks.filter((link) =>
+    link.allowedRoles.includes(userRole),
+  );
+  const visiblePersonalizacionLinks = personalizacionLinks.filter((link) =>
+    link.allowedRoles.includes(userRole),
+  );
+
+  // --- LOGICA UI ---
   const handleLogout = () => {
-    alert("Sesión cerrada");
+    alert("Cerrando sesión...");
+    // Aquí iría tu lógica real de logout (supabase.auth.signOut())
   };
 
   const closeMobileMenu = () => setIsMobileOpen(false);
@@ -121,18 +168,22 @@ export function Sidebar() {
     }
   }, [isMobileOpen]);
 
+  // Helper para saber si un link está activo
+  const isActive = (href: string) =>
+    pathname === href || pathname.startsWith(`${href}/`);
+
   return (
     <>
-      {/* --- 1. BOTÓN HAMBURGUESA MÓVIL --- */}
+      {/* 1. BOTÓN MÓVIL */}
       <button
         onClick={() => setIsMobileOpen(!isMobileOpen)}
         className="md:hidden fixed top-4 left-4 z-50 p-2 bg-[#0d1b2a] text-white rounded-lg shadow-lg border border-gray-700 hover:bg-[#1b263b] transition-colors"
-        aria-label="Abrir menú"
+        aria-label="Menú"
       >
         {isMobileOpen ? <X size={24} /> : <Menu size={24} />}
       </button>
 
-      {/* --- 2. OVERLAY OSCURO --- */}
+      {/* 2. OVERLAY */}
       {isMobileOpen && (
         <div
           className="fixed inset-0 bg-black/60 backdrop-blur-sm z-30 md:hidden"
@@ -140,20 +191,16 @@ export function Sidebar() {
         />
       )}
 
-      {/* --- 3. SIDEBAR --- */}
+      {/* 3. SIDEBAR */}
       <aside
         className={`
           fixed md:sticky top-0 left-0 h-screen w-64 
           bg-[#0d1b2a] text-white flex flex-col justify-between shadow-2xl 
           z-40 overflow-hidden transition-transform duration-300 ease-in-out
-          ${
-            isMobileOpen
-              ? "translate-x-0"
-              : "-translate-x-full md:translate-x-0"
-          }
+          ${isMobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"}
         `}
       >
-        {/* --- CABECERA USUARIO --- */}
+        {/* --- HEADER USUARIO --- */}
         <div className="flex flex-col items-center p-6 border-b border-gray-800 bg-[#0b1623]">
           <Link
             href="/admin/usuario"
@@ -162,6 +209,7 @@ export function Sidebar() {
           >
             <div className="relative w-16 h-16 mx-auto transition-transform duration-300 group-hover:scale-105">
               <div className="rounded-full overflow-hidden border-2 border-blue-500/30 w-16 h-16 bg-gray-800 relative">
+                {/* Fallback si no hay imagen real */}
                 <Image
                   src={user.fotoPerfil}
                   alt="Perfil"
@@ -171,119 +219,139 @@ export function Sidebar() {
                   priority
                 />
               </div>
-              <div className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-green-500 border-2 border-[#0b1623] rounded-full"></div>
+              <div
+                className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-green-500 border-2 border-[#0b1623] rounded-full"
+                title="Online"
+              ></div>
             </div>
           </Link>
           <h2 className="mt-3 text-sm font-semibold tracking-wide text-gray-100">
             {user.nombreCompleto}
           </h2>
-          <span className="px-2 py-0.5 mt-1 text-[10px] uppercase font-bold tracking-wider bg-blue-900/40 text-blue-300 rounded-full border border-blue-800/50">
+          <span
+            className={`px-2 py-0.5 mt-1 text-[10px] uppercase font-bold tracking-wider rounded-full border 
+            ${userRole === "admin" ? "bg-blue-900/40 text-blue-300 border-blue-800/50" : "bg-purple-900/40 text-purple-300 border-purple-800/50"}`}
+          >
             {user.rol}
           </span>
+
+          {/* TOGGLE TEMPORAL PARA PROBAR ROLES (BORRAR EN PRODUCCIÓN) */}
+          {/* <button 
+            onClick={() => setUserRole(userRole === 'admin' ? 'cajero' : 'admin')}
+            className="mt-2 text-[9px] text-gray-500 hover:text-white underline"
+          >
+            [Dev: Cambiar Rol]
+          </button> */}
         </div>
 
         {/* --- NAVEGACIÓN --- */}
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto custom-scrollbar">
-          {/* LINKS PRINCIPALES */}
-          {links.map((link) => (
+          {/* 1. LINKS PRINCIPALES (Siempre visibles si tienen permiso) */}
+          {visibleMainLinks.map((link) => (
             <Link
               key={link.key}
               href={link.href}
               onClick={closeMobileMenu}
-              className="flex items-center gap-3 px-3 py-2.5 text-gray-400 hover:text-white hover:bg-[#1b263b] rounded-lg transition-all duration-200 group font-medium text-sm"
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 group font-medium text-sm
+                ${isActive(link.href) ? "bg-[#1b263b] text-white shadow-sm" : "text-gray-400 hover:text-white hover:bg-[#1b263b]/50"}
+              `}
             >
-              <span className="group-hover:text-blue-400 transition-colors">
+              <span
+                className={`transition-colors ${isActive(link.href) ? "text-blue-400" : "group-hover:text-blue-400"}`}
+              >
                 {link.icon}
               </span>
               <span>{link.label}</span>
             </Link>
           ))}
 
-          {/* --- GRUPO: GESTIÓN DE CANCHAS (NUEVO) --- */}
-          <div className="pt-4 mt-2 border-t border-gray-800/50">
-            <button
-              onClick={() => setIsCanchasOpen(!isCanchasOpen)}
-              className={`flex w-full items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 text-sm ${
-                isCanchasOpen
-                  ? "bg-[#1b263b] text-white"
-                  : "text-gray-400 hover:bg-[#1b263b] hover:text-white"
-              }`}
-            >
-              <LayoutGrid
-                size={18}
-                className={isCanchasOpen ? "text-green-400" : ""}
-              />
-              <span className="font-medium flex-1 text-left">
-                Gestión de Canchas
-              </span>
-              {isCanchasOpen ? (
-                <ChevronDown size={14} className="text-gray-500" />
-              ) : (
-                <ChevronRight size={14} className="text-gray-500" />
+          {/* 2. GRUPO: GESTIÓN (Solo si hay items visibles) */}
+          {visibleGestionLinks.length > 0 && (
+            <div className="pt-4 mt-2 border-t border-gray-800/50">
+              <button
+                onClick={() => setIsCanchasOpen(!isCanchasOpen)}
+                className={`flex w-full items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 text-sm 
+                  ${isCanchasOpen ? "bg-[#1b263b] text-white" : "text-gray-400 hover:bg-[#1b263b] hover:text-white"}
+                `}
+              >
+                <LayoutGrid
+                  size={18}
+                  className={isCanchasOpen ? "text-green-400" : ""}
+                />
+                <span className="font-medium flex-1 text-left">Gestión</span>
+                {isCanchasOpen ? (
+                  <ChevronDown size={14} className="text-gray-500" />
+                ) : (
+                  <ChevronRight size={14} className="text-gray-500" />
+                )}
+              </button>
+
+              {isCanchasOpen && (
+                <div className="mt-1 ml-3 space-y-0.5 border-l border-gray-700 pl-3">
+                  {visibleGestionLinks.map((subLink) => (
+                    <Link
+                      key={subLink.key}
+                      href={subLink.href}
+                      onClick={closeMobileMenu}
+                      className={`flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-md transition-all duration-200
+                        ${isActive(subLink.href) ? "text-white bg-[#1b263b]/80" : "text-gray-400 hover:text-white hover:bg-[#1b263b]/50"}
+                      `}
+                    >
+                      <span className="opacity-70 text-green-300">
+                        {subLink.icon}
+                      </span>
+                      {subLink.label}
+                    </Link>
+                  ))}
+                </div>
               )}
-            </button>
+            </div>
+          )}
 
-            {isCanchasOpen && (
-              <div className="mt-1 ml-3 space-y-0.5 border-l border-gray-700 pl-3">
-                {canchasLinks.map((subLink) => (
-                  <Link
-                    key={subLink.href}
-                    href={subLink.href}
-                    onClick={closeMobileMenu}
-                    className="flex items-center gap-2 px-3 py-2 text-xs font-medium text-gray-400 hover:text-white hover:bg-[#1b263b]/50 rounded-md transition-all duration-200"
-                  >
-                    <span className="opacity-70 text-green-300">
-                      {subLink.icon}
-                    </span>
-                    {subLink.label}
-                  </Link>
-                ))}
-              </div>
-            )}
-          </div>
+          {/* 3. GRUPO: PERSONALIZACIÓN (Solo si hay items visibles) */}
+          {visiblePersonalizacionLinks.length > 0 && (
+            <div className="pt-2 mt-2">
+              <button
+                onClick={() => setIsPersonalizacionOpen(!isPersonalizacionOpen)}
+                className={`flex w-full items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 text-sm 
+                  ${isPersonalizacionOpen ? "bg-[#1b263b] text-white" : "text-gray-400 hover:bg-[#1b263b] hover:text-white"}
+                `}
+              >
+                <Settings
+                  size={18}
+                  className={isPersonalizacionOpen ? "text-blue-400" : ""}
+                />
+                <span className="font-medium flex-1 text-left">
+                  Personalización
+                </span>
+                {isPersonalizacionOpen ? (
+                  <ChevronDown size={14} className="text-gray-500" />
+                ) : (
+                  <ChevronRight size={14} className="text-gray-500" />
+                )}
+              </button>
 
-          {/* --- GRUPO: PERSONALIZACIÓN --- */}
-          <div className="pt-2 mt-2">
-            <button
-              onClick={() => setIsPersonalizacionOpen(!isPersonalizacionOpen)}
-              className={`flex w-full items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 text-sm ${
-                isPersonalizacionOpen
-                  ? "bg-[#1b263b] text-white"
-                  : "text-gray-400 hover:bg-[#1b263b] hover:text-white"
-              }`}
-            >
-              <Settings
-                size={18}
-                className={isPersonalizacionOpen ? "text-blue-400" : ""}
-              />
-              <span className="font-medium flex-1 text-left">
-                Personalización
-              </span>
-              {isPersonalizacionOpen ? (
-                <ChevronDown size={14} className="text-gray-500" />
-              ) : (
-                <ChevronRight size={14} className="text-gray-500" />
+              {isPersonalizacionOpen && (
+                <div className="mt-1 ml-3 space-y-0.5 border-l border-gray-700 pl-3">
+                  {visiblePersonalizacionLinks.map((subLink) => (
+                    <Link
+                      key={subLink.key}
+                      href={subLink.href}
+                      onClick={closeMobileMenu}
+                      className={`flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-md transition-all duration-200
+                        ${isActive(subLink.href) ? "text-white bg-[#1b263b]/80" : "text-gray-400 hover:text-white hover:bg-[#1b263b]/50"}
+                      `}
+                    >
+                      <span className="opacity-70 text-blue-300">
+                        {subLink.icon}
+                      </span>
+                      {subLink.label}
+                    </Link>
+                  ))}
+                </div>
               )}
-            </button>
-
-            {isPersonalizacionOpen && (
-              <div className="mt-1 ml-3 space-y-0.5 border-l border-gray-700 pl-3">
-                {personalizacionLinks.map((subLink) => (
-                  <Link
-                    key={subLink.href}
-                    href={subLink.href}
-                    onClick={closeMobileMenu}
-                    className="flex items-center gap-2 px-3 py-2 text-xs font-medium text-gray-400 hover:text-white hover:bg-[#1b263b]/50 rounded-md transition-all duration-200"
-                  >
-                    <span className="opacity-70 text-blue-300">
-                      {subLink.icon}
-                    </span>
-                    {subLink.label}
-                  </Link>
-                ))}
-              </div>
-            )}
-          </div>
+            </div>
+          )}
         </nav>
 
         {/* --- PIE DE PÁGINA --- */}

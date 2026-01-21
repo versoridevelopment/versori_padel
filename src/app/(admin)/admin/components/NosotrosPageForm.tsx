@@ -42,7 +42,7 @@ export default function NosotrosPageForm({ clubId, initialData }: Props) {
 
   const [newHomeSliderFiles, setNewHomeSliderFiles] = useState<File[]>([]);
   const [newHomeSliderPreviews, setNewHomeSliderPreviews] = useState<string[]>(
-    []
+    [],
   );
 
   const [teamImageFile, setTeamImageFile] = useState<File | null>(null);
@@ -69,7 +69,7 @@ export default function NosotrosPageForm({ clubId, initialData }: Props) {
   const moveItem = <T,>(
     array: T[],
     index: number,
-    direction: "left" | "right"
+    direction: "left" | "right",
   ): T[] => {
     const newArray = [...array];
     const targetIndex = direction === "left" ? index - 1 : index + 1;
@@ -236,7 +236,7 @@ export default function NosotrosPageForm({ clubId, initialData }: Props) {
         <div className="flex justify-between items-end">
           <div>
             <h1 className="text-3xl font-extrabold text-slate-900">
-              Personalización `Nosotros`
+              Personalización Nosotros
             </h1>
             <p className="text-slate-500 mt-2 text-lg">
               Gestiona la historia, valores y equipo.
