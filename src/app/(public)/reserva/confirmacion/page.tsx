@@ -56,6 +56,17 @@ type ContextoUI = {
   cancha_nombre: string | null;
 };
 
+type RestoreResp =
+  | {
+      ok: true;
+      id_reserva: number;
+      id_pago: number;
+      expires_at: string;
+      checkout_url: string;
+      fin_dia_offset?: 0 | 1;
+    }
+  | { ok: false; reason: string; detail?: string };
+
 function formatFechaAR(dateISO: string) {
   const d = new Date(`${dateISO}T00:00:00`);
   return d.toLocaleDateString("es-AR", {
@@ -77,6 +88,14 @@ function moneyAR(n: number) {
   return Number(n || 0).toLocaleString("es-AR");
 }
 
+// ✅ Key estable del draft para recordar si el usuario ya inició checkout para este slot
+function draftKey(d: DraftSnapshot) {
+  return `${d.id_club}|${d.id_cancha}|${d.fecha}|${d.inicio}|${d.fin}`;
+}
+function lsKey(d: DraftSnapshot) {
+  return `checkout_started_v1:${draftKey(d)}`;
+}
+
 function ConfirmacionTurno() {
   const router = useRouter();
 
@@ -90,11 +109,21 @@ function ConfirmacionTurno() {
   const [checkout, setCheckout] = useState<CheckoutOk | null>(null);
   const [creatingCheckout, setCreatingCheckout] = useState(false);
 
-  const [contexto, setContexto] = useState<ContextoUI>({ club_nombre: null, cancha_nombre: null });
+  const [contexto, setContexto] = useState<ContextoUI>({
+    club_nombre: null,
+    cancha_nombre: null,
+  });
   const [loadingContexto, setLoadingContexto] = useState(false);
 
+  const [restoring, setRestoring] = useState(false);
+
+  // ✅ indica si el usuario ya había iniciado checkout alguna vez para ESTE draft/slot
+  const [hadStartedCheckout, setHadStartedCheckout] = useState(false);
+
   // Countdown
-  const expiresAtMs = checkout?.expires_at ? new Date(checkout.expires_at).getTime() : null;
+  const expiresAtMs = checkout?.expires_at
+    ? new Date(checkout.expires_at).getTime()
+    : null;
   const [nowMs, setNowMs] = useState(Date.now());
 
   useEffect(() => {
@@ -120,6 +149,33 @@ function ConfirmacionTurno() {
     return formatFechaAR(draft.fecha);
   }, [draft]);
 
+  function readCheckoutStartedFlag(d: DraftSnapshot) {
+    try {
+      if (typeof window === "undefined") return false;
+      return window.localStorage.getItem(lsKey(d)) === "1";
+    } catch {
+      return false;
+    }
+  }
+
+  function markCheckoutStarted(d: DraftSnapshot) {
+    try {
+      if (typeof window === "undefined") return;
+      window.localStorage.setItem(lsKey(d), "1");
+    } catch {
+      // ignore
+    }
+  }
+
+  function clearCheckoutStarted(d: DraftSnapshot) {
+    try {
+      if (typeof window === "undefined") return;
+      window.localStorage.removeItem(lsKey(d));
+    } catch {
+      // ignore
+    }
+  }
+
   async function loadDraft() {
     setLoadingDraft(true);
     setWarning(null);
@@ -134,12 +190,14 @@ function ConfirmacionTurno() {
         setPreview(null);
         setCheckout(null);
         setContexto({ club_nombre: null, cancha_nombre: null });
+        setHadStartedCheckout(false);
         setWarning("No hay una reserva en curso. Volvé a seleccionar un horario.");
         return;
       }
 
       setDraft(d);
-      setCheckout(null);
+      setHadStartedCheckout(readCheckoutStartedFlag(d));
+      // No reseteamos checkout acá; si venías de MP queremos restaurar.
     } catch (e: any) {
       setWarning(e?.message || "Error cargando el borrador");
     } finally {
@@ -154,7 +212,6 @@ function ConfirmacionTurno() {
       const data = await res.json().catch(() => null);
 
       if (!res.ok) {
-        // No bloqueamos UI por esto; mostramos fallback con IDs
         setContexto({ club_nombre: null, cancha_nombre: null });
         return;
       }
@@ -172,8 +229,6 @@ function ConfirmacionTurno() {
 
   async function loadPreviewAnticipo() {
     setLoadingPreview(true);
-    setWarning(null);
-
     try {
       const res = await fetch("/api/reservas/preview-anticipo", {
         method: "POST",
@@ -198,6 +253,53 @@ function ConfirmacionTurno() {
     }
   }
 
+  async function tryRestoreCheckout() {
+    if (restoring) return;
+    if (!draft) return;
+    if (!preview) return;
+    if (checkout) return;
+
+    // ✅ IMPORTANTÍSIMO: solo restaurar si el usuario ya había iniciado checkout para este slot
+    if (!hadStartedCheckout) return;
+
+    setRestoring(true);
+    try {
+      const res = await fetch("/api/reservas/checkout/restore", { cache: "no-store" });
+      const data = (await res.json().catch(() => null)) as RestoreResp | null;
+
+      if (data?.ok) {
+        const restored: CheckoutOk = {
+          ok: true,
+          id_reserva: data.id_reserva,
+          expires_at: data.expires_at,
+          checkout_url: data.checkout_url,
+          fin_dia_offset: data.fin_dia_offset,
+          precio_total: preview.precio_total ?? draft.precio_total,
+          anticipo_porcentaje: preview.anticipo_porcentaje ?? 0,
+          monto_anticipo: preview.monto_anticipo ?? 0,
+        };
+        setCheckout(restored);
+        setWarning(null);
+        return;
+      }
+
+      // ✅ Refinamiento: avisar expiración SOLO si había iniciado checkout
+      if (data && !data.ok) {
+        if (data.reason === "expired" || data.reason === "no_hold") {
+          setWarning("La reserva expiró o se liberó. Reintentá para generar un nuevo pago.");
+          setCheckout(null);
+          // limpiamos flag porque ya no hay nada que restaurar
+          clearCheckoutStarted(draft);
+          setHadStartedCheckout(false);
+        }
+      }
+    } catch {
+      // no bloqueamos UI
+    } finally {
+      setRestoring(false);
+    }
+  }
+
   // Cargar draft al entrar
   useEffect(() => {
     let alive = true;
@@ -208,6 +310,7 @@ function ConfirmacionTurno() {
     return () => {
       alive = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Cuando hay draft: cargar contexto (nombres) y preview (anticipo)
@@ -218,8 +321,22 @@ function ConfirmacionTurno() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft?.id_club, draft?.id_cancha, draft?.fecha, draft?.inicio, draft?.fin]);
 
+  // ✅ Auto-restore (solo si hadStartedCheckout)
+  useEffect(() => {
+    if (!draft) return;
+    if (!preview) return;
+    tryRestoreCheckout();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft, preview, hadStartedCheckout]);
+
   const canConfirm = useMemo(() => {
-    return !!draft && !!preview && !loadingDraft && !loadingPreview && !creatingCheckout;
+    return (
+      !!draft &&
+      !!preview &&
+      !loadingDraft &&
+      !loadingPreview &&
+      !creatingCheckout
+    );
   }, [draft, preview, loadingDraft, loadingPreview, creatingCheckout]);
 
   const showPayButton = !!checkout && !expired;
@@ -232,7 +349,6 @@ function ConfirmacionTurno() {
     if (canchaNombre) return canchaNombre;
     if (clubNombre) return clubNombre;
 
-    // fallback
     return `Cancha #${draft?.id_cancha ?? "?"} (club #${draft?.id_club ?? "?"})`;
   }, [contexto.cancha_nombre, contexto.club_nombre, draft?.id_cancha, draft?.id_club]);
 
@@ -259,7 +375,9 @@ function ConfirmacionTurno() {
             className="opacity-90"
           />
           <h1 className="text-3xl font-bold text-white">Confirmación de turno</h1>
-          <p className="text-neutral-400 text-sm">Revisá los detalles antes de finalizar tu reserva</p>
+          <p className="text-neutral-400 text-sm">
+            Revisá los detalles antes de finalizar tu reserva
+          </p>
         </motion.div>
 
         {loadingDraft ? (
@@ -289,7 +407,9 @@ function ConfirmacionTurno() {
                 <div className="flex flex-col">
                   <p className="font-semibold">{tituloLugar}</p>
                   {loadingContexto && (
-                    <span className="text-xs text-neutral-400">Cargando nombres…</span>
+                    <span className="text-xs text-neutral-400">
+                      Cargando nombres…
+                    </span>
                   )}
                 </div>
               </div>
@@ -304,7 +424,11 @@ function ConfirmacionTurno() {
                 <p>
                   {horas.toFixed(1)} horas —{" "}
                   <span className="text-neutral-300">
-                    de <span className="text-white font-semibold">{draft.inicio}</span> a{" "}
+                    de{" "}
+                    <span className="text-white font-semibold">
+                      {draft.inicio}
+                    </span>{" "}
+                    a{" "}
                     <span className="text-white font-semibold">{draft.fin}</span>
                   </span>
                 </p>
@@ -328,7 +452,9 @@ function ConfirmacionTurno() {
                   {loadingPreview ? (
                     <span className="text-neutral-500">(calculando…)</span>
                   ) : preview ? (
-                    <span className="text-neutral-500">({preview.anticipo_porcentaje}%)</span>
+                    <span className="text-neutral-500">
+                      ({preview.anticipo_porcentaje}%)
+                    </span>
                   ) : (
                     <span className="text-neutral-500">(no disponible)</span>
                   )}
@@ -336,7 +462,11 @@ function ConfirmacionTurno() {
                 </p>
 
                 <p className="text-lg font-semibold text-yellow-400">
-                  {loadingPreview ? "…" : preview ? `$${moneyAR(preview.monto_anticipo)}` : "-"}
+                  {loadingPreview
+                    ? "…"
+                    : preview
+                    ? `$${moneyAR(preview.monto_anticipo)}`
+                    : "-"}
                 </p>
               </div>
 
@@ -355,7 +485,8 @@ function ConfirmacionTurno() {
                 </div>
               ) : (
                 <p className="text-gray-400 text-xs mt-2 italic">
-                  *El horario se bloqueará temporalmente recién cuando confirmes e inicies el pago del anticipo.
+                  *El horario se bloqueará temporalmente recién cuando confirmes
+                  e inicies el pago del anticipo.
                 </p>
               )}
             </div>
@@ -381,7 +512,7 @@ function ConfirmacionTurno() {
               {showPayButton ? (
                 <button
                   onClick={() => {
-                    window.location.href = checkout.checkout_url;
+                    window.location.href = checkout!.checkout_url;
                   }}
                   className="flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 transition-all px-6 py-3 rounded-xl text-white font-semibold"
                 >
@@ -393,6 +524,7 @@ function ConfirmacionTurno() {
                     setCheckout(null);
                     setWarning(null);
                     await loadPreviewAnticipo();
+                    await tryRestoreCheckout();
                   }}
                   className="flex items-center justify-center gap-2 bg-yellow-600 hover:bg-yellow-700 transition-all px-6 py-3 rounded-xl text-white font-semibold"
                 >
@@ -420,7 +552,13 @@ function ConfirmacionTurno() {
                         return;
                       }
 
-                      setCheckout(data as CheckoutOk);
+                      const ck = data as CheckoutOk;
+                      setCheckout(ck);
+
+                      // ✅ Marcamos que para este draft ya se inició checkout.
+                      // Esto habilita restore y el warning de expiración “solo cuando corresponde”.
+                      markCheckoutStarted(draft);
+                      setHadStartedCheckout(true);
                     } catch (e: any) {
                       setCheckout(null);
                       setWarning(e?.message || "Error de red iniciando checkout");
@@ -434,7 +572,11 @@ function ConfirmacionTurno() {
                       : "bg-gray-600 cursor-not-allowed text-gray-300"
                   }`}
                 >
-                  {creatingCheckout ? "Creando…" : "Confirmar (bloquear) y generar pago"}
+                  {creatingCheckout
+                    ? "Creando…"
+                    : restoring
+                    ? "Restaurando…"
+                    : "Confirmar (bloquear) y generar pago"}
                   <CheckCircle2 className="w-5 h-5" />
                 </button>
               )}
@@ -445,6 +587,7 @@ function ConfirmacionTurno() {
               <button
                 onClick={async () => {
                   await loadDraft();
+                  await tryRestoreCheckout();
                 }}
                 className="text-xs text-blue-200/70 hover:text-blue-100 underline underline-offset-4"
               >

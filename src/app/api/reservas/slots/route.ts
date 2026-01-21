@@ -10,6 +10,8 @@ type Slot = {
   absMin: number; // 0.. (puede pasar 1440 si cruza medianoche)
   time: string; // "HH:MM"
   dayOffset: 0 | 1; // 0 = fecha, 1 = fecha+1
+  available: boolean;
+  reason: null | "reservado" | "bloqueado";
 };
 
 type DaySlots = {
@@ -35,8 +37,15 @@ type ReglaDb = {
   vigente_hasta: string | null;
 };
 
+type ReservaDb = {
+  id_reserva: number;
+  estado: string;
+  expires_at: string | null;
+  inicio_ts: string; // timestamptz
+  fin_ts: string; // timestamptz
+};
+
 function todayISOAR() {
-  // "en-CA" => YYYY-MM-DD
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/Argentina/Buenos_Aires",
     year: "numeric",
@@ -46,7 +55,7 @@ function todayISOAR() {
 }
 
 function toMin(hhmmss: string) {
-  const s = (hhmmss || "").slice(0, 5); // HH:MM
+  const s = (hhmmss || "").slice(0, 5);
   const [h, m] = s.split(":").map((x) => Number(x));
   return h * 60 + (m || 0);
 }
@@ -63,7 +72,6 @@ function minToHHMM(absMin: number) {
 }
 
 function addDaysISO(dateISO: string, addDays: number) {
-  // Evitar toISOString() (UTC) para no correr la fecha
   const [y, m, d] = dateISO.split("-").map(Number);
   const dt = new Date(y, m - 1, d + addDays);
   const yy = dt.getFullYear();
@@ -87,6 +95,15 @@ function uniqSortAbs(slots: Slot[]) {
   const map = new Map<number, Slot>();
   for (const s of slots) map.set(s.absMin, s);
   return Array.from(map.values()).sort((a, b) => a.absMin - b.absMin);
+}
+
+/**
+ * Construye un ISO string representando 00:00 de Argentina (UTC-03:00) para una fecha YYYY-MM-DD.
+ * Así evitamos corrimientos por UTC.
+ */
+function arMidnightISO(dateISO: string) {
+  // Argentina no tiene DST actualmente; usamos -03:00
+  return `${dateISO}T00:00:00-03:00`;
 }
 
 async function resolveTarifarioId(params: { id_club: number; id_cancha: number }) {
@@ -118,13 +135,11 @@ async function resolveTarifarioId(params: { id_club: number; id_cancha: number }
 }
 
 async function resolveSegmento(id_club: number): Promise<Segmento> {
-  // Si no está logueado => publico
   const supabase = await getSupabaseServerClient();
   const { data: userRes } = await supabase.auth.getUser();
   const userId = userRes?.user?.id ?? null;
   if (!userId) return "publico";
 
-  // Puede haber múltiples roles/filas, filtramos por roles.nombre='profe' con join inner.
   const { data, error } = await supabaseAdmin
     .from("club_usuarios")
     .select("id_usuario, roles!inner(nombre)")
@@ -141,6 +156,11 @@ async function resolveSegmento(id_club: number): Promise<Segmento> {
   return data && data.length > 0 ? "profe" : "publico";
 }
 
+function overlaps(aStart: number, aEnd: number, bStart: number, bEnd: number) {
+  // intervalos semiabiertos [start, end)
+  return aStart < bEnd && bStart < aEnd;
+}
+
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
@@ -148,9 +168,7 @@ export async function GET(req: Request) {
     const id_club = Number(searchParams.get("id_club"));
     const id_cancha = Number(searchParams.get("id_cancha"));
 
-    // Fix recomendado: el server decide "hoy" en AR, NO UTC.
     const fecha_desde = searchParams.get("fecha_desde") || todayISOAR();
-
     const dias = Number(searchParams.get("dias") || 7);
 
     if (!id_club || Number.isNaN(id_club)) {
@@ -170,8 +188,55 @@ export async function GET(req: Request) {
     if ("error" in tar) return NextResponse.json({ error: tar.error }, { status: 400 });
     const id_tarifario = tar.id_tarifario;
 
-    // Segmento automático por usuario logueado
     const segmento = await resolveSegmento(id_club);
+
+    /**
+     * 1) Traer reservas del rango (incluyendo holds vigentes)
+     * Ventana: desde fecha_desde 00:00 AR hasta (fecha_desde + dias + 1) 00:00 AR
+     * +1 día para cubrir cruces de medianoche del último día
+     */
+    const windowStart = new Date(arMidnightISO(fecha_desde)).getTime();
+    const windowEnd = new Date(arMidnightISO(addDaysISO(fecha_desde, dias + 1))).getTime();
+    const nowMs = Date.now();
+
+    const { data: reservasRaw, error: resErr } = await supabaseAdmin
+      .from("reservas")
+      .select("id_reserva,estado,expires_at,inicio_ts,fin_ts")
+      .eq("id_club", id_club)
+      .eq("id_cancha", id_cancha)
+      .in("estado", ["confirmada", "pendiente_pago"])
+      // rango temporal: inicio < windowEnd && fin > windowStart
+      .lt("inicio_ts", new Date(windowEnd).toISOString())
+      .gt("fin_ts", new Date(windowStart).toISOString());
+
+    if (resErr) {
+      return NextResponse.json(
+        { error: `Error leyendo reservas: ${resErr.message}` },
+        { status: 500 }
+      );
+    }
+
+    const reservas = (reservasRaw || []) as ReservaDb[];
+
+    // Normalizamos a intervalos ocupados en ms y su reason
+    const busyIntervals = reservas
+      .map((r) => {
+        const startMs = new Date(r.inicio_ts).getTime();
+        const endMs = new Date(r.fin_ts).getTime();
+        if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return null;
+
+        if (r.estado === "confirmada") {
+          return { startMs, endMs, reason: "reservado" as const };
+        }
+
+        // pendiente_pago: solo bloquea si NO expiró
+        const expMs = r.expires_at ? new Date(r.expires_at).getTime() : NaN;
+        const vigente = Number.isFinite(expMs) ? expMs > nowMs : false;
+        if (!vigente) return null;
+
+        return { startMs, endMs, reason: "bloqueado" as const };
+      })
+      .filter(Boolean) as { startMs: number; endMs: number; reason: "reservado" | "bloqueado" }[];
 
     const outDays: DaySlots[] = [];
 
@@ -197,10 +262,11 @@ export async function GET(req: Request) {
 
       const rules = (reglas || []) as ReglaDb[];
 
-      // Duraciones permitidas reales desde DB
       const durations_allowed = Array.from(new Set(rules.map((r) => Number(r.duracion_min))))
         .filter((n) => Number.isFinite(n) && n > 0)
         .sort((a, b) => a - b);
+
+      const dayStartMs = new Date(arMidnightISO(fecha)).getTime();
 
       const slotsRaw: Slot[] = [];
 
@@ -214,7 +280,29 @@ export async function GET(req: Request) {
         // slots cada 30', incluyendo el final (para click de fin)
         for (let m = start; m <= end; m += 30) {
           const dayOffset = (m >= 1440 ? 1 : 0) as 0 | 1;
-          slotsRaw.push({ absMin: m, time: minToHHMM(m), dayOffset });
+
+          // timestamp real del boundary
+          const slotMs = dayStartMs + m * 60_000;
+
+          // un boundary (slot) lo consideramos NO disponible si cae dentro de un intervalo ocupado [start,end)
+          let available = true;
+          let reason: Slot["reason"] = null;
+
+          for (const bi of busyIntervals) {
+            if (slotMs >= bi.startMs && slotMs < bi.endMs) {
+              available = false;
+              reason = bi.reason;
+              break;
+            }
+          }
+
+          slotsRaw.push({
+            absMin: m,
+            time: minToHHMM(m),
+            dayOffset,
+            available,
+            reason,
+          });
         }
       }
 

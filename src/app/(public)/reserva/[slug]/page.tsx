@@ -4,6 +4,7 @@ import { getCurrentClub } from "@/lib/ObetenerClubUtils/getCurrentClub";
 import { getCanchasBySubdomain } from "@/lib/canchas/getCanchasBySubdomain";
 import ReservaCanchaClient from "./ReservaCanchaClient";
 
+// Definimos el tipo localmente para machear lo que viene de tu API
 type CanchaFromApi = {
   id_cancha: number;
   nombre: string;
@@ -13,7 +14,6 @@ type CanchaFromApi = {
   tipo_nombre: string;
   capacidad_jugadores: number | null;
   es_exterior: boolean;
-  // NO precio_hora (lo vas a borrar)
 };
 
 function parseCanchaIdFromSlug(slug: string) {
@@ -29,17 +29,21 @@ export default async function ReservaCanchaPage({
 }: {
   params: { slug: string };
 }) {
+  // 1. Obtener datos del Club (incluye colores, logo, etc.)
   const club = await getCurrentClub();
   if (!club) notFound();
 
+  // 2. Parsear ID de la URL
   const id_cancha = parseCanchaIdFromSlug(params.slug);
   if (!id_cancha) notFound();
 
+  // 3. Buscar la cancha (respetando tu lógica actual)
   const apiData = (await getCanchasBySubdomain(club.subdominio)) as CanchaFromApi[];
-
   const cancha = apiData.find((c) => c.id_cancha === id_cancha);
+  
   if (!cancha) notFound();
 
+  // 4. Mapear datos para la UI del cliente
   const canchaUI = {
     id_cancha: cancha.id_cancha,
     nombre: cancha.nombre,
@@ -48,14 +52,15 @@ export default async function ReservaCanchaPage({
       `${cancha.deporte_nombre.toUpperCase()} · ${cancha.tipo_nombre}${
         cancha.capacidad_jugadores ? ` · ${cancha.capacidad_jugadores} jugadores` : ""
       }`,
-    imagen: cancha.imagen_url || "/reserva/cancha_interior.jpg",
+    // Fallback de imagen si viene null
+    imagen: cancha.imagen_url || "/reserva/cancha_interior.jpg", 
     es_exterior: cancha.es_exterior,
   };
 
+  // 5. Renderizar Cliente pasando el CLUB COMPLETO
   return (
     <ReservaCanchaClient
-      clubId={club.id_club}
-      clubNombre={club.nombre}
+      club={club}      // ✅ CAMBIO CLAVE: Pasamos todo el objeto club
       cancha={canchaUI}
     />
   );

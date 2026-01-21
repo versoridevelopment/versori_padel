@@ -1,4 +1,3 @@
-// src/app/(public)/reserva/page.tsx
 import { notFound } from "next/navigation";
 import { getCurrentClub } from "@/lib/ObetenerClubUtils/getCurrentClub";
 import ReservaClient from "./ReservaClient";
@@ -17,16 +16,17 @@ type CanchaFromApi = {
 };
 
 export default async function ReservaPage() {
-  // 1) Club actual según subdominio (multi-tenant)
+  // 1) Club actual según subdominio
   const club = await getCurrentClub();
   if (!club) notFound();
 
-  // 2) Obtener canchas del club (estado=true y activa=true ya lo filtra tu lib)
+  // 2) Obtener canchas
   let apiData: CanchaFromApi[] = [];
   try {
     apiData = (await getCanchasBySubdomain(club.subdominio)) as CanchaFromApi[];
   } catch (err) {
     console.error("[ReservaPage] Error al obtener canchas:", err);
+    // Podrías retornar un componente de error más bonito aquí
     throw new Error("No se pudieron cargar las canchas.");
   }
 
@@ -39,7 +39,7 @@ export default async function ReservaPage() {
       `${c.deporte_nombre.toUpperCase()} · ${c.tipo_nombre}${
         c.capacidad_jugadores ? ` · ${c.capacidad_jugadores} jugadores` : ""
       }`,
-    imagen: c.imagen_url || "/reserva/cancha_interior.jpg", // fallback local
+    imagen: c.imagen_url || "/reserva/cancha_interior.jpg",
     slug: `cancha-${c.id_cancha}`,
     deporte: c.deporte_nombre,
     tipo: c.tipo_nombre,

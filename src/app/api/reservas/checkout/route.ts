@@ -76,7 +76,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // 0) fin_dia_offset
+    // 2) fin_dia_offset (si fin <= inicio, cruza medianoche)
     const iniMin = toMin(draft.inicio);
     const finMin = toMin(draft.fin);
 
@@ -86,7 +86,7 @@ export async function POST(req: Request) {
 
     const fin_dia_offset: 0 | 1 = finMin <= iniMin ? 1 : 0;
 
-    // 2) Recalcular precio server-side
+    // 3) Recalcular precio server-side
     const calcRes = await fetch(new URL("/api/reservas/calcular-precio", req.url), {
       method: "POST",
       headers: {
@@ -117,7 +117,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Precio inválido" }, { status: 400 });
     }
 
-    // 3) anticipo del club
+    // 4) Anticipo del club
     const { data: club, error: cErr } = await supabaseAdmin
       .from("clubes")
       .select("id_club, anticipo_porcentaje")
@@ -135,7 +135,113 @@ export async function POST(req: Request) {
     const pct = Math.min(100, Math.max(0, anticipo_porcentaje));
     const monto_anticipo = round2(precio_total * (pct / 100));
 
-    // 4) Crear reserva pendiente con RPC (concurrencia)
+    // ✅ 5) Reutilizar RESERVA pendiente existente del mismo usuario/slot (si volvió atrás desde MP)
+    const nowIso = new Date().toISOString();
+
+    const { data: existingReserva, error: exRErr } = await supabaseAdmin
+      .from("reservas")
+      .select("id_reserva, expires_at")
+      .eq("id_club", draft.id_club)
+      .eq("id_cancha", draft.id_cancha)
+      .eq("id_usuario", userId)
+      .eq("fecha", draft.fecha)
+      .eq("inicio", draft.inicio)
+      .eq("fin", draft.fin)
+      .eq("fin_dia_offset", fin_dia_offset)
+      .eq("estado", "pendiente_pago")
+      .gt("expires_at", nowIso)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (exRErr) {
+      return NextResponse.json(
+        { error: `Error buscando reserva existente: ${exRErr.message}` },
+        { status: 500 }
+      );
+    }
+
+    if (existingReserva?.id_reserva) {
+      const id_reserva = Number(existingReserva.id_reserva);
+      const expires_at = String(existingReserva.expires_at);
+
+      // ✅ Reutilizar pago activo (created/pending) para ESA reserva
+      const { data: existingPago, error: exPErr } = await supabaseAdmin
+        .from("reservas_pagos")
+        .select("id_pago,status")
+        .eq("id_reserva", id_reserva)
+        .in("status", ["created", "pending"])
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (exPErr) {
+        return NextResponse.json(
+          { error: `Error verificando pagos existentes: ${exPErr.message}` },
+          { status: 500 }
+        );
+      }
+
+      if (existingPago?.id_pago) {
+        const id_pago = Number(existingPago.id_pago);
+        const checkout_url = `/pago/iniciar?id_reserva=${id_reserva}&id_pago=${id_pago}`;
+
+        return NextResponse.json({
+          ok: true,
+          id_reserva,
+          id_pago,
+          expires_at,
+          precio_total,
+          anticipo_porcentaje: pct,
+          monto_anticipo,
+          checkout_url,
+          fin_dia_offset,
+          reused_reserva: true,
+          reused_pago: true,
+        });
+      }
+
+      // Si por alguna razón no hay pago activo, creamos uno nuevo para la misma reserva
+      const { data: pago, error: pErr } = await supabaseAdmin
+        .from("reservas_pagos")
+        .insert({
+          id_reserva,
+          id_club: draft.id_club,
+          provider: "mercadopago",
+          status: "created",
+          amount: monto_anticipo,
+          currency: "ARS",
+          external_reference: String(id_reserva),
+        })
+        .select("id_pago")
+        .single();
+
+      if (pErr) {
+        return NextResponse.json(
+          { error: `Error creando registro de pago: ${pErr.message}` },
+          { status: 500 }
+        );
+      }
+
+      const id_pago = Number(pago?.id_pago);
+      const checkout_url = `/pago/iniciar?id_reserva=${id_reserva}&id_pago=${id_pago}`;
+
+      return NextResponse.json({
+        ok: true,
+        id_reserva,
+        id_pago,
+        expires_at,
+        precio_total,
+        anticipo_porcentaje: pct,
+        monto_anticipo,
+        checkout_url,
+        fin_dia_offset,
+        reused_reserva: true,
+        reused_pago: false,
+      });
+    }
+
+    // 6) Crear reserva pendiente con RPC (concurrencia)
     const { data: created, error: rpcErr } = await supabaseAdmin.rpc("reservas_create_pending", {
       p_id_club: draft.id_club,
       p_id_cancha: draft.id_cancha,
@@ -181,8 +287,8 @@ export async function POST(req: Request) {
     const id_reserva = Number(row.id_reserva);
     const expires_at = String(row.expires_at);
 
-    // 5) Si ya existe un pago activo (created/pending), reutilizarlo para evitar duplicados
-    const { data: existingPago, error: exErr } = await supabaseAdmin
+    // 7) Si ya existe un pago activo (created/pending), reutilizarlo para evitar duplicados
+    const { data: existingPago2, error: exErr2 } = await supabaseAdmin
       .from("reservas_pagos")
       .select("id_pago,status")
       .eq("id_reserva", id_reserva)
@@ -191,15 +297,15 @@ export async function POST(req: Request) {
       .limit(1)
       .maybeSingle();
 
-    if (exErr) {
+    if (exErr2) {
       return NextResponse.json(
-        { error: `Error verificando pagos existentes: ${exErr.message}` },
+        { error: `Error verificando pagos existentes: ${exErr2.message}` },
         { status: 500 }
       );
     }
 
-    if (existingPago?.id_pago) {
-      const id_pago = Number(existingPago.id_pago);
+    if (existingPago2?.id_pago) {
+      const id_pago = Number(existingPago2.id_pago);
       const checkout_url = `/pago/iniciar?id_reserva=${id_reserva}&id_pago=${id_pago}`;
 
       return NextResponse.json({
@@ -212,11 +318,12 @@ export async function POST(req: Request) {
         monto_anticipo,
         checkout_url,
         fin_dia_offset,
+        reused_reserva: false,
         reused_pago: true,
       });
     }
 
-    // 6) Crear registro de pago (tabla aparte)
+    // 8) Crear registro de pago (tabla aparte)
     const { data: pago, error: pErr } = await supabaseAdmin
       .from("reservas_pagos")
       .insert({
@@ -251,6 +358,7 @@ export async function POST(req: Request) {
       monto_anticipo,
       checkout_url,
       fin_dia_offset,
+      reused_reserva: false,
       reused_pago: false,
     });
   } catch (e: any) {

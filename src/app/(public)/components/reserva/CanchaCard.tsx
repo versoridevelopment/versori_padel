@@ -3,19 +3,19 @@
 import { motion } from "framer-motion";
 import Image from "next/image";
 import Link from "next/link";
+import { Users, Zap, Sun, Cloud, ArrowRight } from "lucide-react";
 
 interface CanchaCardProps {
   nombre: string;
   descripcion?: string;
   imagen: string;
   slug: string;
-
-  // Extras (opcionales pero recomendados)
-  deporte?: string; // "padel" | "futbol"
-  tipo?: string; // "futbol_5", "padel_standard", etc.
-  capacidad?: number | null; // 4, 10, 14...
-  precioHora?: number; // 5000, 7000...
-  esExterior?: boolean; // true = exterior, false = techada
+  deporte?: string;
+  tipo?: string;
+  capacidad?: number | null;
+  precioHora?: number;
+  esExterior?: boolean;
+  index?: number; // Para animaciones
 }
 
 export default function CanchaCard({
@@ -28,15 +28,10 @@ export default function CanchaCard({
   capacidad,
   precioHora,
   esExterior,
+  index = 0,
 }: CanchaCardProps) {
   const isPadel = deporte?.toLowerCase() === "padel";
   const isFutbol = deporte?.toLowerCase() === "futbol";
-
-  const deporteLabel = isPadel
-    ? "Pádel"
-    : isFutbol
-    ? "Fútbol"
-    : deporte ?? "Cancha";
 
   const tipoLabel = tipo?.replace(/_/g, " ").toUpperCase();
 
@@ -49,104 +44,98 @@ export default function CanchaCard({
         }).format(precioHora)
       : null;
 
-  const ambienteLabel =
-    esExterior === undefined ? null : esExterior ? "Exterior" : "Interior / Techada";
-
-  const deporteBadgeClasses = isPadel
-    ? "bg-emerald-500/10 text-emerald-300 border-emerald-400/40"
-    : isFutbol
-    ? "bg-orange-500/10 text-orange-300 border-orange-400/40"
-    : "bg-sky-500/10 text-sky-300 border-sky-400/40";
-
-  /**
-   * IMPORTANTÍSIMO:
-   * - next/image requiere que el hostname esté permitido en next.config.js
-   * - Saneamos la URL por si viene con espacios o nullish
-   * - Si no hay imagen válida, usamos fallback local
-   */
+  // Saneamiento de imagen
   const safeImage =
     typeof imagen === "string" && imagen.trim().length > 0
       ? imagen.trim()
       : "/reserva/cancha_interior.jpg";
 
   return (
-    <Link href={`/reserva/${slug}`} className="block">
+    <Link href={`/reserva/${slug}`} className="block group h-full">
       <motion.div
-        whileHover={{ y: -4, scale: 1.02 }}
-        whileTap={{ scale: 0.97 }}
-        transition={{ type: "spring", stiffness: 220, damping: 18 }}
-        className="relative cursor-pointer rounded-2xl overflow-hidden border border-slate-600/60 bg-[#0b2545]/90 shadow-lg shadow-black/40 hover:shadow-blue-800/40 hover:border-blue-400/70 transition-all duration-300 group"
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, delay: index * 0.1 }}
+        className="h-full relative flex flex-col rounded-3xl overflow-hidden border border-white/10 bg-[#111827]/60 backdrop-blur-xl shadow-xl hover:shadow-[0_0_30px_-5px_var(--primary)] hover:border-[var(--primary)]/50 transition-all duration-300"
       >
-        {/* Imagen principal */}
-        <div className="relative w-full h-48">
+        {/* Imagen principal con efecto Zoom */}
+        <div className="relative w-full h-56 overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-t from-[#111827] via-transparent to-transparent z-10 opacity-90" />
+          
           <Image
             src={safeImage}
             alt={nombre}
             fill
-            className="object-cover group-hover:scale-105 transition-transform duration-500"
+            className="object-cover transform group-hover:scale-110 transition-transform duration-700 ease-in-out"
             sizes="(max-width: 768px) 100vw, 33vw"
-            priority={false}
-            loading="lazy"
           />
 
-          {/* Etiqueta de ambiente (interior / exterior) */}
-          {ambienteLabel && (
-            <div className="absolute top-3 right-3 rounded-full bg-black/60 px-3 py-1 text-xs font-semibold text-slate-100 backdrop-blur-sm border border-white/20">
-              {ambienteLabel}
-            </div>
-          )}
-        </div>
-
-        {/* Contenido */}
-        <div className="p-4 bg-[#102b55]/95">
-          {/* Fila superior: deporte + tipo */}
-          <div className="flex items-center justify-between gap-2 mb-2">
-            <span
-              className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[0.7rem] font-semibold uppercase tracking-[0.16em] ${deporteBadgeClasses}`}
-            >
-              {deporteLabel}
-            </span>
-
+          {/* Badges Flotantes */}
+          <div className="absolute top-4 right-4 z-20 flex flex-col gap-2 items-end">
+             {esExterior !== undefined && (
+              <span className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/40 backdrop-blur-md border border-white/10 text-[10px] font-bold uppercase tracking-wider text-white">
+                {esExterior ? <Sun className="w-3 h-3 text-amber-400" /> : <Cloud className="w-3 h-3 text-blue-400" />}
+                {esExterior ? "Exterior" : "Indoor"}
+              </span>
+            )}
             {tipoLabel && (
-              <span className="inline-flex rounded-full bg-slate-900/60 px-2.5 py-1 text-[0.7rem] font-medium text-slate-200 border border-slate-500/60">
+              <span className="px-3 py-1 rounded-full bg-white/10 backdrop-blur-md border border-white/10 text-[10px] font-bold uppercase tracking-wider text-neutral-200">
                 {tipoLabel}
               </span>
             )}
           </div>
 
-          {/* Nombre de cancha */}
-          <h3 className="text-lg md:text-xl font-bold text-white tracking-wide">
-            {nombre}
-          </h3>
+          {/* Nombre sobre la imagen */}
+          <div className="absolute bottom-4 left-4 z-20">
+             <div className="flex items-center gap-2 mb-1">
+                {isPadel && <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30">PADEL</span>}
+                {isFutbol && <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">FUTBOL</span>}
+             </div>
+             <h3 className="text-2xl font-extrabold text-white tracking-tight leading-none group-hover:text-[var(--primary)] transition-colors">
+                {nombre}
+             </h3>
+          </div>
+        </div>
 
-          {/* Descripción corta */}
+        {/* Contenido */}
+        <div className="p-5 flex flex-col flex-grow">
+          
           {descripcion && (
-            <p className="mt-1 text-xs md:text-sm text-blue-200/90 line-clamp-2">
+            <p className="text-sm text-neutral-400 line-clamp-2 mb-4 flex-grow">
               {descripcion}
             </p>
           )}
 
-          {/* Fila inferior: capacidad + precio */}
-          <div className="mt-3 flex items-center justify-between gap-3 text-xs md:text-sm">
-            <div className="flex flex-col text-blue-200/90">
-              {typeof capacidad === "number" && capacidad > 0 && (
-                <span className="flex items-center gap-1">
-                  <span className="text-[0.9rem]">👥</span>
-                  <span>Hasta {capacidad} jugadores</span>
-                </span>
+          {/* Separador */}
+          <div className="h-px w-full bg-white/5 my-2" />
+
+          {/* Footer Card */}
+          <div className="flex items-center justify-between pt-2 mt-auto">
+            
+            <div className="flex items-center gap-3 text-neutral-400 text-xs font-medium">
+              {capacidad && (
+                 <div className="flex items-center gap-1.5 bg-white/5 px-2 py-1 rounded-lg">
+                    <Users className="w-3.5 h-3.5" />
+                    <span>{capacidad}p</span>
+                 </div>
               )}
+              <div className="flex items-center gap-1.5 bg-white/5 px-2 py-1 rounded-lg">
+                <Zap className="w-3.5 h-3.5" />
+                <span>Pro</span>
+              </div>
             </div>
 
-            {formattedPrice && (
+            {formattedPrice ? (
               <div className="text-right">
-                <span className="block text-[0.7rem] uppercase tracking-[0.15em] text-blue-300/80">
-                  Desde
-                </span>
-                <span className="text-base md:text-lg font-extrabold text-blue-100">
+                <p className="text-[10px] uppercase text-neutral-500 font-bold tracking-wider">Precio hora</p>
+                <p className="text-lg font-bold text-white group-hover:text-[var(--primary)] transition-colors">
                   {formattedPrice}
-                </span>
-                <span className="ml-1 text-[0.7rem] text-blue-200/80">/ hora</span>
+                </p>
               </div>
+            ) : (
+               <div className="flex items-center gap-1 text-[var(--primary)] text-sm font-bold opacity-0 group-hover:opacity-100 transition-opacity transform translate-x-[-10px] group-hover:translate-x-0">
+                  Ver Disponibilidad <ArrowRight className="w-4 h-4"/>
+               </div>
             )}
           </div>
         </div>
