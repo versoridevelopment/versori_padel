@@ -1,15 +1,14 @@
 "use client";
 
-import type { CanchaUI, ReservaUI } from "./types";
-import { THEME_COLORS } from "./types";
+import { CanchaUI, ReservaUI, THEME_COLORS } from "./types";
 
 interface Props {
   canchas: CanchaUI[];
   reservas: ReservaUI[];
-  startHour: number; // decimal
-  endHour: number; // decimal
+  startHour: number;
+  endHour: number;
   onReservaClick: (r: ReservaUI) => void;
-  onEmptySlotClick: (canchaId: number, time: number) => void; // time decimal
+  onEmptySlotClick: (canchaId: number, time: number) => void;
 }
 
 const PIXELS_PER_HOUR = 140;
@@ -23,22 +22,19 @@ export default function CompactView({
   onReservaClick,
   onEmptySlotClick,
 }: Props) {
-  const START_HOUR = startHour ?? 8;
-  const END_HOUR = endHour ?? 26;
-
   const timeSlots: number[] = [];
-  for (let i = START_HOUR; i <= END_HOUR; i += 0.5) timeSlots.push(i);
+  for (let i = startHour; i <= endHour; i += 0.5) timeSlots.push(i);
 
   const timeStringToDecimal = (timeStr: string) => {
     const [h, m] = timeStr.split(":").map(Number);
     let decimal = h + m / 60;
-    if (decimal < START_HOUR) decimal += 24; // cruza medianoche
+    if (decimal < startHour) decimal += 24;
     return decimal;
   };
 
   const getTopPosition = (startStr: string) => {
     const hours = timeStringToDecimal(startStr);
-    return (hours - START_HOUR) * PIXELS_PER_HOUR + GRID_TOP_OFFSET;
+    return (hours - startHour) * PIXELS_PER_HOUR + GRID_TOP_OFFSET;
   };
 
   const getHeight = (startStr: string, endStr: string) => {
@@ -54,7 +50,7 @@ export default function CompactView({
     return `${h.toString().padStart(2, "0")}:${m}`;
   };
 
-  const totalHeight = (END_HOUR - START_HOUR) * PIXELS_PER_HOUR + GRID_TOP_OFFSET + 50;
+  const totalHeight = (endHour - startHour) * PIXELS_PER_HOUR + GRID_TOP_OFFSET + 50;
 
   return (
     <div className="flex flex-col h-full bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden select-none">
@@ -70,9 +66,7 @@ export default function CompactView({
                   <div
                     key={time}
                     className="absolute w-full text-center -mt-3"
-                    style={{
-                      top: (time - START_HOUR) * PIXELS_PER_HOUR + GRID_TOP_OFFSET,
-                    }}
+                    style={{ top: (time - startHour) * PIXELS_PER_HOUR + GRID_TOP_OFFSET }}
                   >
                     <span className="text-xs font-black text-slate-400 block">{formatHourLabel(time)}</span>
                   </div>
@@ -90,32 +84,30 @@ export default function CompactView({
                 key={cancha.id_cancha}
                 className="flex-1 min-w-[160px] md:min-w-[200px] border-r border-gray-200 relative"
               >
-                <div
-                  className={`h-12 sticky top-0 z-20 flex items-center justify-center border-b border-gray-200 shadow-sm ${theme.header}`}
-                >
+                <div className={`h-12 sticky top-0 z-20 flex items-center justify-center border-b border-gray-200 shadow-sm ${theme.header}`}>
                   <div className="text-center px-2">
                     <h3 className="text-xs md:text-sm font-black uppercase tracking-wide leading-none truncate w-full">
                       {cancha.nombre}
                     </h3>
-                    <p className="text-[9px] opacity-80 font-medium mt-0.5">{cancha.es_exterior ? "Exterior" : "Interior"}</p>
+                    <p className="text-[9px] opacity-80 font-medium mt-0.5">
+                      {cancha.es_exterior ? "Exterior" : "Interior"}
+                    </p>
                   </div>
                 </div>
 
                 <div className="relative w-full h-full bg-white">
-                  {/* Slots Vacíos Clickables */}
+                  {/* Slots Vacíos */}
                   {timeSlots.map((time) => {
-                    if (time === END_HOUR && !Number.isInteger(time)) return null;
+                    if (time === endHour && !Number.isInteger(time)) return null;
                     return (
                       <div
                         key={time}
                         onClick={() => onEmptySlotClick(cancha.id_cancha, time)}
                         className={`absolute w-full cursor-pointer hover:bg-slate-50 transition-colors ${
-                          Number.isInteger(time)
-                            ? "border-b border-gray-200"
-                            : "border-b border-gray-100 border-dashed"
+                          Number.isInteger(time) ? "border-b border-gray-200" : "border-b border-gray-100 border-dashed"
                         }`}
                         style={{
-                          top: (time - START_HOUR) * PIXELS_PER_HOUR + GRID_TOP_OFFSET,
+                          top: (time - startHour) * PIXELS_PER_HOUR + GRID_TOP_OFFSET,
                           height: PIXELS_PER_HOUR / 2,
                         }}
                       />
@@ -132,7 +124,7 @@ export default function CompactView({
                           e.stopPropagation();
                           onReservaClick(reserva);
                         }}
-                        className={`absolute left-1 right-1 rounded-lg border-l-[6px] shadow-sm cursor-pointer 
+                        className={`absolute left-1 right-1 rounded-lg border-l-[6px] shadow-sm cursor-pointer
                           hover:shadow-lg hover:z-20 hover:scale-[1.02] transition-all p-2 flex flex-col justify-center
                           ${theme.bg} ${theme.border} bg-opacity-95 backdrop-blur-sm
                         `}
@@ -152,10 +144,12 @@ export default function CompactView({
                         <h4 className="font-bold text-xs md:text-sm text-slate-800 leading-tight truncate">
                           {reserva.cliente_nombre}
                         </h4>
+
                         <div className="mt-1 flex justify-between items-end">
                           <span className="text-[10px] bg-white/60 px-1.5 rounded text-slate-700 font-bold tracking-tight">
                             ${Number(reserva.precio_total || 0).toLocaleString()}
                           </span>
+
                           {Number(reserva.saldo_pendiente || 0) > 0 && (
                             <span className="text-[8px] font-black text-white bg-red-500 px-1.5 py-0.5 rounded uppercase tracking-wider shadow-sm">
                               DEBE

@@ -1,12 +1,8 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/supabaseAdmin";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
-import { getSubdomainFromHost } from "@/lib/ObetenerClubUtils/tenantUtils";
-import { getClubBySubdomain } from "@/lib/ObetenerClubUtils/getClubBySubdomain";
 
 export const runtime = "nodejs";
-
-type RoleName = "admin" | "staff";
 
 type CanchaRow = {
   id_cancha: number;
@@ -25,13 +21,16 @@ type ReservaRow = {
   id_club: number;
   id_cancha: number;
   id_usuario: string | null;
-  fecha: string; // YYYY-MM-DD
-  inicio: string; // HH:MM:SS
-  fin: string; // HH:MM:SS
+
+  fecha: string;
+  inicio: string;
+  fin: string;
   fin_dia_offset: number;
+
   estado: string;
   precio_total: number;
   monto_anticipo: number | null;
+
   segmento: string | null;
   tipo_turno: string | null;
   notas: string | null;
@@ -40,8 +39,8 @@ type ReservaRow = {
   cliente_telefono: string | null;
   cliente_email: string | null;
 
-  inicio_ts: string; // generated
-  fin_ts: string; // generated
+  inicio_ts: string;
+  fin_ts: string;
   created_at: string;
 };
 
@@ -54,9 +53,11 @@ type ProfileRow = {
 };
 
 type ReglaRow = {
-  hora_desde: string; // time
-  hora_hasta: string; // time
+  id_tarifario: number;
+  hora_desde: string;
+  hora_hasta: string;
   cruza_medianoche: boolean | null;
+  dow: number | null;
 };
 
 function arDateISO(date: Date) {
@@ -89,7 +90,7 @@ function toMin(hhmmss: string) {
 
 function weekday0Sun(fechaISO: string) {
   const d = new Date(`${fechaISO}T00:00:00`);
-  return d.getDay(); // 0..6
+  return d.getDay();
 }
 
 function roundDownToHalfHour(min: number) {
@@ -107,6 +108,50 @@ function pickThemeByIndex(idx: number) {
   return themes[idx % themes.length];
 }
 
+function parseHost(req: Request) {
+  const raw = (req.headers.get("x-forwarded-host") || req.headers.get("host") || "").toLowerCase();
+  const hostNoPort = raw.split(":")[0];
+  return hostNoPort;
+}
+
+/**
+ * Resuelve subdominio en:
+ * - ferpadel.localhost
+ * - ferpadel.127.0.0.1.nip.io (si usás)
+ * - ferpadel.tudominio.com
+ */
+function getSubdomain(hostNoPort: string) {
+  const parts = hostNoPort.split(".").filter(Boolean);
+  if (parts.length < 2) return null;
+
+  // localhost: ferpadel.localhost
+  if (parts[parts.length - 1] === "localhost") {
+    return parts.length >= 2 ? parts[0] : null;
+  }
+
+  // dominio normal: ferpadel.versori.com
+  if (parts.length >= 3) return parts[0];
+
+  return null;
+}
+
+async function resolveClubIdBySubdomain(sub: string): Promise<number | null> {
+  if (!sub || sub === "www") return null;
+
+  // ⚠️ Ajustá si tu columna no se llama "subdominio"
+  const { data, error } = await supabaseAdmin
+    .from("clubes")
+    .select("id_club")
+    .eq("subdominio", sub)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[resolveClubIdBySubdomain] error:", error);
+    return null;
+  }
+  return data?.id_club ? Number(data.id_club) : null;
+}
+
 async function assertAdminOrStaff(params: { id_club: number; userId: string }) {
   const { id_club, userId } = params;
 
@@ -115,92 +160,72 @@ async function assertAdminOrStaff(params: { id_club: number; userId: string }) {
     .select("id_usuario, id_club, roles!inner(nombre)")
     .eq("id_club", id_club)
     .eq("id_usuario", userId)
-    .in("roles.nombre", ["admin", "staff"] satisfies RoleName[])
+    .in("roles.nombre", ["admin", "staff"])
     .limit(1);
 
-  if (error) {
-    return { ok: false as const, status: 500, error: `Error validando rol: ${error.message}` };
-  }
-  if (!data || data.length === 0) {
-    return { ok: false as const, status: 403, error: "No tenés permisos de admin/staff en este club" };
-  }
-
+  if (error) return { ok: false as const, status: 500, error: `Error validando rol: ${error.message}` };
+  if (!data || data.length === 0) return { ok: false as const, status: 403, error: "No tenés permisos en este club" };
   return { ok: true as const };
 }
 
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
-
-    // =======================
-    // 0) RESOLVER CLUB REAL POR SUBDOMINIO (NO VIENE DEL FRONT)
-    // =======================
-    const host = req.headers.get("host") || "";
-    const subdomain = getSubdomainFromHost(host);
-
-    if (!subdomain) {
-      return NextResponse.json({ error: "No se pudo resolver el club (subdominio)" }, { status: 400 });
-    }
-
-    const club = await getClubBySubdomain(subdomain);
-    if (!club) {
-      return NextResponse.json({ error: "Club inexistente" }, { status: 404 });
-    }
-
-    const id_club = Number(club.id_club);
-    if (!id_club || Number.isNaN(id_club)) {
-      return NextResponse.json({ error: "Club inválido" }, { status: 500 });
-    }
-
     const fecha = searchParams.get("fecha") || arDateISO(new Date());
 
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
       return NextResponse.json({ error: "fecha inválida (YYYY-MM-DD)" }, { status: 400 });
     }
 
-    // =======================
-    // 1) AUTH
-    // =======================
+    // 1) intentar por subdominio (incluye localhost)
+    const hostNoPort = parseHost(req);
+    const sub = getSubdomain(hostNoPort);
+    const clubFromSub = sub ? await resolveClubIdBySubdomain(sub) : null;
+
+    // 2) fallback a query param (dev / casos especiales)
+    const idClubFromQuery = Number(searchParams.get("id_club"));
+    const id_club =
+      clubFromSub ??
+      (Number.isFinite(idClubFromQuery) && idClubFromQuery > 0 ? idClubFromQuery : null);
+
+    if (!id_club) {
+      return NextResponse.json(
+        { error: "No se pudo resolver el club (falta id_club o subdominio inválido)" },
+        { status: 400 }
+      );
+    }
+
+    // Auth
     const supabase = await getSupabaseServerClient();
     const { data: authRes, error: aErr } = await supabase.auth.getUser();
     if (aErr) return NextResponse.json({ error: "No se pudo validar la sesión" }, { status: 401 });
-
     const userId = authRes?.user?.id ?? null;
     if (!userId) return NextResponse.json({ error: "LOGIN_REQUERIDO" }, { status: 401 });
 
-    // =======================
-    // 2) PERMISOS
-    // =======================
+    // Permisos
     const perm = await assertAdminOrStaff({ id_club, userId });
     if (!perm.ok) return NextResponse.json({ error: perm.error }, { status: perm.status });
 
-    // =======================
-    // 3) CANCHAS DEL CLUB
-    // =======================
+    // Canchas (filtrado OK)
     const { data: canchasRaw, error: cErr } = await supabaseAdmin
       .from("canchas")
       .select("id_cancha,id_club,id_tipo_cancha,id_tarifario,nombre,descripcion,imagen_url,es_exterior,activa")
       .eq("id_club", id_club)
       .eq("activa", true)
-      .order("id_cancha", { ascending: true });
+      .order("id_cancha", { ascending: true })
+      .returns<CanchaRow[]>();
 
-    if (cErr) {
-      return NextResponse.json({ error: `Error leyendo canchas: ${cErr.message}` }, { status: 500 });
-    }
+    if (cErr) return NextResponse.json({ error: `Error leyendo canchas: ${cErr.message}` }, { status: 500 });
 
-    const canchas = (canchasRaw ?? []) as unknown as CanchaRow[];
+    const canchas = canchasRaw || [];
 
-    // =======================
-    // 4) TARIFARIOS DEFAULT POR TIPO (DEL MISMO CLUB)
-    // =======================
+    // Defaults
     const { data: defaultsRaw, error: dErr } = await supabaseAdmin
       .from("club_tarifarios_default")
       .select("id_tipo_cancha,id_tarifario")
       .eq("id_club", id_club);
 
-    if (dErr) {
-      return NextResponse.json({ error: `Error leyendo tarifarios default: ${dErr.message}` }, { status: 500 });
-    }
+    if (dErr) return NextResponse.json({ error: `Error leyendo tarifarios default: ${dErr.message}` }, { status: 500 });
 
     const defaultMap = new Map<number, number>();
     for (const row of defaultsRaw || []) {
@@ -209,7 +234,7 @@ export async function GET(req: Request) {
       if (Number.isFinite(t) && Number.isFinite(tf)) defaultMap.set(t, tf);
     }
 
-    const canchaTarifario = new Map<number, number>(); // id_cancha -> id_tarifario
+    const canchaTarifario = new Map<number, number>();
     const tarifariosSet = new Set<number>();
 
     for (const c of canchas) {
@@ -224,20 +249,16 @@ export async function GET(req: Request) {
       }
     }
 
-    // =======================
-    // 5) RANGO HORARIO DINÁMICO SEGÚN REGLAS (SEGMENTO PUBLICO)
-    // =======================
+    // Rango horario dinámico
     const dow = weekday0Sun(fecha);
-
     let minStart = 8 * 60;
     let maxEnd = 26 * 60;
 
     if (tarifariosSet.size > 0) {
       const tarifarios = Array.from(tarifariosSet.values());
-
       const { data: reglasRaw, error: rErr } = await supabaseAdmin
         .from("canchas_tarifas_reglas")
-        .select("hora_desde,hora_hasta,cruza_medianoche,dow,activo,segmento,vigente_desde,vigente_hasta,id_tarifario")
+        .select("id_tarifario,hora_desde,hora_hasta,cruza_medianoche,dow,activo,segmento,vigente_desde,vigente_hasta")
         .in("id_tarifario", tarifarios)
         .eq("activo", true)
         .eq("segmento", "publico")
@@ -245,11 +266,9 @@ export async function GET(req: Request) {
         .lte("vigente_desde", fecha)
         .or(`vigente_hasta.is.null,vigente_hasta.gte.${fecha}`);
 
-      if (rErr) {
-        return NextResponse.json({ error: `Error leyendo reglas: ${rErr.message}` }, { status: 500 });
-      }
+      if (rErr) return NextResponse.json({ error: `Error leyendo reglas: ${rErr.message}` }, { status: 500 });
 
-      const reglas = (reglasRaw || []) as unknown as Array<ReglaRow>;
+      const reglas = (reglasRaw || []) as ReglaRow[];
 
       if (reglas.length > 0) {
         let localMin = Number.POSITIVE_INFINITY;
@@ -258,7 +277,6 @@ export async function GET(req: Request) {
         for (const rr of reglas) {
           const from = toMin(rr.hora_desde);
           const toBase = toMin(rr.hora_hasta);
-
           const crosses = !!rr.cruza_medianoche || toBase <= from;
           const to = crosses ? toBase + 1440 : toBase;
 
@@ -282,9 +300,7 @@ export async function GET(req: Request) {
     const startHour = minToHourDecimal(minStart);
     const endHour = minToHourDecimal(maxEnd);
 
-    // =======================
-    // 6) RESERVAS DEL RANGO (DEL MISMO CLUB)
-    // =======================
+    // Reservas
     const windowStart = new Date(arMidnightISO(fecha)).toISOString();
     const windowEnd = new Date(arMidnightISO(addDaysISO(fecha, 2))).toISOString();
 
@@ -318,17 +334,14 @@ export async function GET(req: Request) {
       .in("estado", ["confirmada", "pendiente_pago", "cancelada"])
       .lt("inicio_ts", windowEnd)
       .gt("fin_ts", windowStart)
-      .order("inicio_ts", { ascending: true });
+      .order("inicio_ts", { ascending: true })
+      .returns<ReservaRow[]>();
 
-    if (resErr) {
-      return NextResponse.json({ error: `Error leyendo reservas: ${resErr.message}` }, { status: 500 });
-    }
+    if (resErr) return NextResponse.json({ error: `Error leyendo reservas: ${resErr.message}` }, { status: 500 });
 
-    const reservas = (reservasRaw ?? []) as unknown as ReservaRow[];
+    const reservas = reservasRaw || [];
 
-    // =======================
-    // 7) PROFILES DE USUARIOS INVOLUCRADOS
-    // =======================
+    // Profiles
     const userIds = Array.from(new Set(reservas.map((r) => r.id_usuario).filter(Boolean) as string[]));
     const profilesMap = new Map<string, ProfileRow>();
 
@@ -336,34 +349,26 @@ export async function GET(req: Request) {
       const { data: profRaw, error: pErr } = await supabaseAdmin
         .from("profiles")
         .select("id_usuario,nombre,apellido,telefono,email")
-        .in("id_usuario", userIds);
+        .in("id_usuario", userIds)
+        .returns<ProfileRow[]>();
 
-      if (pErr) {
-        return NextResponse.json({ error: `Error leyendo profiles: ${pErr.message}` }, { status: 500 });
-      }
+      if (pErr) return NextResponse.json({ error: `Error leyendo profiles: ${pErr.message}` }, { status: 500 });
 
-      for (const p of (profRaw ?? []) as unknown as ProfileRow[]) {
-        profilesMap.set(p.id_usuario, p);
-      }
+      for (const p of profRaw || []) profilesMap.set(p.id_usuario, p);
     }
 
-    // =======================
-    // 8) PAGOS APROBADOS (SOLO DE ESTE CLUB)
-    // =======================
+    // Pagos approved
     const reservaIds = reservas.map((r) => Number(r.id_reserva)).filter((n) => Number.isFinite(n));
     const paidMap = new Map<number, number>();
 
     if (reservaIds.length > 0) {
       const { data: pagosRaw, error: payErr } = await supabaseAdmin
         .from("reservas_pagos")
-        .select("id_reserva,status,amount,id_club")
+        .select("id_reserva,status,amount")
         .in("id_reserva", reservaIds)
-        .eq("id_club", id_club)
         .eq("status", "approved");
 
-      if (payErr) {
-        return NextResponse.json({ error: `Error leyendo pagos: ${payErr.message}` }, { status: 500 });
-      }
+      if (payErr) return NextResponse.json({ error: `Error leyendo pagos: ${payErr.message}` }, { status: 500 });
 
       for (const row of pagosRaw || []) {
         const rid = Number((row as any).id_reserva);
@@ -373,9 +378,7 @@ export async function GET(req: Request) {
       }
     }
 
-    // =======================
-    // 9) OUTPUT
-    // =======================
+    // Output
     const canchasOut = canchas.map((c, idx) => ({
       id_cancha: c.id_cancha,
       nombre: c.nombre,
@@ -388,8 +391,8 @@ export async function GET(req: Request) {
 
     const reservasOut = reservas.map((r) => {
       const prof = r.id_usuario ? profilesMap.get(r.id_usuario) : null;
-
       const nombreFromProfile = prof ? [prof.nombre, prof.apellido].filter(Boolean).join(" ").trim() : "";
+
       const cliente_nombre = (r.cliente_nombre || nombreFromProfile || "").trim() || "Sin nombre";
       const cliente_telefono = (r.cliente_telefono || prof?.telefono || "").trim();
       const cliente_email = (r.cliente_email || prof?.email || "").trim();

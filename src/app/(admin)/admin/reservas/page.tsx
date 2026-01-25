@@ -9,7 +9,6 @@ import ReservaSidebar from "./_components/ReservaSidebar";
 import type { AgendaApiResponse, ReservaUI } from "./_components/types";
 
 function toISODateAR(d: Date) {
-  // formatea YYYY-MM-DD en hora local (para evitar corrimientos)
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
@@ -17,12 +16,11 @@ function toISODateAR(d: Date) {
 }
 
 export default function ReservasPage() {
-  // TODO: si obtenés id_club por subdominio/club actual, reemplazá esto
-  const id_club = 1;
-
   const [selectedDate, setSelectedDate] = useState(new Date());
-  
+
   const [agenda, setAgenda] = useState<AgendaApiResponse | null>(null);
+  const [idClub, setIdClub] = useState<number | null>(null);
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -40,13 +38,15 @@ export default function ReservasPage() {
     setLoading(true);
     setError(null);
     try {
-      const url = `/api/admin/agenda?id_club=${id_club}&fecha=${fechaISO}`;
+      const url = `/api/admin/agenda?fecha=${fechaISO}`;
       const res = await fetch(url, { cache: "no-store" });
       const json = await res.json();
       if (!res.ok || !json?.ok) throw new Error(json?.error || "Error cargando agenda");
       setAgenda(json);
+      setIdClub(json.id_club);
     } catch (e: any) {
       setAgenda(null);
+      setIdClub(null);
       setError(e?.message || "Error interno");
     } finally {
       setLoading(false);
@@ -56,7 +56,7 @@ export default function ReservasPage() {
   useEffect(() => {
     loadAgenda();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fechaISO, id_club]);
+  }, [fechaISO]);
 
   const handleReservaClick = (r: ReservaUI) => {
     setSidebarState({ isOpen: true, mode: "view", data: r });
@@ -100,19 +100,14 @@ export default function ReservasPage() {
       </header>
 
       <main className="flex-1 relative overflow-hidden">
-        {loading && (
-          <div className="h-full grid place-items-center text-sm text-slate-600">Cargando agenda…</div>
-        )}
+        {loading && <div className="h-full grid place-items-center text-sm text-slate-600">Cargando agenda…</div>}
 
         {!loading && error && (
           <div className="h-full grid place-items-center">
             <div className="bg-white border border-red-200 rounded-xl p-4 shadow-sm max-w-md w-full">
               <div className="font-bold text-red-700 mb-1">No se pudo cargar</div>
               <div className="text-sm text-slate-600">{error}</div>
-              <button
-                onClick={loadAgenda}
-                className="mt-3 px-3 py-2 rounded-lg bg-slate-900 text-white text-sm font-bold"
-              >
+              <button onClick={loadAgenda} className="mt-3 px-3 py-2 rounded-lg bg-slate-900 text-white text-sm font-bold">
                 Reintentar
               </button>
             </div>
@@ -139,8 +134,7 @@ export default function ReservasPage() {
         selectedDate={selectedDate}
         preSelectedCanchaId={sidebarState.preSelectedCanchaId}
         preSelectedTime={sidebarState.preSelectedTime}
-        // datos agenda necesarios para crear/calcular precio
-        idClub={id_club}
+        idClub={idClub || 0}
         canchas={agenda?.canchas || []}
         onCreated={() => {
           setSidebarState((prev) => ({ ...prev, isOpen: false }));

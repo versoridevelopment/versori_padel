@@ -230,9 +230,8 @@ export default function ReservaSidebar({
           id_cancha,
           fecha: fechaISO,
           inicio,
-          fin,
-          // lo importante: el admin NO carga precio manual, va por server
-          // tu endpoint debería volver a calcular y guardar.
+          duracion_min: dur,   // ✅ <-- AGREGAR ESTO
+          fin,                 // opcional
           cliente_nombre: formData.nombre.trim(),
           cliente_telefono: formData.telefono.trim(),
           cliente_email: formData.email.trim() || null,

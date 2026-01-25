@@ -13,6 +13,7 @@ export type CanchaUI = {
 export type ReservaUI = {
   id_reserva: number;
   id_cancha: number;
+
   fecha: string; // YYYY-MM-DD
   horaInicio: string; // HH:MM
   horaFin: string; // HH:MM
@@ -22,18 +23,16 @@ export type ReservaUI = {
 
   precio_total: number;
   monto_anticipo: number;
+  pagos_aprobados_total: number;
+  saldo_pendiente: number;
 
   segmento: string | null;
-  tipo_turno: string;
-
+  tipo_turno: string | null;
   notas: string | null;
 
   cliente_nombre: string;
   cliente_telefono: string;
   cliente_email: string;
-
-  pagos_aprobados_total: number;
-  saldo_pendiente: number;
 
   inicio_ts: string;
   fin_ts: string;
@@ -43,7 +42,7 @@ export type AgendaApiResponse = {
   ok: true;
   id_club: number;
   fecha: string;
-  startHour: number; // decimal (ej 8, 8.5, 26)
+  startHour: number;
   endHour: number;
   canchas: CanchaUI[];
   reservas: ReservaUI[];
