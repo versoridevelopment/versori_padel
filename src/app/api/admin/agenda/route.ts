@@ -331,7 +331,7 @@ export async function GET(req: Request) {
         ].join(",")
       )
       .eq("id_club", id_club)
-      .in("estado", ["confirmada", "pendiente_pago", "cancelada"])
+      .in("estado", ["confirmada", "pendiente_pago"])
       .lt("inicio_ts", windowEnd)
       .gt("fin_ts", windowStart)
       .order("inicio_ts", { ascending: true })
