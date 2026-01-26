@@ -6,6 +6,7 @@ import { CheckCircle2, XCircle, Clock, RotateCw } from "lucide-react";
 
 type Estado = "pendiente_pago" | "confirmada" | "expirada" | "rechazada";
 
+// ✅ Esta es la función que no estabas usando
 function isLocalHostName(hostname: string) {
   return (
     hostname === "localhost" ||
@@ -15,13 +16,8 @@ function isLocalHostName(hostname: string) {
 }
 
 function buildHostWithSubdomain(baseHost: string, club: string) {
-  // Si ya tiene el subdominio, no tocar
   if (baseHost.startsWith(`${club}.`)) return baseHost;
-
-  // Si el host es tipo "www.dominio.com", sacar www
   const host = baseHost.startsWith("www.") ? baseHost.slice(4) : baseHost;
-
-  // Poner subdominio adelante
   return `${club}.${host}`;
 }
 
@@ -30,60 +26,47 @@ export default function PagoResultadoPage() {
   const router = useRouter();
 
   const id_reserva = Number(params.get("id_reserva"));
-  const club = params.get("club") || null; // viene desde /pago/iniciar back_urls
+  const club = params.get("club") || null;
 
   const [estado, setEstado] = useState<Estado | null>(null);
   const [loading, setLoading] = useState(true);
   const [pollError, setPollError] = useState<string | null>(null);
 
-  // URL destino para "Volver al club" (solo si podemos construirla)
   const clubHomeUrl = useMemo(() => {
     if (!club) return null;
-
-    // En dev con localhost no tiene sentido redirigir a subdominio si estás en ngrok.
-    // Pero sí podés redirigir a subdominio si tu host actual YA ES localhost con subdominio.
-    // Ej: padelcentral.localhost:3000
     if (typeof window === "undefined") return null;
 
     const { protocol, hostname, port } = window.location;
 
-    // Si estás en *.localhost, armamos club.localhost:3000
-    if (hostname.endsWith("localhost")) {
+    // ✅ CORRECCIÓN AQUÍ: Usamos la función auxiliar isLocalHostName
+    if (isLocalHostName(hostname)) {
       const targetHost = `${club}.localhost`;
       const target = `${protocol}//${targetHost}${port ? `:${port}` : ""}/`;
       return target;
     }
 
-    // Si estás en ngrok, NO intentamos ir a localhost (no existe público).
-    // En producción (dominio real) podrías redirigir al subdominio real.
-    // Para no romper local, dejamos el home en el mismo host (ngrok) pero con query club
-    // para que tu UI (si la tenés) pueda resolver branding.
-    // Ajustá si ya tenés una home tenant-aware.
     if (hostname.includes("ngrok-free.dev")) {
       return `${protocol}//${hostname}/?club=${encodeURIComponent(club)}`;
     }
 
-    // Producción: subdominio real
-    // Ej: versori.com => padelcentral.versori.com
     const targetHost = buildHostWithSubdomain(hostname, club);
     return `${protocol}//${targetHost}${port ? `:${port}` : ""}/`;
   }, [club]);
 
+  // ... (El resto del código sigue igual) ...
+  
   // 🔁 Polling de estado de reserva
   useEffect(() => {
     if (!id_reserva) return;
-
     let alive = true;
     let timer: any = null;
 
     async function poll() {
       try {
         setPollError(null);
-
         const res = await fetch(`/api/reservas/${id_reserva}`, {
           cache: "no-store",
         });
-
         const data = await res.json().catch(() => null);
 
         if (!alive) return;
@@ -91,7 +74,6 @@ export default function PagoResultadoPage() {
         if (!res.ok) {
           setPollError(data?.error || "No se pudo verificar el estado.");
           setLoading(false);
-          // reintentar suave
           timer = setTimeout(poll, 2500);
           return;
         }
@@ -100,7 +82,6 @@ export default function PagoResultadoPage() {
         setEstado(nextEstado);
         setLoading(false);
 
-        // Si todavía está pendiente, seguimos consultando
         if (nextEstado === "pendiente_pago") {
           timer = setTimeout(poll, 2500);
         }
@@ -120,7 +101,6 @@ export default function PagoResultadoPage() {
     };
   }, [id_reserva]);
 
-  // Validación simple
   if (!id_reserva) {
     return <p className="text-white p-10">Reserva inválida</p>;
   }

@@ -3,10 +3,10 @@ import { supabaseAdmin } from "@/lib/supabase/supabaseAdmin";
 
 export async function GET(
   req: NextRequest,
-  { params }: { params: { id: string } } // <--- CAMBIO IMPORTANTE: debe coincidir con el nombre de la carpeta [id]
+  { params }: { params: { id: string } }
 ) {
   try {
-    const { id } = params; // Aquí obtenemos el ID del usuario desde la URL
+    const { id } = params;
     const searchParams = req.nextUrl.searchParams;
     const clubId = searchParams.get("clubId");
 
@@ -18,7 +18,7 @@ export async function GET(
     const { data: profile, error: profileError } = await supabaseAdmin
       .from("profiles")
       .select("*")
-      .eq("id_usuario", id) // Usamos 'id'
+      .eq("id_usuario", id)
       .single();
 
     if (profileError || !profile) {
@@ -29,7 +29,8 @@ export async function GET(
     }
 
     // 2. Obtener Roles en este Club
-    const { data: rolesData, error: rolesError } = await supabaseAdmin
+    // ✅ CORRECCIÓN: Quitamos "error: rolesError" porque no lo usabas
+    const { data: rolesData } = await supabaseAdmin
       .from("club_usuarios")
       .select(
         `
@@ -37,7 +38,7 @@ export async function GET(
         roles ( nombre )
       `
       )
-      .eq("id_usuario", id) // Usamos 'id'
+      .eq("id_usuario", id)
       .eq("id_club", clubId);
 
     const roles = rolesData?.map((r: any) => r.roles?.nombre) || [];
@@ -62,7 +63,7 @@ export async function GET(
         )
       `
       )
-      .eq("id_usuario", id) // Usamos 'id'
+      .eq("id_usuario", id)
       .eq("id_club", clubId)
       .order("fecha", { ascending: false });
 

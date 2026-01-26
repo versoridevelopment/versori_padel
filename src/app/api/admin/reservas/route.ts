@@ -188,12 +188,12 @@ export async function POST(req: Request) {
     const windowStart = new Date(arMidnightISO(fecha)).toISOString();
     const windowEnd = new Date(arMidnightISO(addDaysISO(fecha, 2))).toISOString();
 
-    const { data: overlaps, error: ovErr } = await supabaseAdmin
+    const { error: ovErr } = await supabaseAdmin
       .from("reservas")
       .select("id_reserva")
       .eq("id_club", id_club)
       .eq("id_cancha", id_cancha)
-      .in("estado", ["confirmada", "pendiente_pago"]) // ajustá si querés
+      .in("estado", ["confirmada", "pendiente_pago"]) 
       .lt("inicio_ts", windowEnd)
       .gt("fin_ts", windowStart)
       .limit(200);

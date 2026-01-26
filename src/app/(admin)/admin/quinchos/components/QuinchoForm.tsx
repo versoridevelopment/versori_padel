@@ -5,7 +5,6 @@ import Image from "next/image";
 import {
   Loader2,
   Save,
-  UploadCloud,
   Home,
   MessageCircle,
   DollarSign,

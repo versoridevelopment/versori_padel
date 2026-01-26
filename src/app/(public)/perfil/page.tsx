@@ -10,15 +10,16 @@ export default async function PerfilPage() {
   const cookieStore = await cookies();
 
   // 1. INTENTO ESTÁNDAR
-  // Usamos 'let' porque podríamos necesitar sobrescribirlo abajo
   let supabase = createServerComponentClient({
     cookies: () =>
       ({
         get(name: string) {
           return cookieStore.get(name)?.value;
         },
-        set(name: string, value: string, options: any) {},
-        remove(name: string, options: any) {},
+        // ✅ SOLUCIÓN: Quitamos los argumentos por completo.
+        // Al usar 'as any' abajo, no necesitamos declarar los parámetros si no los usamos.
+        set() {},
+        remove() {},
         getAll() {
           return cookieStore
             .getAll()
@@ -31,7 +32,7 @@ export default async function PerfilPage() {
     data: { session },
   } = await supabase.auth.getSession();
 
-  // 2. FALLBACK MANUAL (PLAN B - RECUPERACIÓN DE COOKIE BASE64)
+  // 2. FALLBACK MANUAL
   if (!session) {
     console.log(
       "⚠️ [Perfil] Falló lectura estándar. Intentando recuperación manual de cookies..."
@@ -44,7 +45,6 @@ export default async function PerfilPage() {
       );
 
       if (tokenCookies.length > 0) {
-        // a. Ordenar fragmentos
         tokenCookies.sort((a, b) => {
           const aIndex = parseInt(a.name.split(".").pop() || "0");
           const bIndex = parseInt(b.name.split(".").pop() || "0");
@@ -53,23 +53,19 @@ export default async function PerfilPage() {
 
         let combinedValue = tokenCookies.map((c) => c.value).join("");
 
-        // b. Decodificar Base64 si es necesario (Formato nuevo de Supabase)
         if (combinedValue.startsWith("base64-")) {
           const base64Str = combinedValue.replace("base64-", "");
           const jsonStr = Buffer.from(base64Str, "base64").toString("utf-8");
           combinedValue = jsonStr;
         }
 
-        // c. Parsear JSON
         const sessionData = JSON.parse(combinedValue);
 
         if (sessionData.access_token) {
-          // d. Crear cliente limpio
           const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
           const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
           const manualClient = createClient(supabaseUrl, supabaseKey);
 
-          // e. Forzar sesión
           const { data: manualSession } = await manualClient.auth.setSession({
             access_token: sessionData.access_token,
             refresh_token: sessionData.refresh_token,
@@ -78,9 +74,6 @@ export default async function PerfilPage() {
           if (manualSession.session) {
             console.log("✅ [Perfil] ¡Sesión recuperada manualmente!");
             session = manualSession.session;
-
-            // CORRECCIÓN: Eliminamos @ts-expect-error y usamos 'as any'
-            // Esto evita el error de linter "Unused directive" y el de "Missing description"
             supabase = manualClient as any;
           }
         }

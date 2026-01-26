@@ -85,6 +85,7 @@ export async function GET(req: Request) {
       .eq("fin", draft.fin)
       .eq("fin_dia_offset", fin_dia_offset)
       .eq("estado", "pendiente_pago")
+      .gt("expires_at", nowIso) // <--- AGREGA ESTO AQUÍ
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();

@@ -56,15 +56,6 @@ function pad2(n: number) {
   return String(n).padStart(2, "0");
 }
 
-// decimal (ej 10.5) -> "HH:MM"
-function decimalToHHMM(decimal: number) {
-  let totalMin = Math.round(decimal * 60);
-  totalMin = ((totalMin % 1440) + 1440) % 1440;
-  const hh = Math.floor(totalMin / 60);
-  const mm = totalMin % 60;
-  return `${pad2(hh)}:${pad2(mm)}`;
-}
-
 // "HH:MM" -> decimal, respetando ventana startHour..endHour (posible +24)
 function hhmmToDecimal(hhmm: string, startHour: number) {
   const [h, m] = (hhmm || "").slice(0, 5).split(":").map(Number);
@@ -80,10 +71,6 @@ function addMinutesHHMM(hhmm: string, addMin: number) {
   const hh = String(Math.floor(total / 60)).padStart(2, "0");
   const mm = String(total % 60).padStart(2, "0");
   return `${hh}:${mm}`;
-}
-
-function overlaps(aStart: number, aEnd: number, bStart: number, bEnd: number) {
-  return aStart < bEnd && aEnd > bStart;
 }
 
 /** ===== Regla anti “30 colgados” robusta (en unidades de 30’) =====
@@ -296,7 +283,6 @@ export default function ReservaSidebar({
     }
 
     setFormData((prev) => ({ ...prev, horaInicio: availableTimes[0].value }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, isCreating, availableTimes, preSelectedTime, formData.horaInicio]);
 
   // ESC
@@ -372,7 +358,6 @@ export default function ReservaSidebar({
     }
 
     calc();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, isCreating, idClub, fechaISO, formData.canchaId, formData.horaInicio, formData.duracion]);
 
   const getWhatsappLink = (phone: string) => `https://wa.me/${String(phone || "").replace(/\D/g, "")}`;

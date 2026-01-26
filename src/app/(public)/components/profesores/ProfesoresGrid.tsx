@@ -2,7 +2,7 @@
 "use client";
 
 import ProfesorCard, { Profesor } from "./ProfesorCard";
-import { motion } from "framer-motion";
+// Se eliminó el import de framer-motion porque no se usaba
 
 interface Props {
   profesores: Profesor[];

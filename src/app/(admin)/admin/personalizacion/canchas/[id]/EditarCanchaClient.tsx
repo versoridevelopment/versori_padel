@@ -273,7 +273,7 @@ export default function EditarCanchaClient({
       setFile(croppedFile);
       setIsCropping(false);
       setTempImgSrc(null);
-    } catch (e) {
+    } catch {
       alert("Error al recortar");
     }
   };

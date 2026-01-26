@@ -2,7 +2,6 @@
 
 import { motion } from "framer-motion";
 import Image from "next/image";
-import { MessageCircle } from "lucide-react";
 import ProfesoresGrid from "./ProfesoresGrid";
 import { Profesor } from "./ProfesorCard"; // Asegúrate de que la ruta sea correcta
 

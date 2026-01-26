@@ -131,7 +131,7 @@ export default function DashboardPage() {
         </div>
 
         {/* RESTRICCIÓN POR ROL EN FRONTEND (Opcional, si quieres ocultar algo al cajero) */}
-        {role === "admin" && (
+        {role === "Administrador" && (
           <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm h-[400px] flex flex-col items-center justify-center text-center">
             <Trophy size={48} className="text-yellow-500 mb-4 opacity-50" />
             <h3 className="text-lg font-bold text-slate-800">
