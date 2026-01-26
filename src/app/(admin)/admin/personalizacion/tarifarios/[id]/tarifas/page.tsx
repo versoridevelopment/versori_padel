@@ -2,11 +2,15 @@
 import { getCurrentClub } from "@/lib/ObetenerClubUtils/getCurrentClub";
 import TarifasDeTarifarioClient from "./TarifasDeTarifarioClient";
 
+type PageParams = { id: string };
+
 export default async function TarifasPage({
   params,
 }: {
-  params: { id: string };
+  params: Promise<PageParams>;
 }) {
+  const { id } = await params; // ✅ Next 15: params es Promise
+
   const club = await getCurrentClub();
 
   if (!club) {
@@ -17,7 +21,7 @@ export default async function TarifasPage({
     );
   }
 
-  const idTarifario = Number(params.id);
+  const idTarifario = Number(id);
   if (Number.isNaN(idTarifario)) {
     return (
       <div className="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-sm text-rose-700">

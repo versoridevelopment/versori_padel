@@ -1,20 +1,33 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/supabaseAdmin";
 
+export const runtime = "nodejs";
+
+type RouteParams = { id: string };
+
 export async function GET(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<RouteParams> }
 ) {
   try {
-    const { id } = params;
-    const searchParams = req.nextUrl.searchParams;
-    const clubId = searchParams.get("clubId");
+    const { id } = await params; // ✅ Next 15: params es Promise
 
-    if (!id || !clubId) {
+    const searchParams = req.nextUrl.searchParams;
+    const clubIdStr = searchParams.get("clubId");
+
+    if (!id || !clubIdStr) {
       return NextResponse.json({ error: "Faltan parámetros" }, { status: 400 });
     }
 
-    // 1. Obtener Perfil Base
+    const clubId = Number(clubIdStr);
+    if (Number.isNaN(clubId)) {
+      return NextResponse.json(
+        { error: "clubId debe ser numérico" },
+        { status: 400 }
+      );
+    }
+
+    // 1) Obtener Perfil Base
     const { data: profile, error: profileError } = await supabaseAdmin
       .from("profiles")
       .select("*")
@@ -28,9 +41,8 @@ export async function GET(
       );
     }
 
-    // 2. Obtener Roles en este Club
-    // ✅ CORRECCIÓN: Quitamos "error: rolesError" porque no lo usabas
-    const { data: rolesData } = await supabaseAdmin
+    // 2) Obtener Roles en este Club
+    const { data: rolesData, error: rolesError } = await supabaseAdmin
       .from("club_usuarios")
       .select(
         `
@@ -41,9 +53,13 @@ export async function GET(
       .eq("id_usuario", id)
       .eq("id_club", clubId);
 
-    const roles = rolesData?.map((r: any) => r.roles?.nombre) || [];
+    if (rolesError) {
+      console.error("Error fetching roles:", rolesError);
+    }
 
-    // 3. Obtener Historial de Reservas
+    const roles = rolesData?.map((r: any) => r.roles?.nombre).filter(Boolean) || [];
+
+    // 3) Obtener Historial de Reservas
     const { data: reservas, error: reservasError } = await supabaseAdmin
       .from("reservas")
       .select(
@@ -71,15 +87,16 @@ export async function GET(
       console.error("Error fetching reservas:", reservasError);
     }
 
-    const responseData = {
+    return NextResponse.json({
       ...profile,
-      roles: roles,
+      roles,
       reservas: reservas || [],
-    };
-
-    return NextResponse.json(responseData);
+    });
   } catch (error: any) {
     console.error("Error en GET usuario:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json(
+      { error: error?.message || "Error interno" },
+      { status: 500 }
+    );
   }
 }

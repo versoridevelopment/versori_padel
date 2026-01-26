@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { use, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
@@ -20,6 +20,8 @@ type Club = {
 };
 
 type ApiError = { error: string };
+
+type PageParams = { id: string };
 
 async function uploadClubImages(
   idClub: number,
@@ -158,10 +160,11 @@ function PreviewCard(props: {
 export default function EditarClubPage({
   params,
 }: {
-  params: { id: string };
+  params: Promise<PageParams>;
 }) {
+  const { id } = use(params); // ✅ Next 15: params es Promise en Client
   const router = useRouter();
-  const idClub = Number(params.id);
+  const idClub = Number(id);
 
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -176,6 +179,7 @@ export default function EditarClubPage({
     () => (logoFile ? URL.createObjectURL(logoFile) : null),
     [logoFile]
   );
+
   const heroPreview = useMemo(
     () => (heroFile ? URL.createObjectURL(heroFile) : null),
     [heroFile]
@@ -239,7 +243,6 @@ export default function EditarClubPage({
 
     setIsSaving(true);
     try {
-      // 1) Guardar datos base (sin tocar URLs de imágenes)
       const res = await fetch(`/api/superadmin/clubes/${idClub}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -260,12 +263,10 @@ export default function EditarClubPage({
         throw new Error(err?.error || "No se pudo guardar el club");
       }
 
-      // 2) Si hay archivos, subirlos y actualizar URLs en DB
       if (logoFile || heroFile) {
         await uploadClubImages(idClub, logoFile, heroFile);
       }
 
-      // 3) Recargar
       await load();
       alert("Cambios guardados.");
     } catch (err: any) {
@@ -398,7 +399,6 @@ export default function EditarClubPage({
               </div>
             </div>
 
-            {/* Upload */}
             <div>
               <label className="text-sm font-semibold text-gray-700">
                 Reemplazar logo (archivo)
@@ -429,7 +429,6 @@ export default function EditarClubPage({
               </div>
             </div>
 
-            {/* URLs readonly */}
             <div className="md:col-span-2">
               <label className="text-sm font-semibold text-gray-700">
                 Logo URL (solo lectura)
@@ -448,7 +447,6 @@ export default function EditarClubPage({
               </div>
             </div>
 
-            {/* Colores */}
             <div>
               <label className="text-sm font-semibold text-gray-700">
                 Color primario
@@ -485,7 +483,6 @@ export default function EditarClubPage({
               />
             </div>
 
-            {/* Textos */}
             <div className="md:col-span-2">
               <label className="text-sm font-semibold text-gray-700">
                 Texto bienvenida (título)

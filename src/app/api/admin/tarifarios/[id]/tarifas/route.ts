@@ -3,8 +3,9 @@ import { supabaseAdmin } from "@/lib/supabase/supabaseAdmin";
 
 export const runtime = "nodejs";
 
-function parseId(params: { id?: string }) {
-  const idParam = params.id;
+type RouteParams = { id: string };
+
+function parseId(idParam?: string) {
   if (!idParam) return { error: "id es requerido" as const };
   const id = Number(idParam);
   if (Number.isNaN(id)) return { error: "id debe ser numérico" as const };
@@ -15,9 +16,15 @@ function parseId(params: { id?: string }) {
  * GET /api/admin/tarifarios/:id/tarifas
  * Lista reglas de un tarifario específico
  */
-export async function GET(_req: Request, { params }: { params: { id: string } }) {
-  const parsed = parseId(params);
-  if ("error" in parsed) return NextResponse.json({ error: parsed.error }, { status: 400 });
+export async function GET(
+  _req: Request,
+  { params }: { params: Promise<RouteParams> }
+) {
+  const { id: idParam } = await params; // ✅ Next 15
+  const parsed = parseId(idParam);
+  if ("error" in parsed) {
+    return NextResponse.json({ error: parsed.error }, { status: 400 });
+  }
 
   try {
     // (opcional) validar que existe
@@ -29,10 +36,16 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
 
     if (tErr) {
       console.error("[ADMIN GET /tarifarios/:id/tarifas] tarifario error:", tErr);
-      return NextResponse.json({ error: "Error al validar tarifario" }, { status: 500 });
+      return NextResponse.json(
+        { error: "Error al validar tarifario" },
+        { status: 500 }
+      );
     }
     if (!tarifario) {
-      return NextResponse.json({ error: "Tarifario no encontrado" }, { status: 404 });
+      return NextResponse.json(
+        { error: "Tarifario no encontrado" },
+        { status: 404 }
+      );
     }
 
     const { data, error } = await supabaseAdmin
@@ -47,13 +60,19 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
 
     if (error) {
       console.error("[ADMIN GET /tarifarios/:id/tarifas] error:", error);
-      return NextResponse.json({ error: "Error al obtener tarifas" }, { status: 500 });
+      return NextResponse.json(
+        { error: "Error al obtener tarifas" },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json({ id_tarifario: parsed.id, reglas: data ?? [] });
   } catch (err: any) {
     console.error("[ADMIN GET /tarifarios/:id/tarifas] ex:", err);
-    return NextResponse.json({ error: err?.message || "Error interno" }, { status: 500 });
+    return NextResponse.json(
+      { error: err?.message || "Error interno" },
+      { status: 500 }
+    );
   }
 }
 
@@ -61,9 +80,15 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
  * POST /api/admin/tarifarios/:id/tarifas
  * Crea una regla dentro de ese tarifario
  */
-export async function POST(req: Request, { params }: { params: { id: string } }) {
-  const parsed = parseId(params);
-  if ("error" in parsed) return NextResponse.json({ error: parsed.error }, { status: 400 });
+export async function POST(
+  req: Request,
+  { params }: { params: Promise<RouteParams> }
+) {
+  const { id: idParam } = await params; // ✅ Next 15
+  const parsed = parseId(idParam);
+  if ("error" in parsed) {
+    return NextResponse.json({ error: parsed.error }, { status: 400 });
+  }
 
   try {
     const body = await req.json().catch(() => null);
@@ -83,7 +108,12 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       vigente_hasta: body?.vigente_hasta ?? null,
     };
 
-    if (!payload.hora_desde || !payload.hora_hasta || !payload.duracion_min || payload.precio == null) {
+    if (
+      !payload.hora_desde ||
+      !payload.hora_hasta ||
+      !payload.duracion_min ||
+      payload.precio == null
+    ) {
       return NextResponse.json(
         { error: "hora_desde, hora_hasta, duracion_min y precio son obligatorios" },
         { status: 400 }
@@ -104,6 +134,9 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     return NextResponse.json(data, { status: 201 });
   } catch (err: any) {
     console.error("[ADMIN POST /tarifarios/:id/tarifas] ex:", err);
-    return NextResponse.json({ error: err?.message || "Error interno" }, { status: 500 });
+    return NextResponse.json(
+      { error: err?.message || "Error interno" },
+      { status: 500 }
+    );
   }
 }

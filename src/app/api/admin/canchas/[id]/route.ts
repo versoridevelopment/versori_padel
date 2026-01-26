@@ -8,8 +8,9 @@ import {
 
 export const runtime = "nodejs";
 
-function parseId(params: { id?: string }) {
-  const idParam = params.id;
+type RouteParams = { id: string };
+
+function parseId(idParam?: string) {
   if (!idParam) return { error: "id es requerido" };
 
   const id = Number(idParam);
@@ -23,11 +24,14 @@ function parseId(params: { id?: string }) {
  */
 export async function GET(
   _req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<RouteParams> }
 ) {
-  const { id, error: parseError } = parseId(params);
-  if (parseError)
+  const { id: idParam } = await params; // ✅ Next 15: params es Promise
+  const { id, error: parseError } = parseId(idParam);
+
+  if (parseError) {
     return NextResponse.json({ error: parseError }, { status: 400 });
+  }
 
   try {
     const { data, error } = await supabaseAdmin
@@ -60,11 +64,14 @@ export async function GET(
  */
 export async function PATCH(
   req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<RouteParams> }
 ) {
-  const { id, error: parseError } = parseId(params);
-  if (parseError)
+  const { id: idParam } = await params; // ✅
+  const { id, error: parseError } = parseId(idParam);
+
+  if (parseError) {
     return NextResponse.json({ error: parseError }, { status: 400 });
+  }
 
   try {
     const contentType = req.headers.get("content-type") || "";
@@ -117,7 +124,10 @@ export async function PATCH(
 
         if (canchaActualError || !canchaActual) {
           return NextResponse.json(
-            { error: "No se pudo obtener la cancha actual para reemplazar imagen" },
+            {
+              error:
+                "No se pudo obtener la cancha actual para reemplazar imagen",
+            },
             { status: 400 }
           );
         }
@@ -130,7 +140,7 @@ export async function PATCH(
           ? extractPathFromPublicUrl(oldUrl, "public-media")
           : null;
 
-        // 2) Subir nueva imagen (IMPORTANTE: path correcto club_{id}/canchas/..)
+        // 2) Subir nueva imagen
         const uploaded = await uploadCanchaImage({ id_club: id_club_db, file });
         updateData.imagen_url = uploaded.publicUrl;
       } else {
@@ -150,7 +160,7 @@ export async function PATCH(
         "activa",
         "id_tipo_cancha",
         "estado",
-        "id_tarifario", // NUEVO
+        "id_tarifario",
       ];
 
       for (const key of allowed) {
@@ -168,7 +178,7 @@ export async function PATCH(
       );
     }
 
-    // Validaciones leves: si viene id_tarifario number, que sea numérico
+    // Validación leve: si viene id_tarifario number, que sea numérico
     if (
       updateData.id_tarifario !== undefined &&
       updateData.id_tarifario !== null &&
@@ -195,12 +205,11 @@ export async function PATCH(
       );
     }
 
-    // 3) Borrar imagen anterior (best-effort), validando que sea del club y carpeta correcta
+    // 3) Borrar imagen anterior (best-effort)
     if (oldImagePath && typeof oldImagePath === "string") {
       const expectedPrefix =
         idClubForSafety !== null ? `club_${idClubForSafety}/canchas/` : "club_";
 
-      // Seguridad: solo borramos si está dentro del árbol club_X/canchas/
       const okToDelete =
         idClubForSafety !== null
           ? oldImagePath.startsWith(expectedPrefix)
@@ -216,7 +225,6 @@ export async function PATCH(
             "[ADMIN PATCH /canchas/:id] remove old image error:",
             removeError
           );
-          // best-effort: no rompemos la respuesta
         }
       } else {
         console.warn(
@@ -238,11 +246,14 @@ export async function PATCH(
  */
 export async function DELETE(
   _req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<RouteParams> }
 ) {
-  const { id, error: parseError } = parseId(params);
-  if (parseError)
+  const { id: idParam } = await params; // ✅
+  const { id, error: parseError } = parseId(idParam);
+
+  if (parseError) {
     return NextResponse.json({ error: parseError }, { status: 400 });
+  }
 
   try {
     const { error } = await supabaseAdmin

@@ -22,6 +22,7 @@ export default async function ClubAdminPage() {
     .from("contacto")
     .select(
       `
+      activo_contacto_home,
       email, 
       usuario_instagram,
       direccion (calle, altura_calle, barrio),
@@ -31,7 +32,7 @@ export default async function ClubAdminPage() {
     .eq("id_club", club.id_club)
     .maybeSingle();
 
-  // 4. NUEVO: Obtener datos de SOBRE NOSOTROS
+  // 4. Obtener datos de SOBRE NOSOTROS
   const { data: nosotrosData } = await supabase
     .from("nosotros")
     .select("*")
@@ -41,25 +42,26 @@ export default async function ClubAdminPage() {
   // 5. Preparar los datos planos para el formulario principal
   const flattenedClubData = {
     // Identidad
-    nombre: clubData.nombre,
-    subdominio: clubData.subdominio,
-    logo_url: clubData.logo_url,
-    imagen_hero_url: clubData.imagen_hero_url,
-    color_primario: clubData.color_primario || "#3b82f6",
-    color_secundario: clubData.color_secundario || "#1f2937",
-    color_texto: clubData.color_texto || "#ffffff",
+    nombre: clubData?.nombre,
+    subdominio: clubData?.subdominio,
+    logo_url: clubData?.logo_url,
+    imagen_hero_url: clubData?.imagen_hero_url,
+    color_primario: clubData?.color_primario || "#3b82f6",
+    color_secundario: clubData?.color_secundario || "#1f2937",
+    color_texto: clubData?.color_texto || "#ffffff",
 
     // Textos Home
     texto_bienvenida_titulo:
-      clubData.texto_bienvenida_titulo || "EL MEJOR LUGAR PARA VIVIR EL PÁDEL",
+      clubData?.texto_bienvenida_titulo || "EL MEJOR LUGAR PARA VIVIR EL PÁDEL",
     texto_bienvenida_subtitulo:
-      clubData.texto_bienvenida_subtitulo ||
+      clubData?.texto_bienvenida_subtitulo ||
       "Reserva tu cancha y únete a la comunidad.",
 
     // Marcas
-    marcas: Array.isArray(clubData.marcas) ? clubData.marcas : [],
+    marcas: Array.isArray(clubData?.marcas) ? clubData!.marcas : [],
 
     // Contacto
+    activo_contacto_home: contactoData?.activo_contacto_home ?? false, // ✅ FIX
     email: contactoData?.email || "",
     usuario_instagram: contactoData?.usuario_instagram || "",
     telefono: contactoData?.telefono?.[0]?.numero || "",
@@ -72,7 +74,7 @@ export default async function ClubAdminPage() {
   return (
     <ClubForm
       initialData={flattenedClubData}
-      nosotrosInitialData={nosotrosData} // <--- Pasamos los datos nuevos aquí
+      nosotrosInitialData={nosotrosData}
       clubId={club.id_club}
     />
   );

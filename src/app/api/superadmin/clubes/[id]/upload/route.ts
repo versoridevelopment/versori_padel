@@ -4,6 +4,8 @@ import { PUBLIC_MEDIA_BUCKET, clubBasePath } from "@/lib/storage/paths";
 
 export const runtime = "nodejs";
 
+type RouteParams = { id: string };
+
 function extFromMimeOrName(file: File) {
   const name = file.name || "";
   const dot = name.lastIndexOf(".");
@@ -54,10 +56,12 @@ async function uploadOne(file: File, path: string) {
 
 export async function POST(
   req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<RouteParams> }
 ) {
   try {
-    const idClub = Number(params.id);
+    const { id } = await params; // ✅ Next 15
+    const idClub = Number(id);
+
     if (!idClub || Number.isNaN(idClub)) {
       return NextResponse.json({ error: "ID de club inválido" }, { status: 400 });
     }

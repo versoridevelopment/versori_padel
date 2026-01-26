@@ -1,11 +1,11 @@
-// src/app/api/admin/tarifarios/[id]/route.ts
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/supabaseAdmin";
 
 export const runtime = "nodejs";
 
-function parseId(params: { id?: string }) {
-  const idParam = params.id;
+type RouteParams = { id: string };
+
+function parseId(idParam?: string) {
   if (!idParam) return { error: "id es requerido" };
 
   const id = Number(idParam);
@@ -17,9 +17,16 @@ function parseId(params: { id?: string }) {
 /**
  * GET /api/admin/tarifarios/:id
  */
-export async function GET(_req: Request, { params }: { params: { id: string } }) {
-  const { id, error: parseError } = parseId(params);
-  if (parseError) return NextResponse.json({ error: parseError }, { status: 400 });
+export async function GET(
+  _req: Request,
+  { params }: { params: Promise<RouteParams> }
+) {
+  const { id: idParam } = await params; // ✅ Next 15
+  const { id, error: parseError } = parseId(idParam);
+
+  if (parseError) {
+    return NextResponse.json({ error: parseError }, { status: 400 });
+  }
 
   try {
     const { data, error } = await supabaseAdmin
@@ -29,7 +36,10 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       .single();
 
     if (error || !data) {
-      return NextResponse.json({ error: "Tarifario no encontrado" }, { status: 404 });
+      return NextResponse.json(
+        { error: "Tarifario no encontrado" },
+        { status: 404 }
+      );
     }
 
     return NextResponse.json(data);
@@ -43,9 +53,16 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
  * PATCH /api/admin/tarifarios/:id
  * Body JSON: { nombre?, descripcion?, activo? }
  */
-export async function PATCH(req: Request, { params }: { params: { id: string } }) {
-  const { id, error: parseError } = parseId(params);
-  if (parseError) return NextResponse.json({ error: parseError }, { status: 400 });
+export async function PATCH(
+  req: Request,
+  { params }: { params: Promise<RouteParams> }
+) {
+  const { id: idParam } = await params; // ✅ Next 15
+  const { id, error: parseError } = parseId(idParam);
+
+  if (parseError) {
+    return NextResponse.json({ error: parseError }, { status: 400 });
+  }
 
   try {
     const body = await req.json().catch(() => null);
@@ -56,7 +73,10 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     if (body?.activo !== undefined) updateData.activo = Boolean(body.activo);
 
     if (Object.keys(updateData).length === 0) {
-      return NextResponse.json({ error: "No se enviaron campos para actualizar" }, { status: 400 });
+      return NextResponse.json(
+        { error: "No se enviaron campos para actualizar" },
+        { status: 400 }
+      );
     }
 
     const { data, error } = await supabaseAdmin
@@ -68,7 +88,10 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 
     if (error) {
       console.error("[ADMIN PATCH /tarifarios/:id] error:", error);
-      return NextResponse.json({ error: "Error al actualizar tarifario" }, { status: 500 });
+      return NextResponse.json(
+        { error: "Error al actualizar tarifario" },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json(data);
@@ -82,9 +105,16 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
  * DELETE /api/admin/tarifarios/:id
  * Baja lógica: activo=false
  */
-export async function DELETE(_req: Request, { params }: { params: { id: string } }) {
-  const { id, error: parseError } = parseId(params);
-  if (parseError) return NextResponse.json({ error: parseError }, { status: 400 });
+export async function DELETE(
+  _req: Request,
+  { params }: { params: Promise<RouteParams> }
+) {
+  const { id: idParam } = await params; // ✅ Next 15
+  const { id, error: parseError } = parseId(idParam);
+
+  if (parseError) {
+    return NextResponse.json({ error: parseError }, { status: 400 });
+  }
 
   try {
     const { error } = await supabaseAdmin
@@ -94,7 +124,10 @@ export async function DELETE(_req: Request, { params }: { params: { id: string }
 
     if (error) {
       console.error("[ADMIN DELETE /tarifarios/:id] error:", error);
-      return NextResponse.json({ error: "Error al desactivar tarifario" }, { status: 500 });
+      return NextResponse.json(
+        { error: "Error al desactivar tarifario" },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json({ message: "Tarifario desactivado" }, { status: 200 });

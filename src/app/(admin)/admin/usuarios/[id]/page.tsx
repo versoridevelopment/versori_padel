@@ -1,7 +1,15 @@
 import { getCurrentClub } from "@/lib/ObetenerClubUtils/getCurrentClub";
 import UsuarioDetalleClient from "./UsuarioDetalleClient";
 
-export default async function UsuarioDetallePage({ params }: { params: { id: string } }) {
+type PageParams = { id: string };
+
+export default async function UsuarioDetallePage({
+  params,
+}: {
+  params: Promise<PageParams>;
+}) {
+  const { id } = await params; // ✅ Next 15: params es Promise
+
   const club = await getCurrentClub();
 
   if (!club) {
@@ -12,5 +20,5 @@ export default async function UsuarioDetallePage({ params }: { params: { id: str
     );
   }
 
-  return <UsuarioDetalleClient clubId={club.id_club} idUsuario={params.id} />;
+  return <UsuarioDetalleClient clubId={club.id_club} idUsuario={id} />;
 }

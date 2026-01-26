@@ -4,14 +4,13 @@ import { supabaseAdmin } from "@/lib/supabase/supabaseAdmin";
 
 export const runtime = "nodejs";
 
-function parseId(params: { id?: string }) {
-  const idParam = params.id;
-  if (!idParam) return { error: "id es requerido" };
+type RouteParams = { id: string };
+
+function parseId(idParam?: string) {
+  if (!idParam) return { error: "id es requerido" as const };
 
   const id = Number(idParam);
-  if (Number.isNaN(id)) {
-    return { error: "id debe ser numérico" };
-  }
+  if (Number.isNaN(id)) return { error: "id debe ser numérico" as const };
 
   return { id };
 }
@@ -22,9 +21,11 @@ function parseId(params: { id?: string }) {
  */
 export async function GET(
   _req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<RouteParams> }
 ) {
-  const { id, error: parseError } = parseId(params);
+  const { id: idParam } = await params; // ✅ Next 15
+  const { id, error: parseError } = parseId(idParam);
+
   if (parseError) {
     return NextResponse.json({ error: parseError }, { status: 400 });
   }
@@ -39,10 +40,7 @@ export async function GET(
       .single();
 
     if (error || !data) {
-      return NextResponse.json(
-        { error: "Club no encontrado" },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: "Club no encontrado" }, { status: 404 });
     }
 
     return NextResponse.json(data);
@@ -63,9 +61,11 @@ export async function GET(
  */
 export async function PATCH(
   req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<RouteParams> }
 ) {
-  const { id, error: parseError } = parseId(params);
+  const { id: idParam } = await params; // ✅ Next 15
+  const { id, error: parseError } = parseId(idParam);
+
   if (parseError) {
     return NextResponse.json({ error: parseError }, { status: 400 });
   }
@@ -83,15 +83,12 @@ export async function PATCH(
       "color_texto",
       "texto_bienvenida_titulo",
       "texto_bienvenida_subtitulo",
-      "estado", // permite activar/desactivar club
+      "estado",
     ] as const;
 
     const updateData: Record<string, unknown> = {};
-
     for (const key of allowedFields) {
-      if (body[key] !== undefined) {
-        updateData[key] = body[key];
-      }
+      if (body[key] !== undefined) updateData[key] = body[key];
     }
 
     if (Object.keys(updateData).length === 0) {
@@ -134,9 +131,11 @@ export async function PATCH(
  */
 export async function DELETE(
   _req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<RouteParams> }
 ) {
-  const { id, error: parseError } = parseId(params);
+  const { id: idParam } = await params; // ✅ Next 15
+  const { id, error: parseError } = parseId(idParam);
+
   if (parseError) {
     return NextResponse.json({ error: parseError }, { status: 400 });
   }
@@ -144,7 +143,7 @@ export async function DELETE(
   try {
     const { error } = await supabaseAdmin
       .from("clubes")
-      .update({ estado: false }) // baja lógica
+      .update({ estado: false })
       .eq("id_club", id);
 
     if (error) {

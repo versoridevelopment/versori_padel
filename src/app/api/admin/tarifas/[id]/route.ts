@@ -3,8 +3,9 @@ import { supabaseAdmin } from "@/lib/supabase/supabaseAdmin";
 
 export const runtime = "nodejs";
 
-function parseId(params: { id?: string }) {
-  const idParam = params.id;
+type RouteParams = { id: string };
+
+function parseId(idParam?: string) {
   if (!idParam) return { error: "id es requerido" as const };
   const id = Number(idParam);
   if (Number.isNaN(id)) return { error: "id debe ser numérico" as const };
@@ -17,11 +18,14 @@ function parseId(params: { id?: string }) {
  */
 export async function PATCH(
   req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<RouteParams> }
 ) {
-  const parsed = parseId(params);
-  if ("error" in parsed)
+  const { id: idParam } = await params; // ✅ Next 15
+  const parsed = parseId(idParam);
+
+  if ("error" in parsed) {
     return NextResponse.json({ error: parsed.error }, { status: 400 });
+  }
 
   try {
     const body = await req.json().catch(() => null);
@@ -40,8 +44,9 @@ export async function PATCH(
     ];
 
     const updateData: any = {};
-    for (const k of allowed)
+    for (const k of allowed) {
       if (body?.[k] !== undefined) updateData[k] = body[k];
+    }
 
     if (Object.keys(updateData).length === 0) {
       return NextResponse.json(
@@ -78,11 +83,14 @@ export async function PATCH(
  */
 export async function DELETE(
   _req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<RouteParams> }
 ) {
-  const parsed = parseId(params);
-  if ("error" in parsed)
+  const { id: idParam } = await params; // ✅ Next 15
+  const parsed = parseId(idParam);
+
+  if ("error" in parsed) {
     return NextResponse.json({ error: parsed.error }, { status: 400 });
+  }
 
   try {
     const { data, error } = await supabaseAdmin
