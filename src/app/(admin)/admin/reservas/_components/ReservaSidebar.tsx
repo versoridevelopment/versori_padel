@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import {
   X,
   Calendar,
@@ -10,13 +9,9 @@ import {
   Mail,
   CheckCircle2,
   XCircle,
-  Trash2,
-  Edit,
   MessageCircle,
   DollarSign,
   Clock,
-  Users,
-  PlusCircle,
   Copy,
   AlertCircle,
   Loader2,
@@ -30,10 +25,14 @@ interface Props {
   isCreating: boolean;
   selectedDate: Date;
   preSelectedCanchaId?: number | null;
-  preSelectedTime?: number | null;
+  preSelectedTime?: number | null; // decimal (ej: 17.5)
 
   idClub: number;
   canchas: CanchaUI[];
+  reservas?: ReservaUI[];
+
+  startHour?: number; // ej 10
+  endHour?: number; // ej 26
 
   onCreated: () => void;
 }
@@ -46,13 +45,6 @@ const formatMoney = (val: number) =>
     maximumFractionDigits: 0,
   }).format(Number(val || 0));
 
-const decimalTimeToString = (decimal: number) => {
-  let h = Math.floor(decimal);
-  const m = decimal % 1 === 0.5 ? "30" : "00";
-  if (h >= 24) h -= 24;
-  return `${h.toString().padStart(2, "0")}:${m}`;
-};
-
 function toISODateLocal(d: Date) {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
@@ -60,14 +52,102 @@ function toISODateLocal(d: Date) {
   return `${y}-${m}-${day}`;
 }
 
+function pad2(n: number) {
+  return String(n).padStart(2, "0");
+}
+
+// decimal (ej 10.5) -> "HH:MM"
+function decimalToHHMM(decimal: number) {
+  let totalMin = Math.round(decimal * 60);
+  totalMin = ((totalMin % 1440) + 1440) % 1440;
+  const hh = Math.floor(totalMin / 60);
+  const mm = totalMin % 60;
+  return `${pad2(hh)}:${pad2(mm)}`;
+}
+
+// "HH:MM" -> decimal, respetando ventana startHour..endHour (posible +24)
+function hhmmToDecimal(hhmm: string, startHour: number) {
+  const [h, m] = (hhmm || "").slice(0, 5).split(":").map(Number);
+  let dec = (h || 0) + (m || 0) / 60;
+  if (dec < startHour) dec += 24; // pertenece al día+1 dentro de la ventana
+  return dec;
+}
+
 function addMinutesHHMM(hhmm: string, addMin: number) {
   const [h, m] = hhmm.split(":").map(Number);
-  let total = h * 60 + m + addMin;
-  // permitimos cruzar medianoche (total puede ser >= 1440)
-  total = total % (24 * 60);
+  let total = (h || 0) * 60 + (m || 0) + addMin;
+  total = ((total % 1440) + 1440) % 1440;
   const hh = String(Math.floor(total / 60)).padStart(2, "0");
   const mm = String(total % 60).padStart(2, "0");
   return `${hh}:${mm}`;
+}
+
+function overlaps(aStart: number, aEnd: number, bStart: number, bEnd: number) {
+  return aStart < bEnd && aEnd > bStart;
+}
+
+/** ===== Regla anti “30 colgados” robusta (en unidades de 30’) =====
+ * 1 unit = 30 minutos
+ */
+type IntervalU = { startU: number; endU: number }; // [startU, endU)
+type FreeBlockU = { startU: number; endU: number }; // bloque libre máximo
+
+function toUnits30(hours: number) {
+  return Math.round(hours * 2);
+}
+
+function unitsToHHMM(u: number) {
+  const mins = u * 30;
+  const total = ((mins % 1440) + 1440) % 1440;
+  const hh = Math.floor(total / 60);
+  const mm = total % 60;
+  return `${pad2(hh)}:${pad2(mm)}`;
+}
+
+// bloques libres máximos dentro de [dayStartU, dayEndU)
+function buildFreeBlocks(dayStartU: number, dayEndU: number, occupiedU: IntervalU[]): FreeBlockU[] {
+  if (dayEndU <= dayStartU) return [];
+
+  const occ = occupiedU
+    .map((x) => ({
+      startU: Math.max(dayStartU, x.startU),
+      endU: Math.min(dayEndU, x.endU),
+    }))
+    .filter((x) => x.endU > x.startU)
+    .sort((a, b) => a.startU - b.startU);
+
+  const merged: IntervalU[] = [];
+  for (const it of occ) {
+    const last = merged[merged.length - 1];
+    if (!last || it.startU > last.endU) merged.push({ ...it });
+    else last.endU = Math.max(last.endU, it.endU);
+  }
+
+  const free: FreeBlockU[] = [];
+  let cursor = dayStartU;
+
+  for (const it of merged) {
+    if (it.startU > cursor) free.push({ startU: cursor, endU: it.startU });
+    cursor = Math.max(cursor, it.endU);
+  }
+  if (cursor < dayEndU) free.push({ startU: cursor, endU: dayEndU });
+
+  return free;
+}
+
+/**
+ * ✅ regla correcta:
+ * bloqueamos SOLO si deja exactamente 1 unit (30') libre
+ * al inicio o al final del bloque libre máximo donde cae.
+ */
+function noDangling30(block: FreeBlockU, startU: number, endU: number) {
+  const leftU = startU - block.startU;
+  const rightU = block.endU - endU;
+
+  if (leftU === 1) return false;
+  if (rightU === 1) return false;
+
+  return true;
 }
 
 export default function ReservaSidebar({
@@ -80,9 +160,20 @@ export default function ReservaSidebar({
   preSelectedTime,
   idClub,
   canchas,
+  reservas = [],
+  startHour = 8,
+  endHour = 26,
   onCreated,
 }: Props) {
   const fechaISO = useMemo(() => toISODateLocal(selectedDate), [selectedDate]);
+
+  // ✅ estado modal cobro
+  const [showCobro, setShowCobro] = useState(false);
+  const [cobroMonto, setCobroMonto] = useState<number>(0);
+  const [cobroMetodo, setCobroMetodo] = useState<"efectivo" | "transferencia">("efectivo");
+  const [cobroNota, setCobroNota] = useState<string>("Pagó en caja");
+  const [cobroLoading, setCobroLoading] = useState(false);
+  const [cobroError, setCobroError] = useState<string | null>(null);
 
   // --- ESTADOS CREAR ---
   const [formData, setFormData] = useState({
@@ -90,8 +181,8 @@ export default function ReservaSidebar({
     telefono: "",
     email: "",
     esTurnoFijo: false,
-    tipoTurno: "normal", // normal, profesor, torneo...
-    duracion: 90,
+    tipoTurno: "normal",
+    duracion: 90 as 60 | 90 | 120,
     precio: 0,
     notas: "",
     canchaId: "",
@@ -104,23 +195,109 @@ export default function ReservaSidebar({
   const [createLoading, setCreateLoading] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
-  // Preselect al abrir create
-  useEffect(() => {
-    if (isOpen && isCreating) {
-      const defaultCancha = preSelectedCanchaId?.toString() || (canchas[0]?.id_cancha?.toString() ?? "");
-      const defaultHora = preSelectedTime != null ? decimalTimeToString(preSelectedTime) : "09:00";
+  // --------- 1) Intervalos ocupados (en decimal) ----------
+  const occupiedIntervals = useMemo(() => {
+    if (!isCreating) return [];
 
-      setFormData((prev) => ({
-        ...prev,
-        canchaId: defaultCancha,
-        horaInicio: defaultHora,
-        duracion: prev.duracion || 90,
-      }));
-      setPriceError(null);
-      setCreateError(null);
+    const id_cancha = Number(formData.canchaId);
+    if (!id_cancha) return [];
+
+    const relevant = reservas.filter((r) => Number(r.id_cancha) === id_cancha);
+
+    return relevant
+      .map((r) => {
+        const s = hhmmToDecimal(r.horaInicio, startHour);
+        let e = hhmmToDecimal(r.horaFin, startHour);
+
+        const offset = Number((r as any).fin_dia_offset || 0);
+        if (offset === 1 || e <= s) e += 24;
+
+        return { start: s, end: e, id: r.id_reserva };
+      })
+      .filter((x) => Number.isFinite(x.start) && Number.isFinite(x.end));
+  }, [isCreating, reservas, formData.canchaId, startHour]);
+
+  // --------- 2) Horarios disponibles (cada 30’) + anti-30-colgados ----------
+  const availableTimes = useMemo(() => {
+    if (!isOpen || !isCreating) return [];
+
+    const durMin = Number(formData.duracion);
+    if (![60, 90, 120].includes(durMin)) return [];
+
+    const dayStartU = toUnits30(startHour);
+    const dayEndU = toUnits30(endHour);
+    const durU = Math.round(durMin / 30); // 60=2, 90=3, 120=4
+
+    const occupiedU: IntervalU[] = occupiedIntervals.map((o) => ({
+      startU: toUnits30(o.start),
+      endU: toUnits30(o.end),
+    }));
+
+    const freeBlocks = buildFreeBlocks(dayStartU, dayEndU, occupiedU);
+
+    const out: { value: string; label: string; decimal: number; finLabel: string }[] = [];
+
+    for (let startU = dayStartU; startU + durU <= dayEndU; startU += 1) {
+      const endU = startU + durU;
+
+      const block = freeBlocks.find((b) => startU >= b.startU && endU <= b.endU);
+      if (!block) continue;
+
+      if (!noDangling30(block, startU, endU)) continue;
+
+      const inicioHHMM = unitsToHHMM(startU);
+      const finHHMM = unitsToHHMM(endU);
+
+      out.push({
+        value: inicioHHMM,
+        label: inicioHHMM,
+        decimal: startU / 2,
+        finLabel: finHHMM,
+      });
     }
+
+    return out;
+  }, [isOpen, isCreating, formData.duracion, startHour, endHour, occupiedIntervals]);
+
+  // --------- 3) Preselect al abrir create ----------
+  useEffect(() => {
+    if (!isOpen || !isCreating) return;
+
+    const defaultCancha = preSelectedCanchaId?.toString() || (canchas[0]?.id_cancha?.toString() ?? "");
+
+    setFormData((prev) => ({
+      ...prev,
+      canchaId: defaultCancha,
+      duracion: prev.duracion || 90,
+    }));
+
+    setPriceError(null);
+    setCreateError(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, isCreating, preSelectedCanchaId, preSelectedTime]);
+  }, [isOpen, isCreating, preSelectedCanchaId]);
+
+  // asegurar hora válida cuando cambia availableTimes
+  useEffect(() => {
+    if (!isOpen || !isCreating) return;
+
+    if (availableTimes.length === 0) {
+      setFormData((prev) => ({ ...prev, horaInicio: "" }));
+      return;
+    }
+
+    const stillValid = formData.horaInicio && availableTimes.some((t) => t.value === formData.horaInicio);
+    if (stillValid) return;
+
+    if (preSelectedTime != null) {
+      const desired = preSelectedTime;
+      const found = availableTimes.find((t) => t.decimal >= desired) || availableTimes[0];
+      setFormData((prev) => ({ ...prev, horaInicio: found.value }));
+      return;
+    }
+
+    setFormData((prev) => ({ ...prev, horaInicio: availableTimes[0].value }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, isCreating, availableTimes, preSelectedTime, formData.horaInicio]);
 
   // ESC
   useEffect(() => {
@@ -175,9 +352,8 @@ export default function ReservaSidebar({
             fecha: fechaISO,
             inicio,
             fin,
-            // Si tu endpoint ya soporta override por admin, podés pasar:
-            // segmento_override: "publico" | "profe"
           }),
+          cache: "no-store",
         });
 
         const json = await res.json();
@@ -199,7 +375,6 @@ export default function ReservaSidebar({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, isCreating, idClub, fechaISO, formData.canchaId, formData.horaInicio, formData.duracion]);
 
-  // Whatsapp Generator
   const getWhatsappLink = (phone: string) => `https://wa.me/${String(phone || "").replace(/\D/g, "")}`;
 
   async function handleCreate() {
@@ -213,15 +388,17 @@ export default function ReservaSidebar({
     if (!formData.nombre.trim()) return setCreateError("Nombre es requerido");
     if (!formData.telefono.trim()) return setCreateError("Teléfono es requerido");
     if (!id_cancha) return setCreateError("Seleccioná una cancha");
-    if (!inicio) return setCreateError("Seleccioná hora de inicio");
+    if (!inicio) return setCreateError("Seleccioná un horario disponible");
     if (![60, 90, 120].includes(dur)) return setCreateError("Duración inválida");
     if (!Number.isFinite(Number(formData.precio)) || Number(formData.precio) <= 0) {
       return setCreateError("No hay precio válido para ese horario");
     }
 
+    const stillAvailable = availableTimes.some((t) => t.value === inicio);
+    if (!stillAvailable) return setCreateError("Ese horario ya no está disponible. Elegí otro.");
+
     setCreateLoading(true);
     try {
-      // AJUSTÁ ESTA URL si tu endpoint de crear se llama distinto
       const res = await fetch("/api/admin/reservas", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -230,8 +407,8 @@ export default function ReservaSidebar({
           id_cancha,
           fecha: fechaISO,
           inicio,
-          duracion_min: dur,   // ✅ <-- AGREGAR ESTO
-          fin,                 // opcional
+          duracion_min: dur,
+          fin,
           cliente_nombre: formData.nombre.trim(),
           cliente_telefono: formData.telefono.trim(),
           cliente_email: formData.email.trim() || null,
@@ -251,11 +428,82 @@ export default function ReservaSidebar({
     }
   }
 
+  // ✅ Cancelar (sin error TS)
+  async function handleCancelar() {
+    if (!reserva) return;
+    if (!confirm("¿Cancelar esta reserva?")) return;
+
+    try {
+      const res = await fetch(`/api/admin/reservas/${reserva.id_reserva}/cancelar`, { method: "POST" });
+      const json = await res.json();
+      if (!res.ok || !json?.ok) throw new Error(json?.error || "No se pudo cancelar");
+      onCreated();
+    } catch (e: any) {
+      alert(e?.message || "Error cancelando");
+    }
+  }
+
+  // ✅ Abrir modal cobro con defaults
+  function openCobro() {
+    if (!reserva) return;
+    setCobroError(null);
+    setCobroMetodo("efectivo");
+    setCobroNota("Pagó en caja");
+
+    const sugerido =
+      Number(reserva.saldo_pendiente ?? 0) > 0
+        ? Number(reserva.saldo_pendiente)
+        : 0;
+
+    setCobroMonto(sugerido);
+    setShowCobro(true);
+  }
+
+  // ✅ Cobrar (sin error TS)
+  async function handleCobrar() {
+    if (!reserva) return;
+
+    const amount = Number(cobroMonto || 0);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setCobroError("Monto inválido");
+      return;
+    }
+
+    setCobroLoading(true);
+    setCobroError(null);
+    try {
+      const res = await fetch(`/api/admin/reservas/${reserva.id_reserva}/cobrar`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          amount,
+          currency: "ARS",
+          provider: cobroMetodo, // "efectivo" | "transferencia"
+          status: "approved",
+          note: cobroNota?.trim() || null,
+        }),
+      });
+
+      const json = await res.json();
+      if (!res.ok || !json?.ok) throw new Error(json?.error || "No se pudo cobrar");
+
+      setShowCobro(false);
+      onCreated();
+    } catch (e: any) {
+      setCobroError(e?.message || "Error cobrando");
+    } finally {
+      setCobroLoading(false);
+    }
+  }
+
   if (!isOpen) return null;
 
   return (
     <>
-      <div className="fixed inset-0 z-40 bg-black/30 backdrop-blur-sm transition-opacity duration-300" onClick={onClose} />
+      <div
+        className="fixed inset-0 z-40 bg-black/30 backdrop-blur-sm transition-opacity duration-300"
+        onClick={onClose}
+      />
 
       <div className="fixed inset-y-0 right-0 w-full md:w-[480px] bg-white shadow-2xl z-50 transform transition-transform duration-300 ease-out flex flex-col">
         {/* HEADER */}
@@ -289,7 +537,10 @@ export default function ReservaSidebar({
                 <div className="flex items-center gap-3 text-sm text-gray-500 mt-1">
                   <span>{canchaDisplay}</span>
                   <span className="capitalize">
-                    {new Date(reserva?.fecha || "").toLocaleDateString("es-AR", { weekday: "short", day: "numeric" })}
+                    {new Date(reserva?.fecha || "").toLocaleDateString("es-AR", {
+                      weekday: "short",
+                      day: "numeric",
+                    })}
                   </span>
                   <LinkAction text="Modificar día/hora" />
                 </div>
@@ -297,7 +548,10 @@ export default function ReservaSidebar({
             )}
           </div>
 
-          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-full text-gray-400 transition-colors">
+          <button
+            onClick={onClose}
+            className="p-1.5 hover:bg-gray-100 rounded-full text-gray-400 transition-colors"
+          >
             <X className="w-6 h-6" />
           </button>
         </div>
@@ -396,19 +650,35 @@ export default function ReservaSidebar({
                   </select>
                 </div>
 
+                {/* Horarios disponibles */}
                 <div>
                   <label className="block text-xs font-bold text-gray-600 mb-1">Hora inicio</label>
-                  <input
-                    type="time"
-                    className="w-full p-2 bg-gray-50 border border-gray-300 rounded-lg text-sm outline-none"
+
+                  <select
+                    className="w-full p-2 bg-gray-50 border border-gray-300 rounded-lg text-sm outline-none disabled:opacity-60"
                     value={formData.horaInicio}
                     onChange={(e) => setFormData({ ...formData, horaInicio: e.target.value })}
-                  />
+                    disabled={!formData.canchaId || availableTimes.length === 0}
+                  >
+                    {!formData.canchaId && <option value="">Elegí una cancha</option>}
+                    {formData.canchaId && availableTimes.length === 0 && <option value="">No hay horarios disponibles</option>}
+
+                    {availableTimes.map((t) => (
+                      <option key={t.value} value={t.value}>
+                        {t.label} (fin {t.finLabel})
+                      </option>
+                    ))}
+                  </select>
+
                   {horaFin && (
                     <p className="text-xs text-slate-500 mt-1">
                       Fin estimado: <span className="font-bold">{horaFin}</span>
                     </p>
                   )}
+
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    Solo horarios libres. Además, se evita dejar 30’ sueltos en los bordes del bloque libre.
+                  </p>
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -453,7 +723,7 @@ export default function ReservaSidebar({
                   <select
                     className="w-full p-2 bg-gray-50 border border-gray-300 rounded-lg text-sm outline-none"
                     value={formData.duracion}
-                    onChange={(e) => setFormData({ ...formData, duracion: Number(e.target.value) })}
+                    onChange={(e) => setFormData({ ...formData, duracion: Number(e.target.value) as any })}
                   >
                     <option value={60}>60 minutos</option>
                     <option value={90}>90 minutos</option>
@@ -472,9 +742,7 @@ export default function ReservaSidebar({
                       <AlertCircle className="w-4 h-4" /> {priceError}
                     </div>
                   )}
-                  <p className="mt-1 text-[11px] text-slate-500">
-                    El precio se calcula automáticamente según el tarifario y reglas.
-                  </p>
+                  <p className="mt-1 text-[11px] text-slate-500">El precio se calcula automáticamente según el tarifario y reglas.</p>
                 </div>
 
                 <div>
@@ -495,9 +763,7 @@ export default function ReservaSidebar({
               </div>
             </form>
           ) : reserva ? (
-            /* DETALLE */
             <div className="space-y-6">
-              {/* JUGADOR */}
               <div className="relative">
                 <div className="flex justify-between items-center mb-3">
                   <h3 className="text-base font-semibold text-gray-800">Jugador</h3>
@@ -518,6 +784,7 @@ export default function ReservaSidebar({
                   <a
                     href={getWhatsappLink(reserva.cliente_telefono)}
                     target="_blank"
+                    rel="noreferrer"
                     className="flex items-center gap-2 text-green-600 font-medium hover:underline cursor-pointer"
                   >
                     <MessageCircle className="w-4 h-4" />
@@ -528,11 +795,9 @@ export default function ReservaSidebar({
 
               <hr className="border-gray-100" />
 
-              {/* HISTORIAL (placeholder UI) */}
               <div>
                 <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Historial</h3>
                 <div className="space-y-2">
-                  {/* Esto hoy lo estás simulando: cuando tengas endpoint real lo cambiamos */}
                   <div className="flex items-center gap-2 text-sm text-gray-700">
                     <XCircle className="w-4 h-4 text-gray-400" /> No tiene deudas
                   </div>
@@ -545,7 +810,6 @@ export default function ReservaSidebar({
 
               <hr className="border-gray-100" />
 
-              {/* TURNO */}
               <div>
                 <h3 className="text-base font-semibold text-gray-800 mb-3">Turno</h3>
                 <ul className="space-y-2 text-sm text-gray-600">
@@ -558,8 +822,7 @@ export default function ReservaSidebar({
                   <li className="flex items-center gap-2">
                     <DollarSign className="w-4 h-4 text-gray-400" />
                     <span>
-                      Precio{" "}
-                      <span className="text-green-600 font-bold">{formatMoney(reserva.precio_total)}</span>
+                      Precio <span className="text-green-600 font-bold">{formatMoney(reserva.precio_total)}</span>
                     </span>
                   </li>
                   <li className="flex items-center gap-2">
@@ -589,7 +852,7 @@ export default function ReservaSidebar({
               <button
                 onClick={handleCreate}
                 className="flex-1 py-2.5 bg-green-500 text-white rounded-full text-sm font-bold hover:bg-green-600 shadow-md flex items-center justify-center gap-2 disabled:opacity-60"
-                disabled={createLoading || priceLoading || !formData.precio}
+                disabled={createLoading || priceLoading || !formData.precio || !formData.horaInicio || availableTimes.length === 0}
               >
                 {createLoading && <Loader2 className="w-4 h-4 animate-spin" />}
                 Crear
@@ -600,16 +863,110 @@ export default function ReservaSidebar({
               <button className="py-2.5 bg-pink-600 text-white rounded-full text-sm font-bold hover:bg-pink-700">
                 Reportar
               </button>
-              <button className="py-2.5 bg-pink-600 text-white rounded-full text-sm font-bold hover:bg-pink-700">
+
+              <button
+                onClick={handleCancelar}
+                className="py-2.5 bg-pink-600 text-white rounded-full text-sm font-bold hover:bg-pink-700 disabled:opacity-60"
+                disabled={!reserva}
+              >
                 Cancelar
               </button>
-              <button className="col-span-2 py-2.5 bg-green-500 text-white rounded-full text-sm font-bold hover:bg-green-600 shadow-lg">
+
+              <button
+                onClick={openCobro}
+                className="col-span-2 py-2.5 bg-green-500 text-white rounded-full text-sm font-bold hover:bg-green-600 shadow-lg disabled:opacity-60"
+                disabled={!reserva}
+              >
                 Cobrar
               </button>
             </div>
           )}
         </div>
       </div>
+
+      {/* MODAL COBRO */}
+      {showCobro && (
+        <div className="fixed inset-0 z-[60] grid place-items-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white shadow-xl border border-gray-100">
+            <div className="p-4 border-b flex items-center justify-between">
+              <div className="font-black text-slate-800">Cobrar</div>
+              <button className="p-2 rounded-lg hover:bg-gray-100" onClick={() => setShowCobro(false)}>
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+
+            <div className="p-4 space-y-3">
+              <div className="text-sm text-slate-600">
+                {reserva ? (
+                  <>
+                    Reserva #{reserva.id_reserva} — Saldo: <strong>{formatMoney(reserva.saldo_pendiente)}</strong>
+                  </>
+                ) : (
+                  <>Seleccioná una reserva</>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-600 mb-1">Monto</label>
+                <input
+                  type="number"
+                  className="w-full p-2 bg-gray-50 border border-gray-300 rounded-lg text-sm outline-none"
+                  value={cobroMonto}
+                  onChange={(e) => setCobroMonto(Number(e.target.value))}
+                  min={0}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-600 mb-1">Método</label>
+                <select
+                  className="w-full p-2 bg-gray-50 border border-gray-300 rounded-lg text-sm outline-none"
+                  value={cobroMetodo}
+                  onChange={(e) => setCobroMetodo(e.target.value as any)}
+                >
+                  <option value="efectivo">Efectivo</option>
+                  <option value="transferencia">Transferencia</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-600 mb-1">Nota (opcional)</label>
+                <input
+                  type="text"
+                  className="w-full p-2 bg-gray-50 border border-gray-300 rounded-lg text-sm outline-none"
+                  value={cobroNota}
+                  onChange={(e) => setCobroNota(e.target.value)}
+                  placeholder="Ej: Pagó en caja"
+                />
+              </div>
+
+              {cobroError && (
+                <div className="p-3 rounded-lg border border-red-200 bg-red-50 text-sm text-red-700">
+                  {cobroError}
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 border-t flex gap-3">
+              <button
+                className="flex-1 py-2.5 border border-gray-300 text-gray-700 rounded-full text-sm font-bold hover:bg-gray-50"
+                onClick={() => setShowCobro(false)}
+                disabled={cobroLoading}
+              >
+                Cerrar
+              </button>
+              <button
+                className="flex-1 py-2.5 bg-green-500 text-white rounded-full text-sm font-bold hover:bg-green-600 shadow-md flex items-center justify-center gap-2 disabled:opacity-60"
+                onClick={handleCobrar}
+                disabled={cobroLoading || !reserva}
+              >
+                {cobroLoading && <Loader2 className="w-4 h-4 animate-spin" />}
+                Confirmar cobro
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

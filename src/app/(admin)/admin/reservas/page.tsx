@@ -134,8 +134,11 @@ export default function ReservasPage() {
         selectedDate={selectedDate}
         preSelectedCanchaId={sidebarState.preSelectedCanchaId}
         preSelectedTime={sidebarState.preSelectedTime}
-        idClub={idClub || 0}
+        idClub={idClub ?? agenda?.id_club ?? 0}
         canchas={agenda?.canchas || []}
+        reservas={agenda?.reservas || []}          // ✅
+        startHour={agenda?.startHour ?? 8}         // ✅
+        endHour={agenda?.endHour ?? 26}            // ✅
         onCreated={() => {
           setSidebarState((prev) => ({ ...prev, isOpen: false }));
           loadAgenda();
