@@ -3,13 +3,15 @@ import { supabaseAdmin } from "@/lib/supabase/supabaseAdmin";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 type Segmento = "publico" | "profe";
 
 type Slot = {
-  absMin: number; // 0.. (puede pasar 1440 si cruza medianoche)
-  time: string; // "HH:MM"
-  dayOffset: 0 | 1; // 0 = fecha, 1 = fecha+1
+  absMin: number;
+  time: string;
+  dayOffset: 0 | 1;
   available: boolean;
   reason: null | "reservado" | "bloqueado";
 };
@@ -28,12 +30,12 @@ type ReglaDb = {
   id_tarifario: number;
   segmento: string;
   dow: number | null;
-  hora_desde: string; // "HH:MM:SS"
-  hora_hasta: string; // "HH:MM:SS"
+  hora_desde: string;
+  hora_hasta: string;
   cruza_medianoche: boolean;
   duracion_min: number;
   activo: boolean;
-  vigente_desde: string; // "YYYY-MM-DD"
+  vigente_desde: string;
   vigente_hasta: string | null;
 };
 
@@ -45,8 +47,6 @@ type ReservaDb = {
   fin_ts: string; // timestamptz
 };
 
-// ---------- Helpers fechas/horas (AR) ----------
-
 function todayISOAR() {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/Argentina/Buenos_Aires",
@@ -57,7 +57,6 @@ function todayISOAR() {
 }
 
 function arMidnightISO(dateISO: string) {
-  // Argentina UTC-03:00
   return `${dateISO}T00:00:00-03:00`;
 }
 
@@ -78,7 +77,7 @@ function dayLabel(dateISO: string, idx: number) {
 
 function dowFromISO(dateISO: string) {
   const d = new Date(`${dateISO}T00:00:00`);
-  return d.getDay(); // 0=Dom..6=Sáb
+  return d.getDay();
 }
 
 function toMin(hhmmss: string) {
@@ -103,8 +102,6 @@ function uniqSortAbs(slots: Slot[]) {
   for (const s of slots) map.set(s.absMin, s);
   return Array.from(map.values()).sort((a, b) => a.absMin - b.absMin);
 }
-
-// ---------- Resoluciones DB ----------
 
 async function resolveTarifarioId(params: { id_club: number; id_cancha: number }) {
   const { data: cancha, error: cErr } = await supabaseAdmin
@@ -156,8 +153,6 @@ async function resolveSegmento(id_club: number): Promise<Segmento> {
   return data && data.length > 0 ? "profe" : "publico";
 }
 
-// ---------- API ----------
-
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
@@ -166,6 +161,7 @@ export async function GET(req: Request) {
     const id_cancha = Number(searchParams.get("id_cancha"));
     const fecha_desde = searchParams.get("fecha_desde") || todayISOAR();
     const dias = Number(searchParams.get("dias") || 7);
+    const debug = searchParams.get("debug") === "1";
 
     if (!id_club || Number.isNaN(id_club)) {
       return NextResponse.json({ error: "id_club es requerido" }, { status: 400 });
@@ -186,8 +182,7 @@ export async function GET(req: Request) {
 
     const segmento = await resolveSegmento(id_club);
 
-    // 1) Traer reservas del rango (incluye confirmadas + holds vigentes)
-    // Ventana: desde fecha_desde 00:00 AR hasta (fecha_desde + dias + 1) 00:00 AR
+    // Ventana de búsqueda de reservas
     const windowStartMs = new Date(arMidnightISO(fecha_desde)).getTime();
     const windowEndMs = new Date(arMidnightISO(addDaysISO(fecha_desde, dias + 1))).getTime();
     const nowMs = Date.now();
@@ -214,17 +209,16 @@ export async function GET(req: Request) {
         if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return null;
 
         if (r.estado === "confirmada") {
-          return { startMs, endMs, reason: "reservado" as const };
+          return { startMs, endMs, reason: "reservado" as const, id_reserva: r.id_reserva };
         }
 
-        // pendiente_pago: bloquea solo si expires_at es futura
         const expMs = r.expires_at ? new Date(r.expires_at).getTime() : NaN;
         const vigente = Number.isFinite(expMs) ? expMs > nowMs : false;
         if (!vigente) return null;
 
-        return { startMs, endMs, reason: "bloqueado" as const };
+        return { startMs, endMs, reason: "bloqueado" as const, id_reserva: r.id_reserva };
       })
-      .filter(Boolean) as { startMs: number; endMs: number; reason: "reservado" | "bloqueado" }[];
+      .filter(Boolean) as { startMs: number; endMs: number; reason: "reservado" | "bloqueado"; id_reserva: number }[];
 
     const outDays: DaySlots[] = [];
 
@@ -273,7 +267,7 @@ export async function GET(req: Request) {
           let available = true;
           let reason: Slot["reason"] = null;
 
-          // Bloqueo robusto por overlap de intervalos (mejor que “punto dentro”)
+          // Overlap robusto
           for (const bi of busyIntervals) {
             if (slotMs < bi.endMs && bi.startMs < slotEndMs) {
               available = false;
@@ -292,12 +286,11 @@ export async function GET(req: Request) {
         }
       }
 
-      // Hardening: asegurar que SIEMPRE salgan los campos
       const slots = uniqSortAbs(slotsRaw).map((s) => ({
         absMin: s.absMin,
         time: s.time,
         dayOffset: s.dayOffset,
-        available: s.available ?? true,
+        available: !!s.available,
         reason: s.reason ?? null,
       }));
 
@@ -311,7 +304,7 @@ export async function GET(req: Request) {
       });
     }
 
-    return NextResponse.json({
+    const body: any = {
       ok: true,
       id_club,
       id_cancha,
@@ -320,9 +313,31 @@ export async function GET(req: Request) {
       dias,
       segmento,
       days: outDays,
-    });
+    };
+
+    // Debug para comparar PROD vs LOCAL (mirá inicio_ts/fin_ts reales)
+    if (debug) {
+      body.debug = {
+        windowStartISO: new Date(windowStartMs).toISOString(),
+        windowEndISO: new Date(windowEndMs).toISOString(),
+        reservasRaw: reservas,
+        busyIntervals,
+        nowISO: new Date(nowMs).toISOString(),
+      };
+    }
+
+    const res = NextResponse.json(body);
+
+    // Anti-cache fuerte
+    res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0");
+    res.headers.set("Pragma", "no-cache");
+    res.headers.set("Expires", "0");
+
+    return res;
   } catch (e: any) {
     console.error("[GET /api/reservas/slots] ex:", e);
-    return NextResponse.json({ error: e?.message || "Error interno" }, { status: 500 });
+    const res = NextResponse.json({ error: e?.message || "Error interno" }, { status: 500 });
+    res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0");
+    return res;
   }
 }

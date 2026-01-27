@@ -6,29 +6,35 @@ import { getClubBySubdomain } from "@/lib/ObetenerClubUtils/getClubBySubdomain";
 
 export const runtime = "nodejs";
 
-function num(v: any) {
+function toInt(v: any) {
+  if (v === null || v === undefined || v === "") return null;
   const n = Number(v);
-  return Number.isFinite(n) ? n : null;
+  return Number.isInteger(n) && n >= 0 ? n : null;
 }
 
 export async function GET(req: Request) {
   try {
-    // 1) Validar sesión
+    // 1️⃣ Usuario logueado
     const supabase = await getSupabaseServerClient();
     const { data: userRes, error: uErr } = await supabase.auth.getUser();
 
-    if (uErr) return NextResponse.json({ error: "No se pudo validar la sesión" }, { status: 401 });
-    const userId = userRes?.user?.id ?? null;
-    if (!userId) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
+    if (uErr || !userRes?.user) {
+      return NextResponse.json({ error: "LOGIN_REQUERIDO" }, { status: 401 });
+    }
 
-    // 2) Resolver club por subdominio (multi-tenant)
+    const userId = userRes.user.id;
+
+    // 2️⃣ Club por subdominio
     const url = new URL(req.url);
-    const host = req.headers.get("x-forwarded-host") || req.headers.get("host") || url.host;
-    const sub = getSubdomainFromHost(host);
+    const host =
+      req.headers.get("x-forwarded-host") ||
+      req.headers.get("host") ||
+      url.host;
 
+    const sub = getSubdomainFromHost(host);
     if (!sub) {
       return NextResponse.json(
-        { error: "No se pudo determinar el club (subdominio vacío)" },
+        { error: "No se pudo resolver el club" },
         { status: 400 }
       );
     }
@@ -38,25 +44,27 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Club no encontrado" }, { status: 404 });
     }
 
-    const id_club = num(club.id_club);
-    if (!id_club) return NextResponse.json({ error: "Club inválido" }, { status: 400 });
+    const id_club = Number(club.id_club);
 
-    // 3) Filtros opcionales
+    // 3️⃣ Filtros + paginación
     const sp = url.searchParams;
-    const estado = sp.get("estado"); // confirmada|pendiente_pago|rechazada|expirada|null
-    const desde = sp.get("desde"); // YYYY-MM-DD
-    const hasta = sp.get("hasta"); // YYYY-MM-DD
-    const limit = Math.min(200, Math.max(1, num(sp.get("limit")) ?? 50));
 
-    // 4) Query
+    const estado = sp.get("estado"); // confirmada|pendiente_pago|rechazada|expirada
+    const desde = sp.get("desde");   // YYYY-MM-DD
+    const hasta = sp.get("hasta");   // YYYY-MM-DD
+
+    const page = Math.max(1, toInt(sp.get("page")) ?? 1);
+    const pageSize = Math.min(50, Math.max(1, toInt(sp.get("page_size")) ?? 10));
+
+    const from = (page - 1) * pageSize;
+    const to = from + pageSize - 1;
+
+    // 4️⃣ Query base (con count exacto)
     let q = supabaseAdmin
       .from("reservas")
       .select(
         `
         id_reserva,
-        id_club,
-        id_cancha,
-        id_usuario,
         fecha,
         inicio,
         fin,
@@ -67,26 +75,26 @@ export async function GET(req: Request) {
         confirmed_at,
         created_at,
         canchas:canchas ( nombre )
-      `
+        `,
+        { count: "exact" }
       )
       .eq("id_club", id_club)
       .eq("id_usuario", userId)
       .order("fecha", { ascending: false })
-      .order("inicio", { ascending: false })
-      .limit(limit);
+      .order("inicio", { ascending: false });
 
     if (estado) q = q.eq("estado", estado);
     if (desde) q = q.gte("fecha", desde);
     if (hasta) q = q.lte("fecha", hasta);
 
-    const { data, error } = await q;
+    const { data, error, count } = await q.range(from, to);
 
     if (error) {
       console.error("[mis-reservas] query error:", error);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    const rows = (data || []).map((r: any) => ({
+    const reservas = (data || []).map((r: any) => ({
       id_reserva: r.id_reserva,
       fecha: r.fecha,
       inicio: r.inicio,
@@ -100,29 +108,21 @@ export async function GET(req: Request) {
       cancha_nombre: r.canchas?.nombre ?? null,
     }));
 
-    // Log útil (server)
-    console.log("[mis-reservas] resolved", {
-      host,
-      sub,
-      id_club,
-      userId,
-      estado,
-      desde,
-      hasta,
-      limit,
-      count: rows.length,
-    });
-
     return NextResponse.json({
       ok: true,
-      id_club,
       subdominio: sub,
-      userId,        // 👈 clave para verificar
-      count: rows.length,
-      reservas: rows,
+      id_club,
+      page,
+      page_size: pageSize,
+      total: count ?? 0,
+      total_pages: count ? Math.ceil(count / pageSize) : 0,
+      reservas,
     });
   } catch (e: any) {
     console.error("[GET /api/mis-reservas] ex:", e);
-    return NextResponse.json({ error: e?.message || "Error interno" }, { status: 500 });
+    return NextResponse.json(
+      { error: e?.message || "Error interno" },
+      { status: 500 }
+    );
   }
 }

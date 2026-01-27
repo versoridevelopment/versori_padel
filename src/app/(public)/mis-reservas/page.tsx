@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { CalendarDays, Clock, RefreshCw, Filter } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { CalendarDays, Clock, RefreshCw, Filter, Loader2 } from "lucide-react";
 
 type Estado = "pendiente_pago" | "confirmada" | "expirada" | "rechazada";
 
@@ -17,6 +17,16 @@ type ReservaRow = {
   confirmed_at: string | null;
   created_at: string | null;
   cancha_nombre: string | null;
+};
+
+type ApiResp = {
+  ok: boolean;
+  page: number;
+  page_size: number;
+  total: number;
+  total_pages: number;
+  reservas: ReservaRow[];
+  error?: string;
 };
 
 function fmtMoney(n: any) {
@@ -43,14 +53,23 @@ function badge(estado: Estado) {
 
 export default function MisReservasPage() {
   const [rows, setRows] = useState<ReservaRow[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [firstLoading, setFirstLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  const [estado, setEstado] = useState<string>(""); // filtro
+  const [estado, setEstado] = useState<string>("");
   const [desde, setDesde] = useState<string>("");
   const [hasta, setHasta] = useState<string>("");
 
-  const query = useMemo(() => {
+  // paginación
+  const [page, setPage] = useState(1);
+  const [pageSize] = useState(10);
+  const [totalPages, setTotalPages] = useState(0);
+
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const inFlightRef = useRef(false);
+
+  const filtersQuery = useMemo(() => {
     const sp = new URLSearchParams();
     if (estado) sp.set("estado", estado);
     if (desde) sp.set("desde", desde);
@@ -58,35 +77,95 @@ export default function MisReservasPage() {
     return sp.toString();
   }, [estado, desde, hasta]);
 
-  async function load() {
-    setLoading(true);
-    setErr(null);
-    try {
-      const res = await fetch(`/api/mis-reservas${query ? `?${query}` : ""}`, {
-        cache: "no-store",
-      });
-      const json = await res.json().catch(() => null);
+  async function fetchPage(p: number, mode: "reset" | "append") {
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
 
-      if (!res.ok) {
-        setErr(json?.error || "No se pudieron cargar tus reservas.");
-        setRows([]);
-        setLoading(false);
+    if (mode === "reset") {
+      setFirstLoading(true);
+      setRows([]);
+      setErr(null);
+      setPage(1);
+      setTotalPages(0);
+    } else {
+      setLoadingMore(true);
+      setErr(null);
+    }
+
+    try {
+      const sp = new URLSearchParams(filtersQuery ? filtersQuery : "");
+      sp.set("page", String(p));
+      sp.set("page_size", String(pageSize));
+
+      const res = await fetch(`/api/mis-reservas?${sp.toString()}`, { cache: "no-store" });
+      const json = (await res.json().catch(() => null)) as ApiResp | null;
+
+      if (!res.ok || !json?.ok) {
+        const msg = (json as any)?.error || "No se pudieron cargar tus reservas.";
+        setErr(msg);
+        if (mode === "reset") setRows([]);
         return;
       }
 
-      setRows((json?.reservas || []) as ReservaRow[]);
-      setLoading(false);
+      setTotalPages(Number(json.total_pages || 0));
+
+      if (mode === "reset") {
+        setRows(json.reservas || []);
+        setPage(1);
+      } else {
+        setRows((prev) => {
+          const incoming = json.reservas || [];
+          // evitar duplicados si justo se reintenta
+          const seen = new Set(prev.map((x) => x.id_reserva));
+          const merged = [...prev, ...incoming.filter((x) => !seen.has(x.id_reserva))];
+          return merged;
+        });
+      }
     } catch (e: any) {
       setErr(e?.message || "Error de red.");
-      setRows([]);
-      setLoading(false);
+      if (mode === "reset") setRows([]);
+    } finally {
+      inFlightRef.current = false;
+      setFirstLoading(false);
+      setLoadingMore(false);
     }
   }
 
+  // reset al cambiar filtros
   useEffect(() => {
-    load();
+    fetchPage(1, "reset");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query]);
+  }, [filtersQuery]);
+
+  const canLoadMore = useMemo(() => {
+    if (firstLoading) return false;
+    if (loadingMore) return false;
+    if (totalPages === 0) return false;
+    return page < totalPages;
+  }, [firstLoading, loadingMore, page, totalPages]);
+
+  // observer (infinite)
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+
+    const obs = new IntersectionObserver(
+      (entries) => {
+        const first = entries[0];
+        if (!first?.isIntersecting) return;
+        if (!canLoadMore) return;
+
+        const next = page + 1;
+        setPage(next);
+        fetchPage(next, "append");
+      },
+      { root: null, rootMargin: "600px 0px", threshold: 0 }
+    );
+
+    obs.observe(el);
+    return () => obs.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canLoadMore, page]);
 
   return (
     <section className="min-h-screen bg-gradient-to-b from-[#001a33] to-[#002b5b] text-white px-6 py-10">
@@ -100,7 +179,7 @@ export default function MisReservasPage() {
           </div>
 
           <button
-            onClick={load}
+            onClick={() => fetchPage(1, "reset")}
             className="bg-white/10 hover:bg-white/15 border border-white/10 px-4 py-2 rounded-xl font-semibold flex items-center gap-2"
           >
             <RefreshCw className="w-4 h-4" />
@@ -144,29 +223,38 @@ export default function MisReservasPage() {
               placeholder="Hasta"
             />
           </div>
+
+          {/* Meta */}
+          <div className="mt-3 text-xs text-neutral-300 flex items-center justify-between">
+            <span>
+              Página <span className="font-semibold">{page}</span> /{" "}
+              <span className="font-semibold">{totalPages || 1}</span>
+            </span>
+            <span>{rows.length} cargadas</span>
+          </div>
         </div>
 
         {/* Estado */}
-        {loading && (
+        {firstLoading && (
           <div className="bg-[#0b2545] border border-[#1b4e89] rounded-2xl p-6 text-center text-neutral-200">
             Cargando reservas…
           </div>
         )}
 
-        {!loading && err && (
+        {!firstLoading && err && (
           <div className="bg-[#0b2545] border border-rose-500/40 rounded-2xl p-6 text-center">
             <p className="text-rose-200 font-semibold mb-2">No se pudo cargar</p>
             <p className="text-neutral-200">{err}</p>
           </div>
         )}
 
-        {!loading && !err && rows.length === 0 && (
+        {!firstLoading && !err && rows.length === 0 && (
           <div className="bg-[#0b2545] border border-[#1b4e89] rounded-2xl p-6 text-center text-neutral-200">
             No tenés reservas para estos filtros.
           </div>
         )}
 
-        {!loading && !err && rows.length > 0 && (
+        {!firstLoading && !err && rows.length > 0 && (
           <div className="space-y-3">
             {rows.map((r) => (
               <div
@@ -195,7 +283,8 @@ export default function MisReservasPage() {
                       </div>
 
                       <div className="opacity-90">
-                        Cancha: <span className="font-semibold">{r.cancha_nombre ?? "-"}</span>
+                        Cancha:{" "}
+                        <span className="font-semibold">{r.cancha_nombre ?? "-"}</span>
                       </div>
                     </div>
                   </div>
@@ -217,6 +306,23 @@ export default function MisReservasPage() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Sentinel + loader */}
+        <div ref={sentinelRef} className="h-10" />
+
+        {!firstLoading && !err && rows.length > 0 && (
+          <div className="mt-4 text-center text-sm text-neutral-300">
+            {loadingMore ? (
+              <span className="inline-flex items-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin" /> Cargando más…
+              </span>
+            ) : page >= totalPages && totalPages > 0 ? (
+              <span>No hay más reservas para mostrar.</span>
+            ) : (
+              <span>Deslizá para cargar más…</span>
+            )}
           </div>
         )}
       </div>
