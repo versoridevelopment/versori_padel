@@ -1,0 +1,92 @@
+[33m4361263[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m mis reservas mejora
+[33m0056013[m mis reservas
+[33m418bc85[m actualizacon pdf
+[33m22c5978[m actualizacion pago resultado
+[33mde50595[m comprobante de reserva
+[33m7e9816a[m arraglos de redireccion
+[33m0e2b252[m Arreglos para desploy
+[33ma4cac2b[m arreglos de errores de advertencias
+[33mcf8e59f[m reservas admin hecha
+[33m242693b[m reservas admin
+[33m59fc413[m reservas admin por la mitad
+[33mb0d35e6[m arreglos en reservas admin
+[33m63fcee9[m reservas admin
+[33m7fa4a3d[m se añadio pantallas de carga
+[33ma7ebaa6[m ajustes apartado admin
+[33mbadf84e[m login,register,contraseña olvidada con logo dinámico
+[33m74b5445[m arreglos en botón de whatsapp
+[33m143dbb5[m mejora en el ui
+[33m6c10f24[m Merge branch 'main' of https://github.com/versoridevelopment/Versori-Reservas
+[33md4bc8a2[m esqueleto grilla de reservas
+[33mec86406[m pago listo
+[33m942d566[m listado de usuarios funcionando, con el detalle respectivo
+[33m4160211[m arreglados problemas de accesibilidad
+[33m28cbe6d[m nosotros modificable, añadido boton de cambiar el orden de las presentaciones
+[33mfda5528[m tarifarios modificado
+[33m9f10ae4[m Merge branch 'main' of https://github.com/versoridevelopment/Versori-Reservas
+[33mb642943[m panel admin nosotros con correcciones, aún se rompe el responsive SOLUCIONAR
+[33m59b6bac[m Merge branch 'main' of https://github.com/versoridevelopment/Versori-Reservas
+[33m92925ed[m calcular precio actualizado
+[33mf1b888a[m página nosotros responsiva
+[33me249d6d[m home responsivo
+[33mcc53be5[m esqueleto mejorado
+[33mcab38b7[m esqueleto del apartado reservas. Estático
+[33m55fb26d[m pequeñas actualizaciones
+[33m98a0937[m actualizacion de creacion de bucket
+[33m63ba967[m auth arreglado
+[33m23c09d1[m actualizaciones nosotros
+[33m474a617[m Merge branch 'main' of https://github.com/versoridevelopment/Versori-Reservas
+[33m03245dd[m integracion a mercado pago a medias
+[33m563969e[m modificacion ahora se ve el estado de las canchas actualizado
+[33ma3e920f[m cambios en sidebar y editar cancha, nueva UI
+[33m78d20fe[m implementación boton whatsapp
+[33m2fe3a31[m Apartado profesores dinámico
+[33m3cdd940[m cambios estéticos en el apartado de usuarios administrador
+[33m49cc82e[m mejoras estéticas en el apartado reservas. Página administrador.
+[33m78edf10[m implementación api recover recuperar contraseña ahora tiene logo dinámico
+[33m15d92e7[m nombre, logo dinámicos en el apartado login y register.  Fixeos de consola (apartado home)
+[33m55d193b[m apartado "perfil" modificable
+[33m5cc3762[m Merge branch 'main' of https://github.com/versoridevelopment/Versori-Reservas
+[33mdd5243a[m apartado profesores activable/desactivable
+[33m64ee73c[m Merge branch 'main' of https://github.com/versoridevelopment/Versori-Reservas
+[33m6143a81[m cambios confiermarcion pago
+[33m2cffd74[m ajustes en el home
+[33m3564228[m implementación logo. Apartado nosotros
+[33m3132f48[m mejora dashboard principal admin
+[33m71870c1[m implementación sidebar responsivo (apartado admin)
+[33ma5febe9[m Merge branch 'main' of https://github.com/versoridevelopment/Versori-Reservas
+[33mb057360[m implementación "hamburguesa"
+[33m7469ec4[m arreglo de checkaut
+[33me8008bf[m reserva despuesd e media noche
+[33m2dc33a1[m arreglo de horrarios
+[33mdcc98b6[m Merge branch 'main' of https://github.com/versoridevelopment/Versori-Reservas
+[33m34526ca[m horario de reserevas hecho
+[33mc887a45[m implementación apartado "quinchos"
+[33m13ad5c6[m Merge branch 'main' of https://github.com/versoridevelopment/Versori-Reservas
+[33mf66d049[m Tarifas para canchas
+[33m1297ab0[m modificacion para ver el icono
+[33m44b8df2[m el logo ingresado pasa a ser ícono en el navegador
+[33mb918288[m cambio de fuente
+[33m6a44136[m ajuste de políticas y ajustes en los formularios y consecuentemente en el home principal
+[33m9e4f381[m sección "nosotros" en el home
+[33m4f6337d[m carrousel de marcas funcionando
+[33m7cb3c4c[m contacto y ubicación ya funcionando
+[33m5887152[m apartado profesores con mejoras. Aun faltan hacer validaciones
+[33m032576a[m agregar profesor funcional en el panel administrador
+[33m9247ee8[m borrador de panel de profesores
+[33me2f0093[m edición de sobre nosotros. Borrador
+[33m02b3e26[m identidad del club modificada agregando funcionalidades.   Modifica los campos de la base de datos.
+[33m3a04677[m Merge branch 'main' of https://github.com/versoridevelopment/Versori-Reservas
+[33m224ae2e[m conexión de personalización; logotipo y nombre del club dinámicos
+[33mc42cf90[m seccion de tarifas por canchas
+[33m03c7caa[m se finalizo crud de cancha
+[33m95c3da3[m curd de clubes completo
+[33ma1fc327[m crud de club por la mitad
+[33md5133ca[m se agrego dinamismo a las card de las canchas
+[33mf01a821[m cambie la relacion de club_usuario a login
+[33m793c3dc[m recuperacion de contraseña
+[33m0e8f8e3[m mejoras en el auth de usuarios
+[33m5b1c0be[m corregio bud de redireccionamiento
+[33mb4dc3c4[m Dinamismo de la pagina con subdominio de club
+[33m00de623[m gestion de login realizada
+[33m2947b0b[m Primer commit del proyecto

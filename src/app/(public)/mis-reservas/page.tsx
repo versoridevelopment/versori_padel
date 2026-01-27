@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { CalendarDays, Clock, Download, RefreshCw, Filter } from "lucide-react";
+import { CalendarDays, Clock, RefreshCw, Filter } from "lucide-react";
 
 type Estado = "pendiente_pago" | "confirmada" | "expirada" | "rechazada";
 
@@ -207,12 +207,10 @@ export default function MisReservasPage() {
                       Anticipo: {fmtMoney(r.monto_anticipo)}
                     </div>
 
-                    {/* Link al comprobante (pago/resultado ya lo genera en cliente, pero podés abrir la vista del comprobante si armás una página /reserva/[id]) */}
                     <a
-                      href={`/pago/resultado?status=success&id_reserva=${r.id_reserva}&club=`}
+                      href={`/mis-reservas/${r.id_reserva}`}
                       className="inline-flex items-center gap-2 mt-3 bg-white/10 hover:bg-white/15 border border-white/10 px-3 py-2 rounded-xl text-sm font-semibold"
                     >
-                      <Download className="w-4 h-4" />
                       Ver comprobante
                     </a>
                   </div>
