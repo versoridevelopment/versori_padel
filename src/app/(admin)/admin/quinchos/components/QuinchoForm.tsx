@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Image from "next/image";
 import {
   Loader2,
@@ -13,6 +13,9 @@ import {
   X,
   Plus,
   ImageIcon,
+  ArrowLeft,
+  ArrowRight,
+  Move,
 } from "lucide-react";
 
 interface Props {
@@ -20,48 +23,85 @@ interface Props {
   initialData: any;
 }
 
+// Tipo unificado para manejar imágenes existentes y nuevas en la misma lista
+type GalleryItem = {
+  id: string; // ID único para React keys
+  type: "existing" | "new";
+  url: string; // URL real (existing) o Blob URL (new)
+  file?: File; // Solo para type 'new'
+};
+
 export default function QuinchoForm({ clubId, initialData }: Props) {
   const [saving, setSaving] = useState(false);
 
-  // Estado de archivos nuevos para subir
-  const [newFiles, setNewFiles] = useState<File[]>([]);
-  const [newPreviews, setNewPreviews] = useState<string[]>([]);
+  // Estado unificado de la galería
+  const [galleryItems, setGalleryItems] = useState<GalleryItem[]>([]);
 
   const [data, setData] = useState({
     activo: initialData?.activo || false,
     titulo: initialData?.titulo || "Nuestro Quincho",
     descripcion: initialData?.descripcion || "",
     precio: initialData?.precio || "",
-    // Ahora es un array
-    galeria: (initialData?.galeria as string[]) || [],
     whatsapp_numero: initialData?.whatsapp_numero || "",
     whatsapp_mensaje:
       initialData?.whatsapp_mensaje || "Hola, quiero reservar el quincho.",
   });
 
+  // Inicializar galería al cargar
+  useEffect(() => {
+    if (initialData?.galeria && Array.isArray(initialData.galeria)) {
+      const existingItems: GalleryItem[] = initialData.galeria.map(
+        (url: string) => ({
+          id: url, // Usamos la URL como ID para las existentes
+          type: "existing",
+          url: url,
+        }),
+      );
+      setGalleryItems(existingItems);
+    }
+  }, [initialData]);
+
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       const filesArr = Array.from(e.target.files);
-      setNewFiles((prev) => [...prev, ...filesArr]);
 
-      // Crear previews locales
-      const newUrls = filesArr.map((file) => URL.createObjectURL(file));
-      setNewPreviews((prev) => [...prev, ...newUrls]);
+      const newItems: GalleryItem[] = filesArr.map((file) => ({
+        id: `new-${Date.now()}-${Math.random()}`, // ID temporal único
+        type: "new",
+        url: URL.createObjectURL(file), // Preview local
+        file: file,
+      }));
+
+      setGalleryItems((prev) => [...prev, ...newItems]);
+      e.target.value = ""; // Reset input
     }
   };
 
-  // Borrar imagen existente (del servidor)
-  const removeExistingImage = (indexToRemove: number) => {
-    setData((prev) => ({
-      ...prev,
-      galeria: prev.galeria.filter((_, i) => i !== indexToRemove),
-    }));
+  const removeImage = (idToRemove: string) => {
+    setGalleryItems((prev) => {
+      const item = prev.find((i) => i.id === idToRemove);
+      // Si es una imagen nueva, liberamos memoria del blob
+      if (item?.type === "new" && item.url) {
+        URL.revokeObjectURL(item.url);
+      }
+      return prev.filter((item) => item.id !== idToRemove);
+    });
   };
 
-  // Borrar imagen nueva (aún no subida)
-  const removeNewImage = (indexToRemove: number) => {
-    setNewFiles((prev) => prev.filter((_, i) => i !== indexToRemove));
-    setNewPreviews((prev) => prev.filter((_, i) => i !== indexToRemove));
+  // Función para mover elementos en el array
+  const moveImage = (index: number, direction: "left" | "right") => {
+    const newItems = [...galleryItems];
+    const targetIndex = direction === "left" ? index - 1 : index + 1;
+
+    // Validar límites
+    if (targetIndex < 0 || targetIndex >= newItems.length) return;
+
+    // Swap
+    [newItems[index], newItems[targetIndex]] = [
+      newItems[targetIndex],
+      newItems[index],
+    ];
+    setGalleryItems(newItems);
   };
 
   const handleSave = async () => {
@@ -69,12 +109,34 @@ export default function QuinchoForm({ clubId, initialData }: Props) {
     try {
       const formData = new FormData();
       formData.append("clubId", clubId.toString());
-
-      // Enviamos el objeto data que contiene las URLs que queremos CONSERVAR
       formData.append("settings", JSON.stringify(data));
 
-      // Adjuntamos los nuevos archivos
-      newFiles.forEach((file) => {
+      // PREPARAR ORDEN Y ARCHIVOS
+      // 1. Separamos los archivos físicos nuevos
+      // 2. Creamos un array "mapa" que le dice al backend el orden:
+      //    - Si es existente: manda la URL.
+      //    - Si es nuevo: manda un placeholder "new-file-X" donde X es el índice en el array de archivos subidos.
+
+      const galleryOrder: string[] = [];
+      const filesToUpload: File[] = [];
+
+      galleryItems.forEach((item) => {
+        if (item.type === "existing") {
+          galleryOrder.push(item.url);
+        } else if (item.type === "new" && item.file) {
+          // Es nuevo. Añadimos el archivo a la cola de subida
+          const fileIndex = filesToUpload.length;
+          filesToUpload.push(item.file);
+          // En el orden, ponemos una referencia a este índice
+          galleryOrder.push(`new-file-${fileIndex}`);
+        }
+      });
+
+      // Adjuntamos el mapa de orden
+      formData.append("galleryOrder", JSON.stringify(galleryOrder));
+
+      // Adjuntamos los archivos físicos
+      filesToUpload.forEach((file) => {
         formData.append("galleryFiles", file);
       });
 
@@ -84,7 +146,7 @@ export default function QuinchoForm({ clubId, initialData }: Props) {
       });
       if (!res.ok) throw new Error("Error al guardar");
 
-      alert("Datos del quincho actualizados");
+      alert("Datos actualizados correctamente");
       window.location.reload();
     } catch (error) {
       console.error(error);
@@ -114,8 +176,6 @@ export default function QuinchoForm({ clubId, initialData }: Props) {
               ? "bg-green-100 text-green-700"
               : "bg-slate-100 text-slate-500"
           }`}
-          title={data.activo ? "Desactivar página" : "Activar página"}
-          aria-label={data.activo ? "Desactivar página" : "Activar página"}
         >
           {data.activo ? (
             <ToggleRight className="w-6 h-6" />
@@ -128,17 +188,20 @@ export default function QuinchoForm({ clubId, initialData }: Props) {
 
       {data.activo && (
         <>
-          {/* GALERÍA DE FOTOS */}
+          {/* GALERÍA DE FOTOS (ORDENABLE) */}
           <section className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                <ImageIcon className="w-5 h-5 text-purple-600" /> Galería de
-                Fotos
-              </h2>
-              <label
-                className="cursor-pointer bg-blue-50 text-blue-600 px-4 py-2 rounded-lg font-bold text-xs hover:bg-blue-100 flex gap-2 items-center transition-colors"
-                title="Agregar fotos"
-              >
+              <div>
+                <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                  <ImageIcon className="w-5 h-5 text-purple-600" /> Galería de
+                  Fotos
+                </h2>
+                <p className="text-xs text-slate-400 mt-1">
+                  Usa las flechas para ordenar las fotos.
+                </p>
+              </div>
+
+              <label className="cursor-pointer bg-blue-50 text-blue-600 px-4 py-2 rounded-lg font-bold text-xs hover:bg-blue-100 flex gap-2 items-center transition-colors">
                 <Plus className="w-4 h-4" /> Agregar Fotos
                 <input
                   type="file"
@@ -146,69 +209,87 @@ export default function QuinchoForm({ clubId, initialData }: Props) {
                   multiple
                   className="hidden"
                   onChange={handleFileSelect}
-                  title="Seleccionar archivos"
                 />
               </label>
             </div>
 
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
-              {/* Imágenes guardadas */}
-              {data.galeria.map((url, i) => (
+              {galleryItems.map((item, index) => (
                 <div
-                  key={`saved-${i}`}
-                  className="relative aspect-square rounded-xl overflow-hidden border border-slate-200 group"
+                  key={item.id}
+                  className={`relative aspect-square rounded-xl overflow-hidden border group transition-all ${
+                    item.type === "new"
+                      ? "border-green-400 bg-green-50"
+                      : "border-slate-200 bg-slate-100"
+                  }`}
                 >
                   <Image
-                    src={url}
-                    alt="Quincho saved"
+                    src={item.url}
+                    alt="Quincho"
                     fill
                     className="object-cover"
                     sizes="200px"
                   />
-                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
-                  <button
-                    onClick={() => removeExistingImage(i)}
-                    className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                    title="Eliminar imagen"
-                    aria-label="Eliminar imagen"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </div>
-              ))}
 
-              {/* Imágenes nuevas (previews) */}
-              {newPreviews.map((url, i) => (
-                <div
-                  key={`new-${i}`}
-                  className="relative aspect-square rounded-xl overflow-hidden border-2 border-green-400 group"
-                >
-                  <Image
-                    src={url}
-                    alt="Quincho new"
-                    fill
-                    className="object-cover"
-                    sizes="200px"
-                  />
-                  <div className="absolute top-0 left-0 bg-green-500 text-white text-[10px] px-2 py-0.5 font-bold">
-                    NUEVA
+                  {/* Overlay Oscuro al Hover */}
+                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors pointer-events-none" />
+
+                  {/* Etiqueta de "Nueva" */}
+                  {item.type === "new" && (
+                    <div className="absolute top-0 left-0 bg-green-500 text-white text-[9px] px-2 py-0.5 font-bold z-10">
+                      NUEVA
+                    </div>
+                  )}
+
+                  {/* CONTROLES (Visibles al hover) */}
+                  <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity gap-2 z-20">
+                    {/* Botón Mover Izquierda */}
+                    {index > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => moveImage(index, "left")}
+                        className="p-1.5 bg-white text-slate-700 rounded-full hover:bg-blue-50 hover:text-blue-600 shadow-sm"
+                        title="Mover antes"
+                      >
+                        <ArrowLeft className="w-4 h-4" />
+                      </button>
+                    )}
+
+                    {/* Botón Borrar */}
+                    <button
+                      type="button"
+                      onClick={() => removeImage(item.id)}
+                      className="p-1.5 bg-white text-red-500 rounded-full hover:bg-red-50 shadow-sm"
+                      title="Eliminar"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+
+                    {/* Botón Mover Derecha */}
+                    {index < galleryItems.length - 1 && (
+                      <button
+                        type="button"
+                        onClick={() => moveImage(index, "right")}
+                        className="p-1.5 bg-white text-slate-700 rounded-full hover:bg-blue-50 hover:text-blue-600 shadow-sm"
+                        title="Mover después"
+                      >
+                        <ArrowRight className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
-                  <button
-                    onClick={() => removeNewImage(i)}
-                    className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                    title="Cancelar subida"
-                    aria-label="Cancelar subida"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
+
+                  {/* Indicador de posición (Móvil/Visual) */}
+                  <div className="absolute bottom-1 right-2 text-[10px] text-white font-bold opacity-0 group-hover:opacity-100 drop-shadow-md">
+                    #{index + 1}
+                  </div>
                 </div>
               ))}
 
-              {data.galeria.length === 0 && newPreviews.length === 0 && (
+              {galleryItems.length === 0 && (
                 <div className="col-span-full py-8 text-center text-slate-400 border-2 border-dashed border-slate-200 rounded-xl bg-slate-50 flex flex-col items-center justify-center">
                   <ImageIcon className="w-8 h-8 mb-2 opacity-50" />
                   <span className="text-sm">
-                    No hay imágenes en la galería.
+                    No hay imágenes. Sube algunas para comenzar.
                   </span>
                 </div>
               )}
@@ -235,8 +316,6 @@ export default function QuinchoForm({ clubId, initialData }: Props) {
                     }
                     className="w-full px-4 py-2 border border-slate-300 rounded-xl"
                     placeholder="Ej: Nuestro Quincho"
-                    title="Título de la página"
-                    aria-label="Título de la página"
                   />
                 </div>
                 <div>
@@ -253,20 +332,17 @@ export default function QuinchoForm({ clubId, initialData }: Props) {
                       }
                       className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-xl"
                       placeholder="Ej: 15.000"
-                      title="Precio por hora"
-                      aria-label="Precio por hora"
                     />
                   </div>
-                  {/* AQUI ESTABA EL ERROR: Se escaparon las comillas */}
-                  <p className="text-xs text-slate-400 mt-1">
-                    Este valor se mostrará acompañado del símbolo $ y la leyenda
-                    &quot;/ hora&quot;.
+                  <p className="text-xs text-slate-500 mt-1">
+                    Ingresa <b>0</b> para ocultar el precio y mostrar
+                    &quot;Consultar&quot;.
                   </p>
                 </div>
               </div>
               <div>
                 <label className="block text-sm font-semibold text-slate-700 mb-1">
-                  Descripción y Comodidades
+                  Descripción
                 </label>
                 <textarea
                   rows={5}
@@ -275,9 +351,7 @@ export default function QuinchoForm({ clubId, initialData }: Props) {
                     setData({ ...data, descripcion: e.target.value })
                   }
                   className="w-full px-4 py-2 border border-slate-300 rounded-xl resize-none"
-                  placeholder="Capacidad, parrilla, aire acondicionado, etc..."
-                  title="Descripción del quincho"
-                  aria-label="Descripción del quincho"
+                  placeholder="Detalles..."
                 />
               </div>
             </div>
@@ -292,7 +366,7 @@ export default function QuinchoForm({ clubId, initialData }: Props) {
             <div className="grid md:grid-cols-2 gap-6">
               <div>
                 <label className="block text-sm font-semibold text-slate-700 mb-1">
-                  Número WhatsApp (Solo números)
+                  Número WhatsApp
                 </label>
                 <input
                   type="text"
@@ -302,8 +376,6 @@ export default function QuinchoForm({ clubId, initialData }: Props) {
                   }
                   className="w-full px-4 py-2 border border-slate-300 rounded-xl"
                   placeholder="Ej: 54911..."
-                  title="Número de WhatsApp"
-                  aria-label="Número de WhatsApp"
                 />
               </div>
               <div>
@@ -317,9 +389,7 @@ export default function QuinchoForm({ clubId, initialData }: Props) {
                     setData({ ...data, whatsapp_mensaje: e.target.value })
                   }
                   className="w-full px-4 py-2 border border-slate-300 rounded-xl"
-                  placeholder="Mensaje predeterminado..."
-                  title="Mensaje automático"
-                  aria-label="Mensaje automático"
+                  placeholder="Hola..."
                 />
               </div>
             </div>
@@ -332,8 +402,6 @@ export default function QuinchoForm({ clubId, initialData }: Props) {
           onClick={handleSave}
           disabled={saving}
           className="flex items-center gap-2 bg-green-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-green-700 disabled:opacity-50 shadow-lg"
-          title="Guardar cambios"
-          aria-label="Guardar cambios"
         >
           {saving ? (
             <Loader2 className="w-5 h-5 animate-spin" />
