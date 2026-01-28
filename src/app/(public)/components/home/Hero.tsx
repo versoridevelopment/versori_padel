@@ -110,7 +110,7 @@ const Hero = ({
                 className="px-8 py-4 rounded-xl font-bold text-white flex items-center gap-2 transition-transform hover:scale-105 shadow-lg shadow-green-900/20 bg-green-600 hover:bg-green-700 border border-green-500/30 backdrop-blur-sm"
               >
                 <MessageCircle className="w-5 h-5" />
-                Consultar
+                WhatsApp
               </a>
             )}
 
