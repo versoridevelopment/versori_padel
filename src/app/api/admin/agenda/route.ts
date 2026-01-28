@@ -39,7 +39,7 @@ type ReservaRow = {
   cliente_telefono: string | null;
   cliente_email: string | null;
 
-  inicio_ts: string; // timestamptz (debe estar bien generado)
+  inicio_ts: string; // timestamptz
   fin_ts: string; // timestamptz
   created_at: string;
 };
@@ -101,19 +101,16 @@ function pickThemeByIndex(idx: number) {
 
 function parseHost(req: Request) {
   const raw = (req.headers.get("x-forwarded-host") || req.headers.get("host") || "").toLowerCase();
-  const hostNoPort = raw.split(":")[0];
-  return hostNoPort;
+  return raw.split(":")[0];
 }
 
 function getSubdomain(hostNoPort: string) {
   const parts = hostNoPort.split(".").filter(Boolean);
   if (parts.length < 2) return null;
 
-  if (parts[parts.length - 1] === "localhost") {
-    return parts.length >= 2 ? parts[0] : null;
-  }
-
+  if (parts[parts.length - 1] === "localhost") return parts[0] ?? null;
   if (parts.length >= 3) return parts[0];
+
   return null;
 }
 
@@ -149,6 +146,16 @@ async function assertAdminOrStaff(params: { id_club: number; userId: string }) {
   return { ok: true as const };
 }
 
+/**
+ * ✅ Igual que tu /slots:
+ * si viene "YYYY-MM-DDTHH:MM:SS" sin Z/offset, asumimos AR (-03:00)
+ */
+function parseTsAR(ts: string) {
+  const s = String(ts || "");
+  if (/[zZ]$/.test(s) || /[+\-]\d{2}:\d{2}$/.test(s)) return new Date(s).getTime();
+  return new Date(`${s}-03:00`).getTime();
+}
+
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
@@ -158,12 +165,11 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "fecha inválida (YYYY-MM-DD)" }, { status: 400 });
     }
 
-    // 1) intentar por subdominio (incluye localhost)
+    // Club por subdominio o query param
     const hostNoPort = parseHost(req);
     const sub = getSubdomain(hostNoPort);
     const clubFromSub = sub ? await resolveClubIdBySubdomain(sub) : null;
 
-    // 2) fallback a query param
     const idClubFromQuery = Number(searchParams.get("id_club"));
     const id_club =
       clubFromSub ??
@@ -197,10 +203,9 @@ export async function GET(req: Request) {
       .returns<CanchaRow[]>();
 
     if (cErr) return NextResponse.json({ error: `Error leyendo canchas: ${cErr.message}` }, { status: 500 });
-
     const canchas = canchasRaw || [];
 
-    // Defaults
+    // Defaults tarifarios
     const { data: defaultsRaw, error: dErr } = await supabaseAdmin
       .from("club_tarifarios_default")
       .select("id_tipo_cancha,id_tarifario")
@@ -230,7 +235,7 @@ export async function GET(req: Request) {
       }
     }
 
-    // Rango horario dinámico (DIA OPERATIVO)
+    // Rango horario dinámico (para la grilla)
     const dow = weekday0Sun(fecha);
     let minStart = 8 * 60;
     let maxEnd = 26 * 60;
@@ -281,14 +286,21 @@ export async function GET(req: Request) {
     const startHour = minToHourDecimal(minStart);
     const endHour = minToHourDecimal(maxEnd);
 
-    // ✅ Ventana CORRECTA: día operativo [fecha+minStart, fecha+maxEnd]
+    /**
+     * ✅ CAMBIO CLAVE:
+     * Para traer reservas NO arrancamos en minStart, arrancamos en 00:00 AR (igual que /slots)
+     * así no perdés reservas de la mañana.
+     *
+     * windowEnd sí respeta maxEnd para no traerse "mañana a la mañana".
+     */
     const dayStartMs = new Date(arMidnightISO(fecha)).getTime();
-    const windowStartMs = dayStartMs + minStart * 60_000;
-    const windowEndMs = dayStartMs + maxEnd * 60_000;
+    const windowStartMs = dayStartMs; // ✅ 00:00
+    const windowEndMs = dayStartMs + maxEnd * 60_000; // ✅ hasta fin del día operativo
 
     const windowStartISO = new Date(windowStartMs).toISOString();
     const windowEndISO = new Date(windowEndMs).toISOString();
 
+    // Reservas (solo dentro de la ventana del día operativo)
     const { data: reservasRaw, error: resErr } = await supabaseAdmin
       .from("reservas")
       .select(
@@ -317,7 +329,6 @@ export async function GET(req: Request) {
       )
       .eq("id_club", id_club)
       .in("estado", ["confirmada", "pendiente_pago"])
-      // overlap robusto
       .lt("inicio_ts", windowEndISO)
       .gt("fin_ts", windowStartISO)
       .order("inicio_ts", { ascending: true })
@@ -325,10 +336,10 @@ export async function GET(req: Request) {
 
     if (resErr) return NextResponse.json({ error: `Error leyendo reservas: ${resErr.message}` }, { status: 500 });
 
-    // ✅ HARDENING: filtrar por la MISMA ventana (por si hay datos raros)
+    // ✅ HARDENING con parseTsAR (igual que slots)
     const reservas = (reservasRaw || []).filter((r) => {
-      const s = new Date(r.inicio_ts).getTime();
-      const e = new Date(r.fin_ts).getTime();
+      const s = parseTsAR(r.inicio_ts);
+      const e = parseTsAR(r.fin_ts);
       if (!Number.isFinite(s) || !Number.isFinite(e) || e <= s) return false;
       return s < windowEndMs && windowStartMs < e;
     });
@@ -345,11 +356,10 @@ export async function GET(req: Request) {
         .returns<ProfileRow[]>();
 
       if (pErr) return NextResponse.json({ error: `Error leyendo profiles: ${pErr.message}` }, { status: 500 });
-
       for (const p of profRaw || []) profilesMap.set(p.id_usuario, p);
     }
 
-    // Pagos approved
+    // Pagos approved (si querés “lite” de verdad, esto se saca y queda para el detail)
     const reservaIds = reservas.map((r) => Number(r.id_reserva)).filter((n) => Number.isFinite(n));
     const paidMap = new Map<number, number>();
 
@@ -426,7 +436,6 @@ export async function GET(req: Request) {
       reservas: reservasOut,
     });
 
-    // (Opcional) anti-cache para evitar resultados “pegados”
     res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0");
     res.headers.set("Pragma", "no-cache");
     res.headers.set("Expires", "0");
