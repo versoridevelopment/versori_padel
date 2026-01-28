@@ -10,78 +10,69 @@ export default async function HomePage() {
   if (!club) {
     return (
       <div className="min-h-screen bg-[#0b0d12] flex items-center justify-center text-white">
-        <h1 className="text-2xl font-bold">Club no encontrado</h1>
+        Cargando...
       </div>
     );
   }
 
-  // 1. Consultas Principales
-  const [clubRes, nosotrosRes, profesoresRes, contactoBaseRes] =
-    await Promise.all([
-      supabase.from("clubes").select("*").eq("id_club", club.id_club).single(),
-      supabase
-        .from("nosotros")
-        .select("*")
-        .eq("id_club", club.id_club)
-        .maybeSingle(),
-      supabase
-        .from("profesores")
-        .select("*")
-        .eq("id_club", club.id_club)
-        .order("created_at", { ascending: true }),
-      supabase
-        .from("contacto")
-        .select("*")
-        .eq("id_club", club.id_club)
-        .maybeSingle(),
-    ]);
+  // 1. Consulta optimizada con JOINs para traer todo el contacto de una vez
+  // Traemos: contacto + direccion (hija) + telefono (hija)
+  const { data: contactoFull } = await supabase
+    .from("contacto")
+    .select(
+      `
+      *,
+      direccion (*),
+      telefono (*)
+    `,
+    )
+    .eq("id_club", club.id_club)
+    .maybeSingle();
 
-  // 2. Consultas Secundarias (Teléfonos y Direcciones)
-  let telefonosData: any[] = [];
-  let direccionesData: any[] = [];
+  // 2. Consultas paralelas para el resto
+  const [clubRes, nosotrosRes, profesoresRes] = await Promise.all([
+    supabase.from("clubes").select("*").eq("id_club", club.id_club).single(),
+    supabase
+      .from("nosotros")
+      .select("*")
+      .eq("id_club", club.id_club)
+      .maybeSingle(),
+    supabase
+      .from("profesores")
+      .select("*")
+      .eq("id_club", club.id_club)
+      .order("created_at", { ascending: true }),
+  ]);
 
-  if (contactoBaseRes.data) {
-    const idContacto = contactoBaseRes.data.id_contacto;
-    const [telRes, dirRes] = await Promise.all([
-      supabase.from("telefono").select("numero").eq("id_contacto", idContacto),
-      supabase.from("direccion").select("*").eq("id_contacto", idContacto),
-    ]);
-    telefonosData = telRes.data || [];
-    direccionesData = dirRes.data || [];
-  }
-
-  const contactoCompleto = contactoBaseRes.data
+  // 3. Preparar objeto de contacto para el componente
+  // Mapeamos 'direccion' (singular de DB) a 'direcciones' (plural esperado por componente)
+  const contactoAdaptado = contactoFull
     ? {
-        ...contactoBaseRes.data,
-        telefonos: telefonosData,
-        direcciones: direccionesData,
+        ...contactoFull,
+        direcciones: contactoFull.direccion || [], // Mapeo clave
+        telefonos: contactoFull.telefono || [],
       }
     : null;
 
-  // --- LÓGICA NUEVA: EXTRAER NÚMERO PRINCIPAL ---
-  // Tomamos el primer número encontrado en la tabla telefonos
-  const whatsappPrincipal =
-    telefonosData.length > 0 ? telefonosData[0].numero : null;
+  // 4. Extraer teléfono principal para el Hero
+  const whatsappPrincipal = contactoFull?.telefono?.[0]?.numero || null;
 
-  // 3. Armado de objeto LandingData
   const landingData = {
     club: {
       ...club,
       ...clubRes.data,
-      // Flags de activación (default true para profesores, false para contacto home si es null)
-      activo_profesores: clubRes.data?.activo_profesores ?? true,
-      activo_contacto_home: clubRes.data?.activo_contacto_home ?? false,
-
       color_primario: clubRes.data?.color_primario || "#3b82f6",
       color_secundario: clubRes.data?.color_secundario || "#0b0d12",
-      marcas: clubRes.data?.marcas || [],
     },
     nosotros: nosotrosRes.data || null,
     profesores: profesoresRes.data || [],
-    contacto: contactoCompleto,
 
-    // Pasamos el número al cliente
+    // Pasamos el contacto ya adaptado
+    contacto: contactoAdaptado,
+
+    // Datos directos
     whatsappHome: whatsappPrincipal,
+    instagramUser: contactoFull?.usuario_instagram || null,
   };
 
   return <LandingClient {...landingData} />;

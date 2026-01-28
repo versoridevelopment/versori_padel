@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowRight, MessageCircle } from "lucide-react";
+import { ArrowRight, MessageCircle, Instagram } from "lucide-react";
 import Container from "../ui/Container";
 
 interface HeroProps {
@@ -10,22 +10,29 @@ interface HeroProps {
   titulo: string;
   subtitulo: string;
   whatsappNumber?: string | null;
-  showWhatsapp?: boolean; // Se mantiene por compatibilidad, pero ya no oculta el botón si hay número
+  instagramUser?: string | null;
 }
 
-const Hero = ({ clubData, titulo, subtitulo, whatsappNumber }: HeroProps) => {
+const Hero = ({
+  clubData,
+  titulo,
+  subtitulo,
+  whatsappNumber,
+  instagramUser,
+}: HeroProps) => {
   const heroUrl = clubData?.imagen_hero_url;
   const primaryColor = clubData?.color_primario || "#3b82f6";
   const secondaryColor = clubData?.color_secundario || "#8b5cf6";
 
   const isVideo = heroUrl?.match(/\.(mp4|webm|mov)$/i);
 
-  // Lógica Simplificada: Si hay número, hay botón.
   const cleanNumber = whatsappNumber?.replace(/\D/g, "");
   const whatsappLink = cleanNumber
-    ? `https://wa.me/${cleanNumber}?text=${encodeURIComponent(
-        "Hola! Quisiera hacer una consulta.",
-      )}`
+    ? `https://wa.me/${cleanNumber}?text=${encodeURIComponent("Hola! Quisiera hacer una consulta.")}`
+    : null;
+
+  const instagramLink = instagramUser
+    ? `https://instagram.com/${instagramUser.replace("@", "")}`
     : null;
 
   return (
@@ -85,17 +92,16 @@ const Hero = ({ clubData, titulo, subtitulo, whatsappNumber }: HeroProps) => {
           </p>
 
           <div className="pt-4 flex flex-wrap gap-4">
-            {/* 1. Botón Reservar */}
-            <Link href="/reserva">
-              <button
-                className="px-8 py-4 rounded-xl font-bold text-white flex items-center gap-2 transition-transform hover:scale-105 shadow-lg shadow-black/20"
-                style={{ backgroundColor: primaryColor }}
-              >
-                Reservar Cancha <ArrowRight className="w-5 h-5" />
-              </button>
+            {/* 1. Botón Reservar (CORREGIDO: Link con estilos, sin button dentro) */}
+            <Link
+              href="/reserva"
+              className="px-8 py-4 rounded-xl font-bold text-white flex items-center gap-2 transition-transform hover:scale-105 shadow-lg shadow-black/20"
+              style={{ backgroundColor: primaryColor }}
+            >
+              Reservar Cancha <ArrowRight className="w-5 h-5" />
             </Link>
 
-            {/* 2. Botón WhatsApp (Visible si hay número válido) */}
+            {/* 2. Botón WhatsApp */}
             {whatsappLink && (
               <a
                 href={whatsappLink}
@@ -104,7 +110,20 @@ const Hero = ({ clubData, titulo, subtitulo, whatsappNumber }: HeroProps) => {
                 className="px-8 py-4 rounded-xl font-bold text-white flex items-center gap-2 transition-transform hover:scale-105 shadow-lg shadow-green-900/20 bg-green-600 hover:bg-green-700 border border-green-500/30 backdrop-blur-sm"
               >
                 <MessageCircle className="w-5 h-5" />
-                WhatsApp
+                Consultar
+              </a>
+            )}
+
+            {/* 3. Botón Instagram */}
+            {instagramLink && (
+              <a
+                href={instagramLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-8 py-4 rounded-xl font-bold text-white flex items-center gap-2 transition-transform hover:scale-105 shadow-lg shadow-pink-900/20 bg-gradient-to-r from-purple-600 to-pink-600 hover:to-pink-500 border border-pink-500/30 backdrop-blur-sm"
+              >
+                <Instagram className="w-5 h-5" />
+                Instagram
               </a>
             )}
           </div>

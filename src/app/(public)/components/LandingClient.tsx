@@ -6,7 +6,6 @@ import Profesores from "./home/Profesores";
 import Contacto from "./home/Contacto";
 import Marcas from "./home/Marcas";
 
-// Definición de tipos
 interface ClubData {
   id_club: number;
   nombre: string;
@@ -20,7 +19,7 @@ interface ClubData {
   texto_bienvenida_subtitulo: string;
   marcas: any[];
   activo_profesores: boolean;
-  activo_contacto_home?: boolean; // <--- Nuevo flag desde DB
+  activo_contacto_home?: boolean;
 }
 
 interface Props {
@@ -28,7 +27,8 @@ interface Props {
   nosotros: any;
   profesores: any[];
   contacto: any;
-  whatsappHome?: string | null; // <--- Nuevo número para el Hero
+  whatsappHome?: string | null;
+  instagramUser?: string | null;
 }
 
 export default function LandingClient({
@@ -37,6 +37,7 @@ export default function LandingClient({
   profesores,
   contacto,
   whatsappHome,
+  instagramUser,
 }: Props) {
   return (
     <div className="flex flex-col min-h-screen">
@@ -45,9 +46,8 @@ export default function LandingClient({
         clubData={club}
         titulo={club.texto_bienvenida_titulo}
         subtitulo={club.texto_bienvenida_subtitulo}
-        // Pasamos la configuración del botón de WhatsApp
         whatsappNumber={whatsappHome}
-        showWhatsapp={club.activo_contacto_home}
+        instagramUser={instagramUser}
       />
 
       {/* 2. MARCAS */}
@@ -65,14 +65,18 @@ export default function LandingClient({
       )}
 
       {/* 4. PROFESORES */}
-      {/* Condición: Que existan profesores Y que la sección esté activa */}
       {club.activo_profesores && profesores.length > 0 && (
         <Profesores profesores={profesores} />
       )}
 
       {/* 5. CONTACTO */}
       {contacto && (
-        <Contacto data={contacto} colors={{ primary: club.color_primario }} />
+        <Contacto
+          data={contacto}
+          colors={{ primary: club.color_primario }}
+          // Pasamos explícitamente el teléfono que ya calculamos para el Hero
+          phoneOverride={whatsappHome}
+        />
       )}
     </div>
   );

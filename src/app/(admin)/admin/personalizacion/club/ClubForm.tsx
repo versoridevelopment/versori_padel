@@ -16,11 +16,8 @@ import {
   Plus,
   ImageIcon,
   AlignLeft,
-  X,
-  FileText,
-  Camera,
   Phone,
-  MessageCircle, // Icono para la leyenda de WhatsApp
+  MessageCircle,
 } from "lucide-react";
 
 // --- TIPOS ---
@@ -44,64 +41,27 @@ type ClubData = {
   activo_contacto_home: boolean;
 };
 
-type Valor = { titulo: string; contenido: string };
-
-type NosotrosData = {
-  activo_nosotros: boolean;
-  historia_titulo: string;
-  hero_descripcion: string;
-  historia_contenido: string;
-  frase_cierre: string;
-  historia_imagen_url: string | null;
-  galeria_inicio: string[];
-  valores: Valor[];
-  home_titulo?: string;
-  home_descripcion?: string;
-};
-
 interface Props {
   initialData: ClubData;
-  nosotrosInitialData: NosotrosData | null;
   clubId: number;
 }
 
-export default function ClubForm({
-  initialData,
-  nosotrosInitialData,
-  clubId,
-}: Props) {
+export default function ClubForm({ initialData, clubId }: Props) {
   const [saving, setSaving] = useState(false);
+
+  // TABS: Eliminamos 'nosotros' y 'galeria'
   const [activeTab, setActiveTab] = useState<
-    "identidad" | "estilo" | "contacto" | "marcas" | "nosotros" | "galeria"
+    "identidad" | "estilo" | "contacto" | "marcas"
   >("identidad");
 
   const [formData, setFormData] = useState<ClubData>({
     ...initialData,
-    // FORZAMOS TRUE: Ya no es opcional, siempre estará activo si hay número
     activo_contacto_home: true,
   });
 
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [heroFile, setHeroFile] = useState<File | null>(null);
   const [brandFiles, setBrandFiles] = useState<Record<string, File>>({});
-
-  const [nosotrosData, setNosotrosData] = useState<NosotrosData>(
-    nosotrosInitialData || {
-      activo_nosotros: true,
-      historia_titulo: "",
-      hero_descripcion: "",
-      historia_contenido: "",
-      frase_cierre: "",
-      historia_imagen_url: null,
-      galeria_inicio: [],
-      valores: [],
-      home_titulo: "",
-      home_descripcion: "",
-    },
-  );
-
-  const [newGalleryFiles, setNewGalleryFiles] = useState<File[]>([]);
-  const [newGalleryPreviews, setNewGalleryPreviews] = useState<string[]>([]);
 
   const isVideo = (url: string) => url?.match(/\.(mp4|webm|mov)$/i);
 
@@ -201,46 +161,17 @@ export default function ClubForm({
     }
   };
 
-  const handleNosotrosChange = (field: keyof NosotrosData, value: any) => {
-    setNosotrosData((prev) => ({ ...prev, [field]: value }));
-  };
-
-  const handleGallerySelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
-      const files = Array.from(e.target.files);
-      setNewGalleryFiles((prev) => [...prev, ...files]);
-      const newPreviews = files.map((f) => URL.createObjectURL(f));
-      setNewGalleryPreviews((prev) => [...prev, ...newPreviews]);
-      e.target.value = "";
-    }
-  };
-
-  const removeGalleryImage = (index: number, isNew: boolean) => {
-    if (isNew) {
-      setNewGalleryFiles((prev) => prev.filter((_, i) => i !== index));
-      setNewGalleryPreviews((prev) => {
-        URL.revokeObjectURL(prev[index]);
-        return prev.filter((_, i) => i !== index);
-      });
-    } else {
-      setNosotrosData((prev) => ({
-        ...prev,
-        galeria_inicio: prev.galeria_inicio.filter((_, i) => i !== index),
-      }));
-    }
-  };
-
   const handleSave = async () => {
     setSaving(true);
     try {
       const formDataToSend = new FormData();
       formDataToSend.append("clubId", clubId.toString());
 
-      // Forzamos activo_contacto_home a true al guardar
       const finalClubData = { ...formData, activo_contacto_home: true };
       formDataToSend.append("clubData", JSON.stringify(finalClubData));
 
-      formDataToSend.append("nosotrosData", JSON.stringify(nosotrosData));
+      // NOTA: Ya no enviamos 'nosotrosData' desde aquí.
+      // La API se encargará de autocompletar el título si es necesario.
 
       if (logoFile) formDataToSend.append("logoFile", logoFile);
       if (heroFile) formDataToSend.append("heroFile", heroFile);
@@ -248,12 +179,6 @@ export default function ClubForm({
       Object.keys(brandFiles).forEach((brandId) => {
         formDataToSend.append(`brand_file_${brandId}`, brandFiles[brandId]);
       });
-
-      if (newGalleryFiles.length > 0) {
-        newGalleryFiles.forEach((file) =>
-          formDataToSend.append("galleryFiles", file),
-        );
-      }
 
       const response = await fetch("/api/admin/club/update", {
         method: "POST",
@@ -266,8 +191,6 @@ export default function ClubForm({
       setBrandFiles({});
       setLogoFile(null);
       setHeroFile(null);
-      setNewGalleryFiles([]);
-      setNewGalleryPreviews([]);
 
       alert("¡Cambios guardados correctamente!");
       window.location.reload();
@@ -280,8 +203,6 @@ export default function ClubForm({
   };
 
   const getPreviewTitle = () => {
-    if (activeTab === "nosotros") return "Sección Nosotros (Home)";
-    if (activeTab === "galeria") return "Galería de Imágenes";
     return "Página de Inicio (Home)";
   };
 
@@ -305,14 +226,13 @@ export default function ClubForm({
       </div>
 
       <div className="max-w-7xl mx-auto space-y-8 pb-32">
-        {/* Header */}
         <div className="flex justify-between items-end">
           <div>
             <h1 className="text-3xl font-extrabold text-slate-900">
               Personalización
             </h1>
             <p className="text-slate-500 mt-2 text-lg">
-              Gestiona la identidad y el contenido.
+              Gestiona la identidad visual y datos de contacto.
             </p>
           </div>
           <button
@@ -339,8 +259,6 @@ export default function ClubForm({
             { id: "estilo", label: "Estilo", icon: Palette },
             { id: "contacto", label: "Contacto", icon: MapPin },
             { id: "marcas", label: "Marcas", icon: Type },
-            { id: "nosotros", label: "Nosotros", icon: FileText },
-            { id: "galeria", label: "Galería", icon: Camera },
           ].map((tab) => (
             <button
               key={tab.id}
@@ -509,7 +427,7 @@ export default function ClubForm({
                         htmlFor="instagram"
                         className="block text-sm font-semibold text-slate-700 mb-1"
                       >
-                        Instagram
+                        Instagram (Usuario)
                       </label>
                       <div className="relative">
                         <Instagram className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
@@ -548,13 +466,13 @@ export default function ClubForm({
                         />
                       </div>
 
-                      {/* LEYENDA INFORMATIVA (Reemplaza el toggle) */}
+                      {/* LEYENDA INFORMATIVA */}
                       <div className="mt-3 p-3 bg-blue-50 border border-blue-100 rounded-xl flex gap-3 items-start">
                         <MessageCircle className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
                         <p className="text-xs text-blue-800 leading-relaxed">
-                          <strong>Acceso Directo:</strong> Este número se
-                          utilizará automáticamente para el botón flotante de
-                          WhatsApp en la portada del sitio.
+                          <strong>Importante:</strong> El número de WhatsApp y
+                          el usuario de Instagram se usarán automáticamente para
+                          crear los accesos directos en la portada del sitio.
                         </p>
                       </div>
                     </div>
@@ -850,134 +768,9 @@ export default function ClubForm({
                 </section>
               </div>
             )}
-
-            {/* TAB NOSOTROS Y GALERÍA (Mismo bloque de antes para Nosotros) */}
-            {activeTab === "nosotros" && (
-              <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
-                <section className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-                  <div className="mb-4">
-                    <label
-                      htmlFor="historia_titulo"
-                      className="block text-sm font-semibold text-slate-700 mb-1"
-                    >
-                      Título Nosotros
-                    </label>
-                    <input
-                      id="historia_titulo"
-                      type="text"
-                      value={nosotrosData.historia_titulo}
-                      onChange={(e) =>
-                        handleNosotrosChange("historia_titulo", e.target.value)
-                      }
-                      className="w-full px-4 py-2 border border-slate-300 rounded-xl"
-                      placeholder="Ej: Nuestra Historia"
-                      title="Título nosotros"
-                    />
-                  </div>
-                  <div>
-                    <label
-                      htmlFor="hero_descripcion"
-                      className="block text-sm font-semibold text-slate-700 mb-1"
-                    >
-                      Resumen
-                    </label>
-                    <textarea
-                      id="hero_descripcion"
-                      rows={3}
-                      value={nosotrosData.hero_descripcion}
-                      onChange={(e) =>
-                        handleNosotrosChange("hero_descripcion", e.target.value)
-                      }
-                      className="w-full px-4 py-2 border border-slate-300 rounded-xl resize-none"
-                      placeholder="Breve descripción..."
-                      title="Resumen nosotros"
-                    />
-                  </div>
-                </section>
-              </div>
-            )}
-
-            {(activeTab === "galeria" || activeTab === "nosotros") && (
-              <section className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm animate-in fade-in slide-in-from-bottom-4">
-                <div className="flex justify-between items-center mb-4">
-                  <h2 className="text-lg font-bold text-slate-800">
-                    Galería (Slider Home)
-                  </h2>
-                  <label
-                    className="cursor-pointer text-blue-600 text-xs font-bold hover:bg-blue-50 px-3 py-1.5 rounded-lg flex gap-1 items-center transition-colors"
-                    title="Agregar imágenes"
-                  >
-                    <Plus className="w-4 h-4" /> Agregar{" "}
-                    <input
-                      type="file"
-                      accept="image/*"
-                      multiple
-                      className="hidden"
-                      onChange={handleGallerySelect}
-                      title="Seleccionar imágenes"
-                    />
-                  </label>
-                </div>
-                <div className="grid grid-cols-4 gap-3">
-                  {nosotrosData.galeria_inicio.map((url, i) => (
-                    <div
-                      key={`saved-${i}`}
-                      className="relative aspect-square rounded-xl overflow-hidden border border-slate-200 group shadow-sm hover:shadow-md transition-shadow"
-                    >
-                      <Image
-                        src={url}
-                        alt={`Galería ${i}`}
-                        fill
-                        className="object-cover"
-                      />
-                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
-                      <button
-                        type="button"
-                        onClick={() => removeGalleryImage(i, false)}
-                        className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600"
-                        title="Eliminar imagen"
-                        aria-label="Eliminar imagen"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                    </div>
-                  ))}
-                  {newGalleryPreviews.map((url, i) => (
-                    <div
-                      key={`new-${i}`}
-                      className="relative aspect-square rounded-xl overflow-hidden border-2 border-green-400 group shadow-sm bg-green-50"
-                    >
-                      <Image
-                        src={url}
-                        alt="Nueva"
-                        fill
-                        className="object-cover opacity-90"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => removeGalleryImage(i, true)}
-                        className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600"
-                        title="Cancelar subida"
-                        aria-label="Cancelar subida"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                      <div className="absolute bottom-0 left-0 right-0 bg-green-500 text-white text-[9px] font-bold text-center py-0.5 uppercase tracking-wide">
-                        Nueva
-                      </div>
-                    </div>
-                  ))}
-                  {nosotrosData.galeria_inicio.length === 0 &&
-                    newGalleryPreviews.length === 0 && (
-                      <div className="col-span-4 py-8 text-center text-slate-400 text-sm border-2 border-dashed border-slate-200 rounded-xl bg-slate-50">
-                        No hay imágenes en la galería.
-                      </div>
-                    )}
-                </div>
-              </section>
-            )}
           </div>
 
+          {/* PREVIEW DERECHA */}
           <div className="sticky top-6 hidden lg:block">
             <div
               className="bg-[#0b0d12] rounded-[2rem] border-[10px] border-slate-800 shadow-2xl overflow-hidden h-[800px] relative flex flex-col"
@@ -1030,44 +823,28 @@ export default function ClubForm({
                   className="p-6 bg-[#0b0d12] flex-1"
                   style={{ backgroundColor: formData.color_secundario }}
                 >
-                  <div
-                    className="inline-block px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-[10px] font-bold tracking-widest uppercase mb-3"
-                    style={{ color: formData.color_primario }}
-                  >
-                    {activeTab === "nosotros"
-                      ? "Sección Nosotros"
-                      : "Contenido"}
+                  <div className="flex gap-2 mb-4">
+                    {/* Botón WhatsApp Simulado */}
+                    <div className="px-3 py-1.5 rounded-lg bg-green-600/20 border border-green-500/30 text-green-400 text-xs flex items-center gap-1">
+                      <MessageCircle className="w-3 h-3" />
+                      <span>WhatsApp</span>
+                    </div>
+
+                    {/* Botón Instagram Simulado (Si hay usuario) */}
+                    {formData.usuario_instagram && (
+                      <div className="px-3 py-1.5 rounded-lg bg-pink-600/20 border border-pink-500/30 text-pink-400 text-xs flex items-center gap-1">
+                        <Instagram className="w-3 h-3" />
+                        <span>Instagram</span>
+                      </div>
+                    )}
                   </div>
+
                   <h2 className="text-2xl font-bold text-white mb-3">
-                    {activeTab === "nosotros"
-                      ? nosotrosData.historia_titulo || "Título"
-                      : "Título de Sección"}
+                    Título de Sección
                   </h2>
                   <p className="text-gray-400 text-sm mb-4 line-clamp-3">
-                    {activeTab === "nosotros"
-                      ? nosotrosData.hero_descripcion || "Descripción..."
-                      : "Contenido de ejemplo..."}
+                    Contenido de ejemplo...
                   </p>
-
-                  {(activeTab === "nosotros" || activeTab === "galeria") && (
-                    <div className="grid grid-cols-3 gap-2 mt-4 opacity-70">
-                      {[...nosotrosData.galeria_inicio, ...newGalleryPreviews]
-                        .slice(0, 3)
-                        .map((src, i) => (
-                          <div
-                            key={i}
-                            className="aspect-square bg-white/10 rounded-lg overflow-hidden relative"
-                          >
-                            <Image
-                              src={src}
-                              alt="p"
-                              fill
-                              className="object-cover"
-                            />
-                          </div>
-                        ))}
-                    </div>
-                  )}
                 </div>
               </div>
             </div>

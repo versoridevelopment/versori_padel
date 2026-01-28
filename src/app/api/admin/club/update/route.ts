@@ -3,64 +3,72 @@ import { supabaseAdmin } from "@/lib/supabase/supabaseAdmin";
 
 export async function POST(request: Request) {
   try {
-    // 1. Recibir FormData
     const formData = await request.formData();
     const clubId = formData.get("clubId") as string;
 
-    if (!clubId) {
-      return NextResponse.json(
-        { error: "Falta el ID del club" },
-        { status: 400 },
-      );
-    }
+    if (!clubId)
+      return NextResponse.json({ error: "Falta ID" }, { status: 400 });
 
     const clubDataRaw = formData.get("clubData");
-    const nosotrosDataRaw = formData.get("nosotrosData");
-
-    // ---------------------------------------------------------
-    // A. ACTUALIZAR CLUB
-    // ---------------------------------------------------------
     if (clubDataRaw) {
       const clubData = JSON.parse(clubDataRaw as string);
 
-      // Mapeo explícito de campos para asegurar que el toggle pase
-      const clubUpdates = {
-        nombre: clubData.nombre,
-        subdominio: clubData.subdominio,
-        color_primario: clubData.color_primario,
-        color_secundario: clubData.color_secundario,
-        color_texto: clubData.color_texto,
-        texto_bienvenida_titulo: clubData.texto_bienvenida_titulo,
-        texto_bienvenida_subtitulo: clubData.texto_bienvenida_subtitulo,
-        marcas: clubData.marcas,
-
-        // Convertimos explícitamente a boolean por seguridad
-        activo_profesores: Boolean(clubData.activo_profesores),
-        activo_contacto_home: Boolean(clubData.activo_contacto_home),
-
-        logo_url: clubData.logo_url,
-        imagen_hero_url: clubData.imagen_hero_url,
-        updated_at: new Date().toISOString(),
-      };
-
+      // 1. Clubes
       const { error: clubError } = await supabaseAdmin
         .from("clubes")
-        .update(clubUpdates)
+        .update({
+          nombre: clubData.nombre,
+          subdominio: clubData.subdominio,
+          color_primario: clubData.color_primario,
+          color_secundario: clubData.color_secundario,
+          color_texto: clubData.color_texto,
+          texto_bienvenida_titulo: clubData.texto_bienvenida_titulo,
+          texto_bienvenida_subtitulo: clubData.texto_bienvenida_subtitulo,
+          marcas: clubData.marcas,
+          activo_contacto_home: Boolean(clubData.activo_contacto_home),
+          logo_url: clubData.logo_url,
+          imagen_hero_url: clubData.imagen_hero_url,
+          updated_at: new Date().toISOString(),
+        })
         .eq("id_club", clubId);
 
-      if (clubError)
-        throw new Error(`Error actualizando club: ${clubError.message}`);
+      if (clubError) throw clubError;
 
-      // --- Contacto / Dirección / Teléfono ---
-      // (Esta lógica se mantiene igual que tu versión original)
-      const { data: contactoData } = await supabaseAdmin
+      // 2. Nosotros (Autocompletado básico)
+      const { data: existingNosotros } = await supabaseAdmin
+        .from("nosotros")
+        .select("id_nosotros")
+        .eq("id_club", clubId)
+        .maybeSingle();
+
+      if (!existingNosotros) {
+        await supabaseAdmin.from("nosotros").insert({
+          id_club: clubId,
+          home_titulo: `Bienvenidos a ${clubData.nombre}`,
+          historia_titulo: "Nuestra Historia",
+          activo_nosotros: true,
+        });
+      }
+
+      // 3. Contacto (Base)
+      let { data: contactoData } = await supabaseAdmin
         .from("contacto")
         .select("id_contacto")
         .eq("id_club", clubId)
-        .single();
+        .maybeSingle();
 
-      if (contactoData) {
-        // Contacto Base
+      if (!contactoData) {
+        const { data: newC } = await supabaseAdmin
+          .from("contacto")
+          .insert({
+            id_club: clubId,
+            email: clubData.email,
+            usuario_instagram: clubData.usuario_instagram,
+          })
+          .select("id_contacto")
+          .single();
+        contactoData = newC;
+      } else {
         await supabaseAdmin
           .from("contacto")
           .update({
@@ -68,13 +76,15 @@ export async function POST(request: Request) {
             usuario_instagram: clubData.usuario_instagram,
           })
           .eq("id_contacto", contactoData.id_contacto);
+      }
 
-        // Dirección
-        const direccionUpdates = {
+      // 4. Dirección y Teléfono
+      if (contactoData) {
+        // --- DIRECCIÓN (FIX CRÍTICO: No enviar updated_at) ---
+        const dirPayload = {
           calle: clubData.calle,
-          altura_calle: clubData.altura,
+          altura_calle: clubData.altura, // Mapeo correcto
           barrio: clubData.barrio,
-          updated_at: new Date().toISOString(),
         };
 
         const { data: existingDir } = await supabaseAdmin
@@ -86,16 +96,15 @@ export async function POST(request: Request) {
         if (existingDir) {
           await supabaseAdmin
             .from("direccion")
-            .update(direccionUpdates)
+            .update(dirPayload)
             .eq("id_direccion", existingDir.id_direccion);
-        } else {
-          await supabaseAdmin.from("direccion").insert({
-            ...direccionUpdates,
-            id_contacto: contactoData.id_contacto,
-          });
+        } else if (dirPayload.calle || dirPayload.altura_calle) {
+          await supabaseAdmin
+            .from("direccion")
+            .insert({ ...dirPayload, id_contacto: contactoData.id_contacto });
         }
 
-        // Teléfono (Principal)
+        // --- TELÉFONO ---
         const { data: existingTel } = await supabaseAdmin
           .from("telefono")
           .select("id_telefono")
@@ -118,38 +127,9 @@ export async function POST(request: Request) {
       }
     }
 
-    // ---------------------------------------------------------
-    // B. ACTUALIZAR NOSOTROS
-    // ---------------------------------------------------------
-    if (nosotrosDataRaw) {
-      const nosotrosData = JSON.parse(nosotrosDataRaw as string);
-
-      const nosotrosUpdates = {
-        activo_nosotros: Boolean(nosotrosData.activo_nosotros),
-        historia_titulo: nosotrosData.historia_titulo,
-        hero_descripcion: nosotrosData.hero_descripcion,
-        historia_contenido: nosotrosData.historia_contenido,
-        frase_cierre: nosotrosData.frase_cierre,
-        home_titulo: nosotrosData.home_titulo,
-        home_descripcion: nosotrosData.home_descripcion,
-        galeria_inicio: nosotrosData.galeria_inicio,
-        valores: nosotrosData.valores,
-        updated_at: new Date().toISOString(),
-      };
-
-      const { error } = await supabaseAdmin
-        .from("nosotros")
-        .upsert(
-          { ...nosotrosUpdates, id_club: clubId },
-          { onConflict: "id_club" },
-        );
-
-      if (error) throw error;
-    }
-
     return NextResponse.json({ success: true });
   } catch (error: any) {
-    console.error("Error en update API:", error);
+    console.error("API Error:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

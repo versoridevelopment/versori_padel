@@ -2,80 +2,79 @@ import { supabase } from "@/lib/supabase/supabaseClient";
 import { getCurrentClub } from "@/lib/ObetenerClubUtils/getCurrentClub";
 import ClubForm from "./ClubForm";
 
+export const revalidate = 0;
+
 export default async function ClubAdminPage() {
-  // 1. Obtener el club actual
   const club = await getCurrentClub();
 
   if (!club) {
     return <div className="p-8 text-red-500">Error: Club no identificado.</div>;
   }
 
-  // 2. Obtener datos del CLUB (Identidad + Marcas)
+  // Datos Club
   const { data: clubData } = await supabase
     .from("clubes")
     .select("*")
     .eq("id_club", club.id_club)
     .single();
 
-  // 3. Obtener datos de CONTACTO
+  // Datos Contacto
   const { data: contactoData } = await supabase
     .from("contacto")
-    .select(
-      `
-      activo_contacto_home,
-      email, 
-      usuario_instagram,
-      direccion (calle, altura_calle, barrio),
-      telefono (numero)
-    `
-    )
-    .eq("id_club", club.id_club)
-    .maybeSingle();
-
-  // 4. Obtener datos de SOBRE NOSOTROS
-  const { data: nosotrosData } = await supabase
-    .from("nosotros")
     .select("*")
     .eq("id_club", club.id_club)
     .maybeSingle();
 
-  // 5. Preparar los datos planos para el formulario principal
+  let telefonoData = null;
+  let direccionData = null;
+
+  if (contactoData) {
+    // Teléfono
+    const { data: tel } = await supabase
+      .from("telefono")
+      .select("numero")
+      .eq("id_contacto", contactoData.id_contacto)
+      .limit(1)
+      .maybeSingle();
+    telefonoData = tel;
+
+    // Dirección
+    const { data: dir } = await supabase
+      .from("direccion")
+      .select("calle, altura_calle, barrio") // Importante: traer los campos correctos
+      .eq("id_contacto", contactoData.id_contacto)
+      .limit(1)
+      .maybeSingle();
+    direccionData = dir;
+  }
+
   const flattenedClubData = {
     // Identidad
-    nombre: clubData?.nombre,
-    subdominio: clubData?.subdominio,
-    logo_url: clubData?.logo_url,
-    imagen_hero_url: clubData?.imagen_hero_url,
+    nombre: clubData?.nombre || "",
+    subdominio: clubData?.subdominio || "",
+    logo_url: clubData?.logo_url || null,
+    imagen_hero_url: clubData?.imagen_hero_url || null,
     color_primario: clubData?.color_primario || "#3b82f6",
     color_secundario: clubData?.color_secundario || "#1f2937",
     color_texto: clubData?.color_texto || "#ffffff",
 
-    // Textos Home
-    texto_bienvenida_titulo:
-      clubData?.texto_bienvenida_titulo || "EL MEJOR LUGAR PARA VIVIR EL PÁDEL",
-    texto_bienvenida_subtitulo:
-      clubData?.texto_bienvenida_subtitulo ||
-      "Reserva tu cancha y únete a la comunidad.",
-
-    // Marcas
+    // Home
+    texto_bienvenida_titulo: clubData?.texto_bienvenida_titulo || "",
+    texto_bienvenida_subtitulo: clubData?.texto_bienvenida_subtitulo || "",
     marcas: Array.isArray(clubData?.marcas) ? clubData!.marcas : [],
 
     // Contacto
-    activo_contacto_home: contactoData?.activo_contacto_home ?? false, // ✅ FIX
+    activo_contacto_home: contactoData?.activo_contacto_home ?? true,
     email: contactoData?.email || "",
     usuario_instagram: contactoData?.usuario_instagram || "",
-    telefono: contactoData?.telefono?.[0]?.numero || "",
-    calle: contactoData?.direccion?.[0]?.calle || "",
-    altura: contactoData?.direccion?.[0]?.altura_calle || "",
-    barrio: contactoData?.direccion?.[0]?.barrio || "",
+
+    // Dirección y Teléfono
+    telefono: telefonoData?.numero || "",
+    calle: direccionData?.calle || "",
+    // IMPORTANTE: Mapear 'altura_calle' de la DB a 'altura' del form
+    altura: direccionData?.altura_calle || "",
+    barrio: direccionData?.barrio || "",
   };
 
-  // 6. Pasamos AMBOS conjuntos de datos al formulario
-  return (
-    <ClubForm
-      initialData={flattenedClubData}
-      nosotrosInitialData={nosotrosData}
-      clubId={club.id_club}
-    />
-  );
+  return <ClubForm initialData={flattenedClubData} clubId={club.id_club} />;
 }
