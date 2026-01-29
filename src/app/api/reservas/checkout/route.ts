@@ -90,6 +90,28 @@ async function getRoleInfoInClub(
 
 type CheckoutFlow = "zero" | "mp";
 
+// ✅ helper: offset robusto (maneja fin==inicio como “medianoche” si hay duración)
+function computeFinDiaOffset(params: {
+  inicio: string;
+  fin: string;
+  duracion_min?: number;
+}): 0 | 1 {
+  const iniMin = toMin(params.inicio);
+  const finMin = toMin(params.fin);
+
+  // si algo raro, no asumimos cruce para no romper; los validadores de DB lo frenan igual
+  if (!Number.isFinite(iniMin) || !Number.isFinite(finMin)) return 0;
+
+  if (finMin > iniMin) return 0;
+  if (finMin < iniMin) return 1;
+
+  // finMin === iniMin:
+  // Si duración > 0, esto normalmente significa “termina al día siguiente” (ej 22:00 → 00:00 con 120).
+  // Si duración fuese 0 (caso inválido), no cruzamos.
+  const dur = Number(params.duracion_min ?? 0);
+  return dur > 0 ? 1 : 0;
+}
+
 export async function POST(req: Request) {
   try {
     const draft = readDraftFromCookie(req);
@@ -113,7 +135,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // 2) fin_dia_offset (si fin <= inicio, cruza medianoche)
+    // 2) fin_dia_offset ✅ (arreglado para fin=00:00 y fin==inicio)
     const iniMin = toMin(draft.inicio);
     const finMin = toMin(draft.fin);
 
@@ -121,7 +143,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Horario inválido en draft" }, { status: 400 });
     }
 
-    const fin_dia_offset: 0 | 1 = finMin <= iniMin ? 1 : 0;
+    const fin_dia_offset: 0 | 1 = computeFinDiaOffset({
+      inicio: draft.inicio,
+      fin: draft.fin,
+      duracion_min: draft.duracion_min,
+    });
 
     // 3) Recalcular precio server-side
     const calcRes = await fetch(new URL("/api/reservas/calcular-precio", req.url), {
