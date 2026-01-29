@@ -30,8 +30,7 @@ export default async function AdminLayout({
               cookieStore.set(name, value, options),
             );
           } catch {
-            // El layout es Server Component, no puede setear cookies a veces,
-            // pero el middleware ya se encargó de refrescar la sesión.
+            // El layout es Server Component, no puede setear cookies a veces
           }
         },
       },
@@ -48,7 +47,7 @@ export default async function AdminLayout({
   }
 
   // 3. Verificar ROL en Base de Datos (Seguridad Real)
-  // Buscamos si existe una relación en club_usuarios con el rol 'admin'
+  // Buscamos los roles del usuario
   const { data: rolesData } = await supabase
     .from("club_usuarios")
     .select(
@@ -58,10 +57,14 @@ export default async function AdminLayout({
     )
     .eq("id_usuario", user.id);
 
-  const isAdmin = rolesData?.some((r: any) => r.roles?.nombre === "admin");
+  // 🔴 CAMBIO AQUÍ: Validamos contra una lista de roles permitidos, no solo 'admin'
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const hasAccess = rolesData?.some((r: any) =>
+    ["admin", "cajero", "staff", "profe"].includes(r.roles?.nombre),
+  );
 
-  // 4. Si no es admin, lo expulsamos al Home
-  if (!isAdmin) {
+  // 4. Si no tiene ninguno de esos roles, lo expulsamos al Home
+  if (!hasAccess) {
     redirect("/");
   }
 

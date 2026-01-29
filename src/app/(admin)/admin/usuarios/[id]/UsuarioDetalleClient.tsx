@@ -19,10 +19,12 @@ import {
   Loader2,
   ShieldCheck,
   Clock,
+  Briefcase,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { createBrowserClient } from "@supabase/ssr";
 
-// --- TIPOS (Mismos de antes) ---
+// --- TIPOS ---
 type ReservaRaw = {
   id_reserva: number;
   fecha: string;
@@ -54,7 +56,7 @@ type UserProfile = {
   bloqueado?: boolean;
 };
 
-// --- COMPONENTES AUXILIARES (Iguales) ---
+// --- COMPONENTES AUXILIARES ---
 function InfoItem({ icon: Icon, label, value, isLink }: any) {
   return (
     <div className="flex items-start gap-3 p-3 rounded-xl bg-slate-50 border border-slate-100 hover:bg-slate-100 transition-colors">
@@ -129,6 +131,8 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+// --- COMPONENTE PRINCIPAL ---
+
 export default function UsuarioDetalleClient({
   clubId,
   idUsuario,
@@ -136,10 +140,21 @@ export default function UsuarioDetalleClient({
   clubId: number;
   idUsuario: string;
 }) {
+  // Inicializamos Supabase Client para verificar al usuario actual
+  const [supabase] = useState(() =>
+    createBrowserClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    ),
+  );
+
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [userData, setUserData] = useState<UserProfile | null>(null);
   const [togglingRole, setTogglingRole] = useState<string | null>(null);
+
+  // Estado para saber si el que mira la pantalla es ADMIN
+  const [viewerIsAdmin, setViewerIsAdmin] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -156,9 +171,29 @@ export default function UsuarioDetalleClient({
     }
   }
 
+  // Verificar los permisos de QUIEN ESTÁ VIENDO la página
   useEffect(() => {
+    const checkViewerPermissions = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // Buscamos si el usuario actual tiene rol de admin en este club
+      const { data: rolesData } = await supabase
+        .from("club_usuarios")
+        .select("roles!inner(nombre)")
+        .eq("id_usuario", user.id) // Usuario logueado
+        .eq("id_club", clubId);
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const isAdmin = rolesData?.some((r: any) => r.roles?.nombre === "admin");
+      setViewerIsAdmin(isAdmin || false);
+    };
+
+    checkViewerPermissions();
     load();
-  }, [idUsuario, clubId]);
+  }, [idUsuario, clubId, supabase]);
 
   const handleToggleRole = async (roleName: string) => {
     if (
@@ -188,7 +223,7 @@ export default function UsuarioDetalleClient({
     }
   };
 
-  // Stats Logic (Simplificada)
+  // Stats Logic
   const stats = useMemo(() => {
     if (!userData) return null;
     const total = userData.reservas.length;
@@ -205,7 +240,6 @@ export default function UsuarioDetalleClient({
         ? new Date(userData.reservas[0].fecha).toLocaleDateString("es-AR")
         : "-";
 
-    // Cancha Favorita
     const counts: Record<string, number> = {};
     userData.reservas.forEach((r) => {
       counts[r.canchas?.nombre || "Varios"] =
@@ -230,8 +264,10 @@ export default function UsuarioDetalleClient({
       <div className="p-8 text-center text-red-500">Usuario no encontrado</div>
     );
 
-  const esAdmin = userData.roles.includes("admin");
-  const esCajero = userData.roles.includes("cajero");
+  // Roles del perfil que estamos CONSULTANDO (el objetivo)
+  const targetEsAdmin = userData.roles.includes("admin");
+  const targetEsCajero = userData.roles.includes("cajero");
+
   const iniciales =
     `${userData.nombre.charAt(0)}${userData.apellido.charAt(0)}`.toUpperCase();
 
@@ -274,14 +310,14 @@ export default function UsuarioDetalleClient({
                   <div className="w-24 h-24 rounded-full border-4 border-white bg-white text-slate-800 flex items-center justify-center text-3xl font-bold shadow-md z-10">
                     {iniciales}
                   </div>
-                  {/* Badges de Roles Activos */}
+                  {/* Badges de Roles Activos (Estos SÍ se ven siempre para saber qué es el usuario) */}
                   <div className="mb-1 flex gap-1 flex-wrap justify-end">
-                    {esAdmin && (
+                    {targetEsAdmin && (
                       <span className="px-2 py-1 rounded text-[10px] font-bold uppercase bg-purple-100 text-purple-700 border border-purple-200">
                         ADMIN
                       </span>
                     )}
-                    {esCajero && (
+                    {targetEsCajero && (
                       <span className="px-2 py-1 rounded text-[10px] font-bold uppercase bg-emerald-100 text-emerald-700 border border-emerald-200">
                         CAJERO
                       </span>
@@ -325,55 +361,58 @@ export default function UsuarioDetalleClient({
                   </div>
                 </div>
 
-                {/* ZONA DE PELIGRO / GESTIÓN DE ROLES */}
-                <div className="mt-8 pt-6 border-t border-slate-100">
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-3">
-                    Permisos de Sistema
-                  </p>
-                  <div className="space-y-3">
-                    <button
-                      disabled={togglingRole === "cajero"}
-                      onClick={() => handleToggleRole("cajero")}
-                      className={`w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-all ${
-                        esCajero
-                          ? "border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
-                          : "border-slate-200 bg-white hover:border-emerald-300 hover:bg-emerald-50 text-slate-600 hover:text-emerald-700"
-                      }`}
-                    >
-                      <span className="flex items-center gap-2 font-semibold text-sm">
-                        <CreditCard size={16} /> Acceso Cajero
-                      </span>
-                      {togglingRole === "cajero" ? (
-                        <Loader2 size={16} className="animate-spin" />
-                      ) : (
-                        <span className="text-xs font-bold uppercase">
-                          {esCajero ? "Revocar" : "Otorgar"}
+                {/* ZONA RESTRINGIDA: Solo visible si viewerIsAdmin es true */}
+                {viewerIsAdmin && (
+                  <div className="mt-8 pt-6 border-t border-slate-100">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-3">
+                      <ShieldCheck size={12} className="inline mr-1" />
+                      Permisos de Sistema
+                    </p>
+                    <div className="space-y-3">
+                      <button
+                        disabled={togglingRole === "cajero"}
+                        onClick={() => handleToggleRole("cajero")}
+                        className={`w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-all ${
+                          targetEsCajero
+                            ? "border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
+                            : "border-slate-200 bg-white hover:border-emerald-300 hover:bg-emerald-50 text-slate-600 hover:text-emerald-700"
+                        }`}
+                      >
+                        <span className="flex items-center gap-2 font-semibold text-sm">
+                          <CreditCard size={16} /> Acceso Cajero
                         </span>
-                      )}
-                    </button>
+                        {togglingRole === "cajero" ? (
+                          <Loader2 size={16} className="animate-spin" />
+                        ) : (
+                          <span className="text-xs font-bold uppercase">
+                            {targetEsCajero ? "Revocar" : "Otorgar"}
+                          </span>
+                        )}
+                      </button>
 
-                    <button
-                      disabled={togglingRole === "admin"}
-                      onClick={() => handleToggleRole("admin")}
-                      className={`w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-all ${
-                        esAdmin
-                          ? "border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
-                          : "border-slate-200 bg-white hover:border-purple-300 hover:bg-purple-50 text-slate-600 hover:text-purple-700"
-                      }`}
-                    >
-                      <span className="flex items-center gap-2 font-semibold text-sm">
-                        <ShieldCheck size={16} /> Acceso Administrador
-                      </span>
-                      {togglingRole === "admin" ? (
-                        <Loader2 size={16} className="animate-spin" />
-                      ) : (
-                        <span className="text-xs font-bold uppercase">
-                          {esAdmin ? "Revocar" : "Otorgar"}
+                      <button
+                        disabled={togglingRole === "admin"}
+                        onClick={() => handleToggleRole("admin")}
+                        className={`w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-all ${
+                          targetEsAdmin
+                            ? "border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
+                            : "border-slate-200 bg-white hover:border-purple-300 hover:bg-purple-50 text-slate-600 hover:text-purple-700"
+                        }`}
+                      >
+                        <span className="flex items-center gap-2 font-semibold text-sm">
+                          <ShieldCheck size={16} /> Acceso Administrador
                         </span>
-                      )}
-                    </button>
+                        {togglingRole === "admin" ? (
+                          <Loader2 size={16} className="animate-spin" />
+                        ) : (
+                          <span className="text-xs font-bold uppercase">
+                            {targetEsAdmin ? "Revocar" : "Otorgar"}
+                          </span>
+                        )}
+                      </button>
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
             </div>
           </div>
