@@ -15,6 +15,7 @@ import {
   User as UserIcon,
   Loader2,
   LayoutDashboard,
+  CalendarDays, // Icono para Mis Reservas
 } from "lucide-react";
 
 interface NavbarProps {
@@ -302,6 +303,21 @@ const Navbar = ({
                     </Link>
                   )}
 
+                  {/* NUEVO: ENLACE A MIS RESERVAS */}
+                  <Link
+                    href="/mis-reservas"
+                    onClick={() => handleNavClick("/mis-reservas")}
+                    className="group flex flex-col items-end cursor-pointer"
+                    title="Ver mis reservas"
+                  >
+                    <span className="text-neutral-200 text-sm font-semibold whitespace-nowrap group-hover:text-blue-400 transition-colors">
+                      Mis Turnos
+                    </span>
+                    <span className="text-[10px] text-neutral-500 uppercase tracking-wider font-bold">
+                      Historial
+                    </span>
+                  </Link>
+
                   <Link
                     href="/perfil"
                     onClick={() => handleNavClick("/perfil")}
@@ -316,7 +332,7 @@ const Navbar = ({
                           : "Mi Cuenta"}
                     </span>
                     <span className="text-[10px] text-neutral-500 uppercase tracking-wider font-bold">
-                      Mi Cuenta
+                      Mi Perfil
                     </span>
                   </Link>
                   <button
@@ -420,6 +436,15 @@ const Navbar = ({
                       <LayoutDashboard size={20} /> <span>PANEL ADMIN</span>
                     </Link>
                   )}
+
+                  {/* ENLACE MÓVIL A MIS RESERVAS */}
+                  <Link
+                    href="/mis-reservas"
+                    onClick={() => handleNavClick("/mis-reservas")}
+                    className="flex items-center gap-3 text-neutral-300 text-lg hover:text-blue-400 font-semibold"
+                  >
+                    <CalendarDays size={24} /> <span>Mis Reservas</span>
+                  </Link>
 
                   <Link
                     href="/perfil"

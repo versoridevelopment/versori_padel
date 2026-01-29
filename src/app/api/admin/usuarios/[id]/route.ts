@@ -36,16 +36,20 @@ export async function GET(
     }
 
     // 2) Obtener Roles en este Club
+    // Solo nos interesa saber qué roles tiene asignados en la tabla club_usuarios
     const { data: rolesData } = await supabaseAdmin
       .from("club_usuarios")
       .select(`roles ( nombre )`)
       .eq("id_usuario", id)
       .eq("id_club", clubId);
 
+    // Mapeamos los nombres de los roles (ej: ["admin", "cajero", "cliente"])
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const roles =
       rolesData?.map((r: any) => r.roles?.nombre).filter(Boolean) || [];
 
     // 3) Obtener Historial de Reservas COMPLETO (Incluso canceladas)
+    // Esto sirve para calcular las estadísticas en el frontend
     const { data: reservas, error: reservasError } = await supabaseAdmin
       .from("reservas")
       .select(
@@ -70,9 +74,14 @@ export async function GET(
       .eq("id_club", clubId)
       .order("fecha", { ascending: false });
 
+    if (reservasError) {
+      console.error("Error obteniendo reservas:", reservasError);
+      // No bloqueamos la respuesta si fallan las reservas, devolvemos array vacío
+    }
+
     return NextResponse.json({
       ...profile,
-      roles,
+      roles, // El frontend recibirá ["admin", "cajero", ...] y decidirá qué botones activar
       reservas: reservas || [],
     });
   } catch (error: any) {
