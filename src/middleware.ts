@@ -2,39 +2,61 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
 export async function middleware(req: NextRequest) {
-  // Siempre partimos de NextResponse.next()
   const res = NextResponse.next();
 
-  // Supabase SSR client en middleware (cookies read/write)
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        // Leer cookies desde el request
         getAll() {
           return req.cookies.getAll();
         },
-        // Escribir cookies en la response
         setAll(cookiesToSet) {
           cookiesToSet.forEach(({ name, value, options }) => {
             res.cookies.set(name, value, options);
           });
         },
       },
-    }
+    },
   );
 
-  // Refresca sesión (si hace falta, setea cookies actualizadas)
-  // En middleware conviene getUser() o getSession(); getUser() fuerza validación.
-  await supabase.auth.getUser();
+  // Verificar autenticación
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
-  // --- TU LÓGICA DE BLOQUEO (igual que antes) ---
+  const url = req.nextUrl;
+
+  // --- PROTECCIÓN RUTAS ADMIN ---
+  if (url.pathname.startsWith("/admin")) {
+    // 1. Si no hay usuario, login
+    if (!user) {
+      const redirectUrl = url.clone();
+      redirectUrl.pathname = "/login";
+      return NextResponse.redirect(redirectUrl);
+    }
+
+    // 2. Si hay usuario, verificar Rol en BD
+    const { data: rolesData } = await supabase
+      .from("club_usuarios")
+      .select("roles!inner(nombre)")
+      .eq("id_usuario", user.id);
+
+    const isAdmin = rolesData?.some((r: any) => r.roles?.nombre === "admin");
+
+    if (!isAdmin) {
+      const redirectUrl = url.clone();
+      redirectUrl.pathname = "/"; // Expulsar al home
+      return NextResponse.redirect(redirectUrl);
+    }
+  }
+
+  // --- LOGICA DE RECUPERACIÓN (Mantenida) ---
   const recoveryCookie = req.cookies.get("recovery_pending")?.value;
-
   if (recoveryCookie === "true") {
-    if (!req.nextUrl.pathname.startsWith("/reset-password")) {
-      const redirectUrl = req.nextUrl.clone();
+    if (!url.pathname.startsWith("/reset-password")) {
+      const redirectUrl = url.clone();
       redirectUrl.pathname = "/reset-password";
       return NextResponse.redirect(redirectUrl);
     }
@@ -45,6 +67,6 @@ export async function middleware(req: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|auth|videos|sponsors|.*\\.(?:svg|png|jpg|jpeg|gif|webp|mp4)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|auth|api|videos|sponsors|.*\\.(?:svg|png|jpg|jpeg|gif|webp|mp4)$).*)",
   ],
 };

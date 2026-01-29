@@ -1,17 +1,27 @@
 "use client";
 
 import { useState, useEffect, FormEvent, FC } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation"; // Agregado useSearchParams
 import Link from "next/link";
 import Image from "next/image";
 import { motion } from "framer-motion";
+import { createBrowserClient } from "@supabase/ssr"; // 👈 IMPORTANTE
 import { getSubdomainFromHost } from "@/lib/ObetenerClubUtils/tenantUtils";
 import { getClubBySubdomain } from "@/lib/ObetenerClubUtils/getClubBySubdomain";
+import { Loader2 } from "lucide-react";
 
 type MessageType = "success" | "error" | "info" | null;
 
 const LoginPage: FC = () => {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const next = searchParams.get("next") || "/"; // Redirección inteligente
+
+  // Instancia de Supabase para el cliente
+  const supabase = createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+  );
 
   const [email, setEmail] = useState<string>("");
   const [password, setPassword] = useState<string>("");
@@ -23,7 +33,7 @@ const LoginPage: FC = () => {
 
   // Multi-tenant
   const [clubId, setClubId] = useState<number | null>(null);
-  const [clubLogo, setClubLogo] = useState<string | null>(null); // Estado para el logo dinámico
+  const [clubLogo, setClubLogo] = useState<string | null>(null);
   const [subdomain, setSubdomain] = useState<string | null>(null);
   const [clubLoading, setClubLoading] = useState<boolean>(true);
 
@@ -37,21 +47,16 @@ const LoginPage: FC = () => {
         setSubdomain(sub);
 
         if (!sub) {
-          console.error(
-            "[Login] No se pudo detectar subdominio desde host:",
-            host,
-          );
-          setMessage("No se pudo detectar el club.");
-          setMessageType("error");
+          console.error("[Login] No se pudo detectar subdominio");
+          // Opcional: setMessage("Estás en el dominio principal.");
           return;
         }
 
         const club = await getClubBySubdomain(sub);
         if (club) {
           setClubId(club.id_club);
-          setClubLogo(club.logo_url); // Guardamos el logo del club
+          setClubLogo(club.logo_url);
         } else {
-          console.error("[Login] No se encontró club para subdominio:", sub);
           setMessage("Club no encontrado para este subdominio.");
           setMessageType("error");
         }
@@ -102,70 +107,53 @@ const LoginPage: FC = () => {
     if (!validateForm()) return;
 
     if (!clubId) {
-      setMessage("No se reconoce el club actual.");
-      setMessageType("error");
-      return;
+      // Si no hay clubId, quizás es un login genérico o error de carga
+      // setMessage("No se reconoce el club actual.");
+      // setMessageType("error");
+      // return;
     }
 
     setIsLoading(true);
 
     try {
-      // 1) Login SSR
-      const signInRes = await fetch("/api/auth/sign-in", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        cache: "no-store",
-        body: JSON.stringify({ email: email.trim(), password }),
+      // 1. Login Directo con Supabase (Establece cookie en navegador)
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
       });
 
-      const signInJson = await signInRes.json().catch(() => null);
-
-      if (!signInRes.ok) {
-        setMessage(signInJson?.error || "Usuario o contraseña incorrectos.");
-        setMessageType("error");
-        setIsLoading(false);
-        return;
+      if (error) {
+        throw error;
       }
 
-      // 2) Obtener userId
-      const meRes = await fetch("/api/auth/me", { cache: "no-store" });
-      const meJson = await meRes.json().catch(() => null);
-
-      if (!meRes.ok || !meJson?.user?.id) {
-        setMessage("No se pudo validar la sesión. Reintentá.");
-        setMessageType("error");
-        setIsLoading(false);
-        return;
+      if (!data.user) {
+        throw new Error("No se pudo obtener el usuario.");
       }
 
-      const userId = String(meJson.user.id);
-
-      // 3) Crear / asegurar membresía
-      const response = await fetch("/api/memberships/add", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        cache: "no-store",
-        body: JSON.stringify({ clubId, userId }),
-      });
-
-      const result = await response.json().catch(() => null);
-
-      if (!response.ok || !result?.success) {
-        setMessage(
-          "No se pudo asociar tu cuenta a este club. Intentá nuevamente.",
-        );
-        setMessageType("error");
-        setIsLoading(false);
-        return;
+      // 2. Asociar al Club (Lógica de negocio existente)
+      if (clubId) {
+        try {
+          await fetch("/api/memberships/add", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ clubId, userId: data.user.id }),
+          });
+        } catch (memErr) {
+          console.warn(
+            "Error asociando membresía, continuando login...",
+            memErr,
+          );
+          // No bloqueamos el login si falla esto, pero logueamos
+        }
       }
 
-      // 4) OK
-      setIsLoading(false);
-      router.push("/");
+      // 3. ACTUALIZAR ROUTER Y REDIRIGIR
+      // router.refresh() es CRUCIAL para que el middleware/navbar vean la nueva cookie
       router.refresh();
-    } catch (err) {
-      console.error("[Login] Error:", err);
-      setMessage("Ocurrió un error iniciando sesión.");
+      router.push(next);
+    } catch (err: any) {
+      console.error("[Login] Error:", err.message);
+      setMessage("Usuario o contraseña incorrectos.");
       setMessageType("error");
       setIsLoading(false);
     }
@@ -173,18 +161,23 @@ const LoginPage: FC = () => {
 
   const handleGoogleLogin = async () => {
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? window.location.origin;
-    const { supabase } = await import("../../../lib/supabase/supabaseClient");
 
+    // Usamos la instancia local, no import dinámico
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${siteUrl}/auth/callback${subdomain ? `?sub=${encodeURIComponent(subdomain)}` : ""}`,
+        // Redirige al callback que arreglamos antes
+        redirectTo: `${siteUrl}/auth/callback${next ? `?next=${encodeURIComponent(next)}` : ""}`,
+        queryParams: {
+          access_type: "offline",
+          prompt: "consent",
+        },
       },
     });
 
     if (error) {
-      console.error("Error al iniciar sesión con Google:", error.message);
-      setMessage("Hubo un problema al intentar iniciar sesión con Google.");
+      console.error("Error Google Login:", error.message);
+      setMessage("Error al iniciar con Google.");
       setMessageType("error");
     }
   };
@@ -192,7 +185,7 @@ const LoginPage: FC = () => {
   if (clubLoading) {
     return (
       <section className="min-h-screen flex items-center justify-center bg-gradient-to-b from-[#001a33] to-[#002b5b] text-white px-6">
-        <p>Cargando...</p>
+        <Loader2 className="w-10 h-10 animate-spin text-blue-500" />
       </section>
     );
   }
@@ -217,7 +210,6 @@ const LoginPage: FC = () => {
             />
           </div>
         ) : (
-          // Fallback por si no hay logo (o usas el de Versori por defecto)
           <div className="w-20 h-20 mx-auto mb-6 bg-white/10 rounded-full flex items-center justify-center font-bold text-2xl">
             C
           </div>
@@ -254,7 +246,6 @@ const LoginPage: FC = () => {
             <input
               id="email"
               type="email"
-              title="Correo electrónico"
               placeholder="ejemplo@gmail.com"
               value={email}
               onChange={(e) => {
@@ -280,7 +271,6 @@ const LoginPage: FC = () => {
             <input
               id="password"
               type="password"
-              title="Contraseña"
               placeholder="••••••••"
               value={password}
               onChange={(e) => {
@@ -299,8 +289,9 @@ const LoginPage: FC = () => {
           <button
             type="submit"
             disabled={isLoading}
-            className="mt-4 bg-blue-600 hover:bg-blue-700 transition-all py-3 rounded-xl font-semibold disabled:bg-blue-800 disabled:opacity-60"
+            className="mt-4 bg-blue-600 hover:bg-blue-700 transition-all py-3 rounded-xl font-semibold disabled:bg-blue-800 disabled:opacity-60 flex items-center justify-center gap-2"
           >
+            {isLoading && <Loader2 className="w-4 h-4 animate-spin" />}
             {isLoading ? "Iniciando..." : "Iniciar sesión"}
           </button>
         </form>
@@ -322,6 +313,7 @@ const LoginPage: FC = () => {
           </Link>
         </p>
 
+        {/*   BOTON DE GOOGLE FUERA DE SERVICIO POR EL MOMENTO
         <div className="mt-8">
           <div className="flex items-center gap-2 justify-center text-gray-400 text-sm mb-4">
             <span className="w-10 h-px bg-gray-600"></span>o
@@ -341,6 +333,8 @@ const LoginPage: FC = () => {
             Iniciar sesión con Google
           </button>
         </div>
+
+            */}
       </motion.div>
     </section>
   );

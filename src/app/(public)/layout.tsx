@@ -6,13 +6,17 @@ import { Montserrat } from "next/font/google";
 import { Metadata } from "next";
 import { supabase } from "@/lib/supabase/supabaseClient";
 
+// --- IMPORTACIONES NUEVAS PARA AUTH ---
+import { createServerClient } from "@supabase/ssr";
+import { cookies } from "next/headers";
+
 const montserrat = Montserrat({
   subsets: ["latin"],
   weight: ["300", "400", "500", "600", "700", "800", "900"],
   display: "swap",
 });
 
-// --- GENERACIÓN DE METADATOS (FAVICON DINÁMICO) ---
+// --- GENERACIÓN DE METADATOS ---
 export async function generateMetadata(): Promise<Metadata> {
   const club = await getCurrentClub();
   const timestamp = new Date().getTime();
@@ -37,6 +41,30 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
+  // 1. OBTENER SESIÓN DE USUARIO (SSR)
+  // Esto es vital para pasarlo al Navbar y evitar el error de hidratación
+  const cookieStore = await cookies();
+
+  const supabaseAuth = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll();
+        },
+        setAll(cookiesToSet) {
+          // El layout no puede establecer cookies, pero necesitamos leerlas
+        },
+      },
+    },
+  );
+
+  const {
+    data: { user },
+  } = await supabaseAuth.auth.getUser();
+
+  // 2. OBTENER DATOS DEL CLUB
   const club = await getCurrentClub();
 
   let tieneQuincho = false;
@@ -70,10 +98,6 @@ export default async function RootLayout({
   return (
     <html lang="es">
       <body
-        // CAMBIOS AQUÍ:
-        // 1. flex flex-col: Estructura vertical flexible (Footer siempre abajo).
-        // 2. overflow-x-hidden: Evita scroll lateral accidental en móviles.
-        // 3. antialiased: Suaviza las fuentes en pantallas retina/móviles.
         className={`relative min-h-screen flex flex-col overflow-x-hidden antialiased text-white bg-black ${montserrat.className}`}
       >
         {/* Fondo Gradiente Global */}
@@ -84,9 +108,9 @@ export default async function RootLayout({
           tieneQuincho={tieneQuincho}
           showNosotros={showNosotros}
           showProfesores={showProfesores}
+          initialUser={user} // 👈 ¡ESTA ES LA CLAVE! Pasamos el usuario al cliente
         />
 
-        {/* CAMBIO AQUÍ: w-full asegura que ocupe todo el ancho disponible sin desbordar */}
         <main className="flex-grow w-full relative">{children}</main>
 
         <Footer />
