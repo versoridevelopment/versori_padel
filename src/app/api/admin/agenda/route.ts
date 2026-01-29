@@ -4,6 +4,7 @@ import { getSupabaseServerClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
+// --- TIPOS ---
 type CanchaRow = {
   id_cancha: number;
   id_club: number;
@@ -14,42 +15,7 @@ type CanchaRow = {
   imagen_url: string | null;
   es_exterior: boolean | null;
   activa: boolean | null;
-};
-
-type ReservaRow = {
-  id_reserva: number;
-  id_club: number;
-  id_cancha: number;
-  id_usuario: string | null;
-
-  fecha: string;
-  inicio: string;
-  fin: string;
-  fin_dia_offset: number;
-
-  estado: string;
-  precio_total: number;
-  monto_anticipo: number | null;
-
-  segmento: string | null;
-  tipo_turno: string | null;
-  notas: string | null;
-
-  cliente_nombre: string | null;
-  cliente_telefono: string | null;
-  cliente_email: string | null;
-
-  inicio_ts: string;
-  fin_ts: string;
-  created_at: string;
-};
-
-type ProfileRow = {
-  id_usuario: string;
-  nombre: string | null;
-  apellido: string | null;
-  telefono: string | null;
-  email: string | null;
+  theme?: string; // Para el frontend
 };
 
 type ReglaRow = {
@@ -60,6 +26,7 @@ type ReglaRow = {
   dow: number | null;
 };
 
+// --- HELPERS ---
 function arDateISO(date: Date) {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/Argentina/Buenos_Aires",
@@ -71,15 +38,6 @@ function arDateISO(date: Date) {
 
 function arMidnightISO(dateISO: string) {
   return `${dateISO}T00:00:00-03:00`;
-}
-
-function addDaysISO(dateISO: string, add: number) {
-  const [y, m, d] = dateISO.split("-").map(Number);
-  const dt = new Date(y, m - 1, d + add);
-  const yy = dt.getFullYear();
-  const mm = String(dt.getMonth() + 1).padStart(2, "0");
-  const dd = String(dt.getDate()).padStart(2, "0");
-  return `${yy}-${mm}-${dd}`;
 }
 
 function toMin(hhmmss: string) {
@@ -110,35 +68,19 @@ function pickThemeByIndex(idx: number) {
 
 function parseHost(req: Request) {
   const raw = (req.headers.get("x-forwarded-host") || req.headers.get("host") || "").toLowerCase();
-  const hostNoPort = raw.split(":")[0];
-  return hostNoPort;
+  return raw.split(":")[0];
 }
 
-/**
- * Resuelve subdominio en:
- * - ferpadel.localhost
- * - ferpadel.127.0.0.1.nip.io (si usás)
- * - ferpadel.tudominio.com
- */
 function getSubdomain(hostNoPort: string) {
   const parts = hostNoPort.split(".").filter(Boolean);
   if (parts.length < 2) return null;
-
-  // localhost: ferpadel.localhost
-  if (parts[parts.length - 1] === "localhost") {
-    return parts.length >= 2 ? parts[0] : null;
-  }
-
-  // dominio normal: ferpadel.versori.com
+  if (parts[parts.length - 1] === "localhost") return parts[0] ?? null;
   if (parts.length >= 3) return parts[0];
-
   return null;
 }
 
 async function resolveClubIdBySubdomain(sub: string): Promise<number | null> {
   if (!sub || sub === "www") return null;
-
-  // ⚠️ Ajustá si tu columna no se llama "subdominio"
   const { data, error } = await supabaseAdmin
     .from("clubes")
     .select("id_club")
@@ -154,7 +96,6 @@ async function resolveClubIdBySubdomain(sub: string): Promise<number | null> {
 
 async function assertAdminOrStaff(params: { id_club: number; userId: string }) {
   const { id_club, userId } = params;
-
   const { data, error } = await supabaseAdmin
     .from("club_usuarios")
     .select("id_usuario, id_club, roles!inner(nombre)")
@@ -168,6 +109,13 @@ async function assertAdminOrStaff(params: { id_club: number; userId: string }) {
   return { ok: true as const };
 }
 
+function parseTsAR(ts: string) {
+  const s = String(ts || "");
+  if (/[zZ]$/.test(s) || /[+\-]\d{2}:\d{2}$/.test(s)) return new Date(s).getTime();
+  return new Date(`${s}-03:00`).getTime();
+}
+
+// --- MAIN HANDLER ---
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
@@ -177,36 +125,28 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "fecha inválida (YYYY-MM-DD)" }, { status: 400 });
     }
 
-    // 1) intentar por subdominio (incluye localhost)
+    // 1. Resolver Club
     const hostNoPort = parseHost(req);
     const sub = getSubdomain(hostNoPort);
     const clubFromSub = sub ? await resolveClubIdBySubdomain(sub) : null;
-
-    // 2) fallback a query param (dev / casos especiales)
     const idClubFromQuery = Number(searchParams.get("id_club"));
-    const id_club =
-      clubFromSub ??
-      (Number.isFinite(idClubFromQuery) && idClubFromQuery > 0 ? idClubFromQuery : null);
+    const id_club = clubFromSub ?? (Number.isFinite(idClubFromQuery) && idClubFromQuery > 0 ? idClubFromQuery : null);
 
     if (!id_club) {
-      return NextResponse.json(
-        { error: "No se pudo resolver el club (falta id_club o subdominio inválido)" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "No se pudo resolver el club" }, { status: 400 });
     }
 
-    // Auth
+    // 2. Auth
     const supabase = await getSupabaseServerClient();
     const { data: authRes, error: aErr } = await supabase.auth.getUser();
-    if (aErr) return NextResponse.json({ error: "No se pudo validar la sesión" }, { status: 401 });
-    const userId = authRes?.user?.id ?? null;
-    if (!userId) return NextResponse.json({ error: "LOGIN_REQUERIDO" }, { status: 401 });
+    if (aErr || !authRes?.user?.id) return NextResponse.json({ error: "LOGIN_REQUERIDO" }, { status: 401 });
+    const userId = authRes.user.id;
 
-    // Permisos
+    // 3. Permisos
     const perm = await assertAdminOrStaff({ id_club, userId });
     if (!perm.ok) return NextResponse.json({ error: perm.error }, { status: perm.status });
 
-    // Canchas (filtrado OK)
+    // 4. Canchas
     const { data: canchasRaw, error: cErr } = await supabaseAdmin
       .from("canchas")
       .select("id_cancha,id_club,id_tipo_cancha,id_tarifario,nombre,descripcion,imagen_url,es_exterior,activa")
@@ -215,191 +155,126 @@ export async function GET(req: Request) {
       .order("id_cancha", { ascending: true })
       .returns<CanchaRow[]>();
 
-    if (cErr) return NextResponse.json({ error: `Error leyendo canchas: ${cErr.message}` }, { status: 500 });
-
+    if (cErr) return NextResponse.json({ error: cErr.message }, { status: 500 });
     const canchas = canchasRaw || [];
 
-    // Defaults
-    const { data: defaultsRaw, error: dErr } = await supabaseAdmin
+    // 5. Lógica de Horarios (Start/End Hour)
+    // ... (Tu lógica original de tarifarios defaults y reglas se mantiene igual para calcular minStart/maxEnd)
+    const { data: defaultsRaw } = await supabaseAdmin
       .from("club_tarifarios_default")
       .select("id_tipo_cancha,id_tarifario")
       .eq("id_club", id_club);
-
-    if (dErr) return NextResponse.json({ error: `Error leyendo tarifarios default: ${dErr.message}` }, { status: 500 });
-
+    
     const defaultMap = new Map<number, number>();
-    for (const row of defaultsRaw || []) {
-      const t = Number((row as any).id_tipo_cancha);
-      const tf = Number((row as any).id_tarifario);
-      if (Number.isFinite(t) && Number.isFinite(tf)) defaultMap.set(t, tf);
-    }
+    (defaultsRaw || []).forEach((row: any) => defaultMap.set(row.id_tipo_cancha, row.id_tarifario));
 
     const canchaTarifario = new Map<number, number>();
     const tarifariosSet = new Set<number>();
+    canchas.forEach((c) => {
+        const t = c.id_tarifario ?? (c.id_tipo_cancha ? defaultMap.get(c.id_tipo_cancha) : null);
+        if (t) { canchaTarifario.set(c.id_cancha, t); tarifariosSet.add(t); }
+    });
 
-    for (const c of canchas) {
-      const direct = c.id_tarifario != null ? Number(c.id_tarifario) : null;
-      const fromDefault =
-        direct == null && c.id_tipo_cancha != null ? defaultMap.get(Number(c.id_tipo_cancha)) ?? null : null;
-
-      const eff = direct ?? fromDefault;
-      if (eff != null && Number.isFinite(eff)) {
-        canchaTarifario.set(c.id_cancha, eff);
-        tarifariosSet.add(eff);
-      }
-    }
-
-    // Rango horario dinámico
-    const dow = weekday0Sun(fecha);
+    // Default hours
     let minStart = 8 * 60;
     let maxEnd = 26 * 60;
 
     if (tarifariosSet.size > 0) {
-      const tarifarios = Array.from(tarifariosSet.values());
-      const { data: reglasRaw, error: rErr } = await supabaseAdmin
-        .from("canchas_tarifas_reglas")
-        .select("id_tarifario,hora_desde,hora_hasta,cruza_medianoche,dow,activo,segmento,vigente_desde,vigente_hasta")
-        .in("id_tarifario", tarifarios)
-        .eq("activo", true)
-        .eq("segmento", "publico")
-        .or(`dow.is.null,dow.eq.${dow}`)
-        .lte("vigente_desde", fecha)
-        .or(`vigente_hasta.is.null,vigente_hasta.gte.${fecha}`);
-
-      if (rErr) return NextResponse.json({ error: `Error leyendo reglas: ${rErr.message}` }, { status: 500 });
-
-      const reglas = (reglasRaw || []) as ReglaRow[];
-
-      if (reglas.length > 0) {
-        let localMin = Number.POSITIVE_INFINITY;
-        let localMax = 0;
-
-        for (const rr of reglas) {
-          const from = toMin(rr.hora_desde);
-          const toBase = toMin(rr.hora_hasta);
-          const crosses = !!rr.cruza_medianoche || toBase <= from;
-          const to = crosses ? toBase + 1440 : toBase;
-
-          if (Number.isFinite(from)) localMin = Math.min(localMin, from);
-          if (Number.isFinite(to)) localMax = Math.max(localMax, to);
+        const dow = weekday0Sun(fecha);
+        const { data: reglas } = await supabaseAdmin
+             .from("canchas_tarifas_reglas")
+             .select("hora_desde,hora_hasta,cruza_medianoche,dow,vigente_desde,vigente_hasta")
+             .in("id_tarifario", Array.from(tarifariosSet))
+             .eq("activo", true)
+             .eq("segmento", "publico")
+             .or(`dow.is.null,dow.eq.${dow}`)
+             .lte("vigente_desde", fecha)
+             .or(`vigente_hasta.is.null,vigente_hasta.gte.${fecha}`);
+        
+        if (reglas && reglas.length > 0) {
+            let localMin = Infinity, localMax = 0;
+            reglas.forEach((r: any) => {
+                const s = toMin(r.hora_desde);
+                const eBase = toMin(r.hora_hasta);
+                const e = (r.cruza_medianoche || eBase <= s) ? eBase + 1440 : eBase;
+                localMin = Math.min(localMin, s);
+                localMax = Math.max(localMax, e);
+            });
+            if (localMin !== Infinity) minStart = roundDownToHalfHour(localMin);
+            if (localMax > 0) maxEnd = roundUpToHalfHour(localMax);
+            if (maxEnd <= minStart) { minStart = 8 * 60; maxEnd = 26 * 60; }
         }
-
-        if (Number.isFinite(localMin) && localMin !== Number.POSITIVE_INFINITY) minStart = localMin;
-        if (Number.isFinite(localMax) && localMax > 0) maxEnd = localMax;
-
-        minStart = roundDownToHalfHour(minStart);
-        maxEnd = roundUpToHalfHour(maxEnd);
-
-        if (maxEnd <= minStart) {
-          minStart = 8 * 60;
-          maxEnd = 26 * 60;
-        }
-      }
     }
 
     const startHour = minToHourDecimal(minStart);
     const endHour = minToHourDecimal(maxEnd);
 
-    // Reservas
-    const windowStart = new Date(arMidnightISO(fecha)).toISOString();
-    const windowEnd = new Date(arMidnightISO(addDaysISO(fecha, 2))).toISOString();
+    // 6. Fetch Reservas OPTIMIZADO
+    const dayStartMs = new Date(arMidnightISO(fecha)).getTime();
+    const windowStartMs = dayStartMs; 
+    const windowEndMs = dayStartMs + maxEnd * 60_000;
+    const windowStartISO = new Date(windowStartMs).toISOString();
+    const windowEndISO = new Date(windowEndMs).toISOString();
 
     const { data: reservasRaw, error: resErr } = await supabaseAdmin
       .from("reservas")
-      .select(
-        [
-          "id_reserva",
-          "id_club",
-          "id_cancha",
-          "id_usuario",
-          "fecha",
-          "inicio",
-          "fin",
-          "fin_dia_offset",
-          "estado",
-          "precio_total",
-          "monto_anticipo",
-          "segmento",
-          "tipo_turno",
-          "notas",
-          "cliente_nombre",
-          "cliente_telefono",
-          "cliente_email",
-          "inicio_ts",
-          "fin_ts",
-          "created_at",
-        ].join(",")
-      )
+      .select(`
+        id_reserva, id_club, id_cancha, id_usuario, 
+        fecha, inicio, fin, fin_dia_offset, estado, 
+        precio_total, monto_anticipo, segmento, tipo_turno,
+        cliente_nombre, 
+        inicio_ts, fin_ts,
+        reservas_pagos ( amount, status )
+      `) // ⚡ JOIN LIGERO para calcular saldo
       .eq("id_club", id_club)
       .in("estado", ["confirmada", "pendiente_pago"])
-      .lt("inicio_ts", windowEnd)
-      .gt("fin_ts", windowStart)
-      .order("inicio_ts", { ascending: true })
-      .returns<ReservaRow[]>();
+      .lt("inicio_ts", windowEndISO)
+      .gt("fin_ts", windowStartISO)
+      .order("inicio_ts", { ascending: true });
 
-    if (resErr) return NextResponse.json({ error: `Error leyendo reservas: ${resErr.message}` }, { status: 500 });
+    if (resErr) throw new Error(resErr.message);
 
-    const reservas = reservasRaw || [];
+    // Filtrar por parseTsAR (seguridad zona horaria)
+    const reservasValidas = (reservasRaw || []).filter((r: any) => {
+      const s = parseTsAR(r.inicio_ts);
+      const e = parseTsAR(r.fin_ts);
+      if (!Number.isFinite(s) || !Number.isFinite(e) || e <= s) return false;
+      return s < windowEndMs && windowStartMs < e;
+    });
 
-    // Profiles
-    const userIds = Array.from(new Set(reservas.map((r) => r.id_usuario).filter(Boolean) as string[]));
-    const profilesMap = new Map<string, ProfileRow>();
-
+    // 7. Profiles LITE (Solo nombres)
+    const userIds = Array.from(new Set(reservasValidas.map((r: any) => r.id_usuario).filter(Boolean)));
+    const profilesMap = new Map();
     if (userIds.length > 0) {
-      const { data: profRaw, error: pErr } = await supabaseAdmin
-        .from("profiles")
-        .select("id_usuario,nombre,apellido,telefono,email")
-        .in("id_usuario", userIds)
-        .returns<ProfileRow[]>();
-
-      if (pErr) return NextResponse.json({ error: `Error leyendo profiles: ${pErr.message}` }, { status: 500 });
-
-      for (const p of profRaw || []) profilesMap.set(p.id_usuario, p);
+        const { data: profs } = await supabaseAdmin
+            .from("profiles")
+            .select("id_usuario, nombre, apellido") // Solo lo necesario
+            .in("id_usuario", userIds);
+        profs?.forEach((p: any) => profilesMap.set(p.id_usuario, p));
     }
 
-    // Pagos approved
-    const reservaIds = reservas.map((r) => Number(r.id_reserva)).filter((n) => Number.isFinite(n));
-    const paidMap = new Map<number, number>();
-
-    if (reservaIds.length > 0) {
-      const { data: pagosRaw, error: payErr } = await supabaseAdmin
-        .from("reservas_pagos")
-        .select("id_reserva,status,amount")
-        .in("id_reserva", reservaIds)
-        .eq("status", "approved");
-
-      if (payErr) return NextResponse.json({ error: `Error leyendo pagos: ${payErr.message}` }, { status: 500 });
-
-      for (const row of pagosRaw || []) {
-        const rid = Number((row as any).id_reserva);
-        const amt = Number((row as any).amount || 0);
-        if (!Number.isFinite(rid) || !Number.isFinite(amt)) continue;
-        paidMap.set(rid, (paidMap.get(rid) || 0) + amt);
-      }
-    }
-
-    // Output
+    // 8. Output Mapping
     const canchasOut = canchas.map((c, idx) => ({
-      id_cancha: c.id_cancha,
-      nombre: c.nombre,
-      descripcion: c.descripcion,
-      imagen_url: c.imagen_url,
+      ...c,
       es_exterior: !!c.es_exterior,
       theme: pickThemeByIndex(idx),
       id_tarifario: canchaTarifario.get(c.id_cancha) ?? null,
     }));
 
-    const reservasOut = reservas.map((r) => {
+    const reservasOut = reservasValidas.map((r: any) => {
+      // Nombre
       const prof = r.id_usuario ? profilesMap.get(r.id_usuario) : null;
-      const nombreFromProfile = prof ? [prof.nombre, prof.apellido].filter(Boolean).join(" ").trim() : "";
+      const nombreProfile = prof ? [prof.nombre, prof.apellido].filter(Boolean).join(" ") : "";
+      const cliente_nombre = (r.cliente_nombre || nombreProfile || "Sin nombre").trim();
 
-      const cliente_nombre = (r.cliente_nombre || nombreFromProfile || "").trim() || "Sin nombre";
-      const cliente_telefono = (r.cliente_telefono || prof?.telefono || "").trim();
-      const cliente_email = (r.cliente_email || prof?.email || "").trim();
-
-      const pagado = paidMap.get(Number(r.id_reserva)) || 0;
+      // Saldo (DEBE) - Calculado aquí mismo
+      const totalPagado = r.reservas_pagos
+        ?.filter((p: any) => p.status === 'approved')
+        .reduce((sum: number, p: any) => sum + (p.amount || 0), 0) || 0;
+      
       const precio = Number(r.precio_total || 0);
-      const saldo = Math.max(0, precio - pagado);
+      const saldo = Math.max(0, precio - totalPagado);
+      const pagado_total = precio > 0 && saldo === 0;
 
       return {
         id_reserva: r.id_reserva,
@@ -410,21 +285,17 @@ export async function GET(req: Request) {
         fin_dia_offset: Number(r.fin_dia_offset || 0),
         estado: r.estado,
         precio_total: precio,
-        monto_anticipo: Number(r.monto_anticipo || 0),
+        saldo_pendiente: saldo, // ✅ Importante para el badge "DEBE"
         segmento: r.segmento,
         tipo_turno: r.tipo_turno || "normal",
-        notas: r.notas || null,
-        cliente_nombre,
-        cliente_telefono,
-        cliente_email,
-        pagos_aprobados_total: pagado,
-        saldo_pendiente: saldo,
-        inicio_ts: r.inicio_ts,
-        fin_ts: r.fin_ts,
+        cliente_nombre, 
+        pagos_aprobados_total: totalPagado,
+        pagado_total,  
+        // NO enviamos datos pesados (teléfono, email, historial pagos, logs)
       };
     });
 
-    return NextResponse.json({
+    const res = NextResponse.json({
       ok: true,
       id_club,
       fecha,
@@ -433,6 +304,10 @@ export async function GET(req: Request) {
       canchas: canchasOut,
       reservas: reservasOut,
     });
+
+    res.headers.set("Cache-Control", "no-store, no-cache, max-age=0");
+    return res;
+
   } catch (e: any) {
     console.error("[GET /api/admin/agenda] ex:", e);
     return NextResponse.json({ error: e?.message || "Error interno" }, { status: 500 });

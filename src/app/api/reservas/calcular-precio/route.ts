@@ -9,40 +9,41 @@ type Segmento = "publico" | "profe";
 type Body = {
   id_club: number;
   id_cancha: number;
-  fecha: string; // YYYY-MM-DD (fecha REAL del inicio)
+  fecha: string; // YYYY-MM-DD (fecha REAL del request)
   inicio: string; // HH:MM
   fin: string; // HH:MM
-  segmento_override?: Segmento; // ✅ NUEVO (para admin)
+  segmento_override?: Segmento; // ✅ (para admin)
 };
 
 type Regla = {
   id_regla: number;
   id_tarifario: number;
   segmento: Segmento;
-  dow: number | null;
+  dow: number | null; // 0=Dom..6=Sáb
   vigente_desde: string;
   vigente_hasta: string | null;
-  hora_desde: string;
-  hora_hasta: string;
+  hora_desde: string; // HH:MM:SS
+  hora_hasta: string; // HH:MM:SS
   cruza_medianoche: boolean;
-  duracion_min: number;
+  duracion_min: number; // 60/90/120
   precio: number;
   prioridad: number;
   activo: boolean;
 };
 
 function toMin(hhmm: string) {
-  const [h, m] = (hhmm || "").split(":").map(Number);
+  const [h, m] = (hhmm || "").slice(0, 5).split(":").map(Number);
   return h * 60 + (m || 0);
-}
-
-function weekday0Sun(fechaISO: string) {
-  const d = new Date(`${fechaISO}T00:00:00`);
-  return d.getDay(); // 0..6
 }
 
 function timeToMinFromDB(hms: string) {
   return toMin((hms || "").slice(0, 5));
+}
+
+// ✅ AR timezone safe
+function weekday0Sun(fechaISO: string) {
+  const d = new Date(`${fechaISO}T00:00:00-03:00`);
+  return d.getDay(); // 0..6
 }
 
 function addDaysISO(dateISO: string, add: number) {
@@ -64,6 +65,7 @@ function startInWindow(params: {
   const { startMin, fromMin, toMin, cruza_medianoche } = params;
   const crosses = cruza_medianoche || toMin <= fromMin;
   if (!crosses) return startMin >= fromMin && startMin < toMin;
+  // cruza: [from..1440) U [0..to)
   return startMin >= fromMin || startMin < toMin;
 }
 
@@ -91,6 +93,7 @@ function pickBestRuleForStart(params: {
   matches.sort((a, b) => {
     if (Number(b.prioridad) !== Number(a.prioridad))
       return Number(b.prioridad) - Number(a.prioridad);
+    // tie-break: dow específico > dow null
     const aSpec = a.dow === null ? 0 : 1;
     const bSpec = b.dow === null ? 0 : 1;
     return bSpec - aSpec;
@@ -189,17 +192,10 @@ function fmtHHMM(minInDay: number) {
 }
 
 /**
- * Calcula costo mínimo para un tramo homogéneo de N steps de 30 min,
- * manteniendo descuentos del tarifario:
- * - 30 => (precio60 / 2)
- * - 60 => precio60
- * - 90 => precio90
- * - 120 => precio120
- *
- * Usamos DP sobre steps (N <= 4 en tu caso real, pero lo dejamos genérico).
+ * DP costo mínimo para un tramo homogéneo de N steps (30’)
  */
 function minCostForGroup(params: {
-  steps: number; // cada step=30 min
+  steps: number;
   price60: number;
   price90?: number | null;
   price120?: number | null;
@@ -208,18 +204,14 @@ function minCostForGroup(params: {
 
   const INF = 1e18;
   const dp = new Array<number>(steps + 1).fill(INF);
-  const prev = new Array<{ from: number; take: number; cost: number } | null>(
-    steps + 1
-  ).fill(null);
   dp[0] = 0;
 
-  const pieceCosts: Array<{ take: number; cost: number; label: "30" | "60" | "90" | "120" }> = [
-    { take: 1, cost: price60 / 2, label: "30" },
-    { take: 2, cost: price60, label: "60" },
+  const pieceCosts: Array<{ take: number; cost: number }> = [
+    { take: 1, cost: price60 / 2 }, // 30
+    { take: 2, cost: price60 }, // 60
   ];
-
-  if (price90 != null) pieceCosts.push({ take: 3, cost: price90, label: "90" });
-  if (price120 != null) pieceCosts.push({ take: 4, cost: price120, label: "120" });
+  if (price90 != null) pieceCosts.push({ take: 3, cost: price90 });
+  if (price120 != null) pieceCosts.push({ take: 4, cost: price120 });
 
   for (let i = 0; i <= steps; i++) {
     if (dp[i] >= INF) continue;
@@ -227,26 +219,54 @@ function minCostForGroup(params: {
       const j = i + p.take;
       if (j > steps) continue;
       const v = dp[i] + p.cost;
-      if (v < dp[j]) {
-        dp[j] = v;
-        prev[j] = { from: i, take: p.take, cost: p.cost };
-      }
+      if (v < dp[j]) dp[j] = v;
     }
   }
 
-  if (dp[steps] >= INF) return { ok: false as const, cost: 0, pieces: [] as any[] };
+  if (dp[steps] >= INF) return { ok: false as const, cost: 0 };
+  return { ok: true as const, cost: dp[steps] };
+}
 
-  const pieces: Array<{ takeSteps: number; cost: number }> = [];
-  let cur = steps;
-  while (cur > 0) {
-    const p = prev[cur];
-    if (!p) break;
-    pieces.push({ takeSteps: p.take, cost: p.cost });
-    cur = p.from;
-  }
-  pieces.reverse();
+/**
+ * ✅ Detecta “día lógico anterior” para la madrugada.
+ * Si existe una regla del día anterior que cruza medianoche y cubre startMin,
+ * entonces para esos minutos (hasta su hora_hasta) se debe usar el día anterior.
+ */
+function findPrevCarryWindow(params: {
+  startMin: number; // 0..1439
+  reglas60_prev: Regla[];
+  dowPrev: number;
+}) {
+  const { startMin, reglas60_prev, dowPrev } = params;
 
-  return { ok: true as const, cost: dp[steps], pieces };
+  const candidates = reglas60_prev.filter((r) => {
+    // tiene que ser del dow previo (o null) y cruzar
+    if (r.dow !== null && Number(r.dow) !== dowPrev) return false;
+
+    const from = timeToMinFromDB(r.hora_desde);
+    const to = timeToMinFromDB(r.hora_hasta);
+    const crosses = !!r.cruza_medianoche || to <= from;
+    if (!crosses) return false;
+
+    return startInWindow({
+      startMin,
+      fromMin: from,
+      toMin: to,
+      cruza_medianoche: true,
+    });
+  });
+
+  if (candidates.length === 0) return null;
+
+  // elegimos la mejor por prioridad
+  candidates.sort((a, b) => Number(b.prioridad) - Number(a.prioridad));
+  const best = candidates[0];
+
+  const cutoffEnd = timeToMinFromDB(best.hora_hasta); // ej 03:00 => 180
+  return {
+    rule60: best,
+    cutoffEnd, // 0..1439 (fin del tramo madrugada del día anterior)
+  };
 }
 
 export async function POST(req: Request) {
@@ -259,30 +279,14 @@ export async function POST(req: Request) {
     const inicio = String(body?.inicio || "");
     const fin = String(body?.fin || "");
 
-    if (!id_club || Number.isNaN(id_club)) {
-      return NextResponse.json(
-        { error: "id_club es requerido y numérico" },
-        { status: 400 }
-      );
-    }
-    if (!id_cancha || Number.isNaN(id_cancha)) {
-      return NextResponse.json(
-        { error: "id_cancha es requerido y numérico" },
-        { status: 400 }
-      );
-    }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
-      return NextResponse.json(
-        { error: "fecha debe ser YYYY-MM-DD" },
-        { status: 400 }
-      );
-    }
-    if (!/^\d{2}:\d{2}$/.test(inicio) || !/^\d{2}:\d{2}$/.test(fin)) {
-      return NextResponse.json(
-        { error: "inicio/fin deben ser HH:MM" },
-        { status: 400 }
-      );
-    }
+    if (!id_club || Number.isNaN(id_club))
+      return NextResponse.json({ error: "id_club es requerido y numérico" }, { status: 400 });
+    if (!id_cancha || Number.isNaN(id_cancha))
+      return NextResponse.json({ error: "id_cancha es requerido y numérico" }, { status: 400 });
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha))
+      return NextResponse.json({ error: "fecha debe ser YYYY-MM-DD" }, { status: 400 });
+    if (!/^\d{2}:\d{2}$/.test(inicio) || !/^\d{2}:\d{2}$/.test(fin))
+      return NextResponse.json({ error: "inicio/fin deben ser HH:MM" }, { status: 400 });
 
     const startMin = toMin(inicio);
     let endMin = toMin(fin);
@@ -290,10 +294,7 @@ export async function POST(req: Request) {
 
     const duracion_min = endMin - startMin;
     if (![60, 90, 120].includes(duracion_min)) {
-      return NextResponse.json(
-        { error: "Duración no soportada (60/90/120)", duracion_min },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Duración no soportada (60/90/120)", duracion_min }, { status: 400 });
     }
 
     // ✅ auth + segmento (con override)
@@ -309,132 +310,166 @@ export async function POST(req: Request) {
 
     // tarifario
     const resolved = await resolveTarifarioId(id_club, id_cancha);
-    if ("error" in resolved)
-      return NextResponse.json({ error: resolved.error }, { status: 409 });
+    if ("error" in resolved) return NextResponse.json({ error: resolved.error }, { status: 409 });
     const id_tarifario = resolved.id_tarifario;
 
-    const STEP_MIN = 30;
-    const needsNextDay = endMin > 1440;
-
+    // ====== FECHAS/DOW ======
     const fecha0 = fecha;
     const dow0 = weekday0Sun(fecha0);
+
+    const fechaPrev = addDaysISO(fecha0, -1);
+    const dowPrev = (dow0 + 6) % 7;
+
+    const needsNextDay = endMin > 1440;
     const fecha1 = needsNextDay ? addDaysISO(fecha0, 1) : null;
     const dow1 = needsNextDay ? (dow0 + 1) % 7 : null;
 
-    // Traemos reglas por duración (60/90/120) para ambos días (si aplica)
-    const reglas60_0 = await fetchReglas({
-      id_tarifario,
-      segmento,
-      duracion_min: 60,
-      fechaISO: fecha0,
-    });
-    const reglas90_0 = await fetchReglas({
-      id_tarifario,
-      segmento,
-      duracion_min: 90,
-      fechaISO: fecha0,
-    });
-    const reglas120_0 = await fetchReglas({
-      id_tarifario,
-      segmento,
-      duracion_min: 120,
-      fechaISO: fecha0,
-    });
+    // ====== REGLAS: prev / day0 / day1 ======
+    // prev
+    const reglas60_prev = await fetchReglas({ id_tarifario, segmento, duracion_min: 60, fechaISO: fechaPrev });
+    const reglas90_prev = await fetchReglas({ id_tarifario, segmento, duracion_min: 90, fechaISO: fechaPrev });
+    const reglas120_prev = await fetchReglas({ id_tarifario, segmento, duracion_min: 120, fechaISO: fechaPrev });
 
+    // day0
+    const reglas60_0 = await fetchReglas({ id_tarifario, segmento, duracion_min: 60, fechaISO: fecha0 });
+    const reglas90_0 = await fetchReglas({ id_tarifario, segmento, duracion_min: 90, fechaISO: fecha0 });
+    const reglas120_0 = await fetchReglas({ id_tarifario, segmento, duracion_min: 120, fechaISO: fecha0 });
+
+    // day1 (solo si cruza)
     const reglas60_1 =
-      needsNextDay && fecha1
-        ? await fetchReglas({
-            id_tarifario,
-            segmento,
-            duracion_min: 60,
-            fechaISO: fecha1,
-          })
-        : [];
+      needsNextDay && fecha1 ? await fetchReglas({ id_tarifario, segmento, duracion_min: 60, fechaISO: fecha1 }) : [];
     const reglas90_1 =
-      needsNextDay && fecha1
-        ? await fetchReglas({
-            id_tarifario,
-            segmento,
-            duracion_min: 90,
-            fechaISO: fecha1,
-          })
-        : [];
+      needsNextDay && fecha1 ? await fetchReglas({ id_tarifario, segmento, duracion_min: 90, fechaISO: fecha1 }) : [];
     const reglas120_1 =
-      needsNextDay && fecha1
-        ? await fetchReglas({
-            id_tarifario,
-            segmento,
-            duracion_min: 120,
-            fechaISO: fecha1,
-          })
-        : [];
+      needsNextDay && fecha1 ? await fetchReglas({ id_tarifario, segmento, duracion_min: 120, fechaISO: fecha1 }) : [];
 
-    const getRuleAt = (tAbs: number, reglas0: Regla[], reglas1: Regla[]) => {
-      if (tAbs < 1440)
-        return pickBestRuleForStart({
-          reglas: reglas0,
-          startMinInDay: tAbs,
-          dow: dow0,
-        });
-      if (!needsNextDay || dow1 === null) return null;
-      return pickBestRuleForStart({
-        reglas: reglas1,
-        startMinInDay: tAbs - 1440,
-        dow: dow1,
-      });
+    // ✅ Detectar si este turno (en esta fecha) debería pertenecer al “día anterior” en madrugada
+    const prevCarry = findPrevCarryWindow({
+      startMin: startMin % 1440,
+      reglas60_prev,
+      dowPrev,
+    });
+    // prevCarry.cutoffEnd = ej 180 (03:00)
+
+    const STEP_MIN = 30;
+
+    
+
+    // ====== selector de reglas por tiempo absoluto ======
+    function getRuleAt(
+      tAbs: number,
+      reglasPrev: Regla[],
+      reglas0: Regla[],
+      reglas1: Regla[]
+    ) {
+      // día relativo dentro del turno
+      const dayIndex = tAbs >= 1440 ? 1 : 0;
+      const minInDay = ((tAbs % 1440) + 1440) % 1440;
+
+      // Caso A) Estamos en day0 (tAbs<1440) y el turno cae en “madrugada del día anterior”
+      // => usar prev hasta cutoffEnd, luego day0.
+      if (dayIndex === 0 && prevCarry) {
+        if (minInDay < prevCarry.cutoffEnd) {
+          return pickBestRuleForStart({ reglas: reglasPrev, startMinInDay: minInDay, dow: dowPrev });
+        }
+        return pickBestRuleForStart({ reglas: reglas0, startMinInDay: minInDay, dow: dow0 });
+      }
+
+      // Caso B) Estamos en day1 (tAbs>=1440): podría seguir perteneciendo al day0 si day0 tiene regla que cruza
+      // (esto cubre el caso clásico 23:00–01:00 del día0)
+      if (dayIndex === 1) {
+        if (dow1 === null) return null;
+
+        // Si el día0 tiene una regla cruzando que cubre este min, seguimos en day0
+        const carryFrom0 = (() => {
+          const r60_0 = pickBestRuleForStart({ reglas: reglas60_0, startMinInDay: minInDay, dow: dow0 });
+          if (!r60_0) return null;
+          const from = timeToMinFromDB(r60_0.hora_desde);
+          const to = timeToMinFromDB(r60_0.hora_hasta);
+          const crosses = !!r60_0.cruza_medianoche || to <= from;
+          if (!crosses) return null;
+          // si es madrugada (minInDay < to) entonces pertenece al día0
+          return minInDay < to ? true : null;
+        })();
+
+        if (carryFrom0) {
+          return pickBestRuleForStart({ reglas: reglas0, startMinInDay: minInDay, dow: dow0 });
+        }
+
+        // si no, es day1 real
+        return pickBestRuleForStart({ reglas: reglas1, startMinInDay: minInDay, dow: dow1 });
+      }
+
+      // Default: day0 normal
+      return pickBestRuleForStart({ reglas: reglas0, startMinInDay: minInDay, dow: dow0 });
+    }
+
+    const rule60At = (tAbs: number) => getRuleAt(tAbs, reglas60_prev, reglas60_0, reglas60_1);
+    const rule90At = (tAbs: number) => getRuleAt(tAbs, reglas90_prev, reglas90_0, reglas90_1);
+    const rule120At = (tAbs: number) => getRuleAt(tAbs, reglas120_prev, reglas120_0, reglas120_1);
+
+    // ✅ key 60|90|120 (para cortes tipo 14:00 aunque solo cambie 90/120)
+    const tariffKeyAt = (tAbs: number) => {
+      const r60 = rule60At(tAbs);
+      if (!r60) return null;
+      const r90 = rule90At(tAbs);
+      const r120 = rule120At(tAbs);
+      return {
+        r60,
+        r90,
+        r120,
+        key: `${r60.id_regla}|${r90?.id_regla ?? 0}|${r120?.id_regla ?? 0}`,
+      };
     };
 
-    const rule60At = (tAbs: number) => getRuleAt(tAbs, reglas60_0, reglas60_1);
-    const rule90At = (tAbs: number) => getRuleAt(tAbs, reglas90_0, reglas90_1);
-    const rule120At = (tAbs: number) => getRuleAt(tAbs, reglas120_0, reglas120_1);
+    // ====== grupos homogéneos por key ======
+    type Group = {
+      startAbs: number;
+      endAbs: number;
+      r60: Regla;
+      r90: Regla | null;
+      r120: Regla | null;
+      key: string;
+    };
 
-    // Armamos grupos homogéneos según la regla de 60 (eso define “la tarifa vigente”)
-    type Group = { startAbs: number; endAbs: number; rule60: Regla };
     const groups: Group[] = [];
-
     let t = startMin;
-    let curRule60 = rule60At(t);
-    if (!curRule60) {
-      return NextResponse.json(
-        { error: "Faltan reglas de 60 min para cubrir el inicio" },
-        { status: 409 }
-      );
+
+    const first = tariffKeyAt(t);
+    if (!first) {
+      return NextResponse.json({ error: "Faltan reglas para cubrir el inicio" }, { status: 409 });
     }
+
     let curStart = t;
+    let curKey = first.key;
+    let curR60 = first.r60;
+    let curR90 = first.r90 ?? null;
+    let curR120 = first.r120 ?? null;
 
     for (; t < endMin; t += STEP_MIN) {
-      const r = rule60At(t);
-      if (!r) {
-        return NextResponse.json(
-          {
-            error: "Faltan reglas de 60 min para cubrir un tramo del turno",
-            tramo_abs: t,
-          },
-          { status: 409 }
-        );
+      const cur = tariffKeyAt(t);
+      if (!cur) {
+        return NextResponse.json({ error: "Faltan reglas para cubrir un tramo del turno", tramo_abs: t }, { status: 409 });
       }
-      if (r.id_regla !== curRule60.id_regla) {
-        groups.push({ startAbs: curStart, endAbs: t, rule60: curRule60 });
-        curRule60 = r;
+
+      if (cur.key !== curKey) {
+        groups.push({ startAbs: curStart, endAbs: t, r60: curR60, r90: curR90, r120: curR120, key: curKey });
         curStart = t;
+        curKey = cur.key;
+        curR60 = cur.r60;
+        curR90 = cur.r90 ?? null;
+        curR120 = cur.r120 ?? null;
       }
     }
-    groups.push({ startAbs: curStart, endAbs: endMin, rule60: curRule60 });
+    groups.push({ startAbs: curStart, endAbs: endMin, r60: curR60, r90: curR90, r120: curR120, key: curKey });
 
-    // Si solo hay 1 grupo (no cruza), devolvemos precio directo por duración como antes
+    // ====== si es 1 grupo: directo ======
     if (groups.length === 1) {
       const direct =
-        duracion_min === 60
-          ? rule60At(startMin)
-          : duracion_min === 90
-          ? rule90At(startMin)
-          : rule120At(startMin);
+        duracion_min === 60 ? rule60At(startMin) : duracion_min === 90 ? rule90At(startMin) : rule120At(startMin);
 
       if (!direct) {
-        return NextResponse.json(
-          { error: "No hay regla directa para esa duración que cubra el inicio" },
-          { status: 409 }
-        );
+        return NextResponse.json({ error: "No hay regla directa para esa duración que cubra el inicio" }, { status: 409 });
       }
 
       return NextResponse.json({
@@ -455,7 +490,7 @@ export async function POST(req: Request) {
       });
     }
 
-    // Caso híbrido: suma por grupos, manteniendo “paquetes” dentro de cada grupo
+    // ====== híbrido: suma por grupos ======
     let total = 0;
 
     const breakdown: Array<{
@@ -464,6 +499,8 @@ export async function POST(req: Request) {
       minutos: number;
       dayOffset: 0 | 1;
       id_regla_60: number;
+      id_regla_90: number | null;
+      id_regla_120: number | null;
       precio_60: number;
       precio_90?: number | null;
       precio_120?: number | null;
@@ -472,24 +509,16 @@ export async function POST(req: Request) {
 
     for (const g of groups) {
       const minutes = g.endAbs - g.startAbs;
-      const steps = Math.round(minutes / STEP_MIN); // debería ser entero
+      const steps = Math.round(minutes / STEP_MIN);
 
-      const r60 = g.rule60;
-      const r90 = rule90At(g.startAbs);
-      const r120 = rule120At(g.startAbs);
-
-      const price60 = Number(r60.precio);
-      const price90 = r90 ? Number(r90.precio) : null;
-      const price120 = r120 ? Number(r120.precio) : null;
+      const price60 = Number(g.r60.precio);
+      const price90 = g.r90 ? Number(g.r90.precio) : null;
+      const price120 = g.r120 ? Number(g.r120.precio) : null;
 
       const dp = minCostForGroup({ steps, price60, price90, price120 });
       if (!dp.ok) {
         return NextResponse.json(
-          {
-            error:
-              "No se pudo componer el precio del grupo con paquetes 30/60/90/120",
-            grupo: { startAbs: g.startAbs, endAbs: g.endAbs, minutes, steps },
-          },
+          { error: "No se pudo componer el precio del grupo con paquetes 30/60/90/120", grupo: g },
           { status: 409 }
         );
       }
@@ -505,7 +534,9 @@ export async function POST(req: Request) {
         hasta: `${fmtHHMM(eDay)}${dayOffset ? " (+1)" : ""}`,
         minutos: minutes,
         dayOffset: dayOffset as 0 | 1,
-        id_regla_60: r60.id_regla,
+        id_regla_60: g.r60.id_regla,
+        id_regla_90: g.r90?.id_regla ?? null,
+        id_regla_120: g.r120?.id_regla ?? null,
         precio_60: price60,
         precio_90: price90,
         precio_120: price120,
@@ -520,7 +551,7 @@ export async function POST(req: Request) {
       id_club,
       id_cancha,
       id_tarifario,
-      id_regla: groups[0]?.rule60?.id_regla ?? null,
+      id_regla: groups[0]?.r60?.id_regla ?? null,
       user_id: userId,
       segmento,
       fecha,
@@ -531,12 +562,18 @@ export async function POST(req: Request) {
       prorrateado: true,
       modo: "hibrido",
       breakdown,
+      debug: {
+        prevCarry: prevCarry
+          ? { fechaPrev, dowPrev, cutoffEnd: prevCarry.cutoffEnd, id_regla_60_prev: prevCarry.rule60.id_regla }
+          : null,
+        fecha0,
+        dow0,
+        fecha1,
+        dow1,
+      },
     });
   } catch (err: any) {
     console.error("[calcular-precio] ex:", err);
-    return NextResponse.json(
-      { error: err?.message || "Error interno" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: err?.message || "Error interno" }, { status: 500 });
   }
 }

@@ -55,7 +55,7 @@ export async function GET(req: Request) {
       return NextResponse.json({ ok: false, reason: "no_draft" }, { status: 200 });
     }
 
-    // Usuario logueado (restauramos solo el hold propio)
+    // Usuario logueado
     const supabase = await getSupabaseServerClient();
     const { data: userRes } = await supabase.auth.getUser();
     const userId = userRes?.user?.id ?? null;
@@ -71,6 +71,45 @@ export async function GET(req: Request) {
     }
     const fin_dia_offset: 0 | 1 = finMin <= iniMin ? 1 : 0;
 
+    // 0) Si ya está confirmada (anticipo 0 u otro caso), devolvemos comprobante
+    const { data: confirmed, error: cErr } = await supabaseAdmin
+      .from("reservas")
+      .select("id_reserva")
+      .eq("id_club", draft.id_club)
+      .eq("id_cancha", draft.id_cancha)
+      .eq("id_usuario", userId)
+      .eq("fecha", draft.fecha)
+      .eq("inicio", draft.inicio)
+      .eq("fin", draft.fin)
+      .eq("fin_dia_offset", fin_dia_offset)
+      .eq("estado", "confirmada")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (cErr) {
+      return NextResponse.json(
+        { ok: false, reason: "db_confirmed_error", detail: cErr.message },
+        { status: 200 }
+      );
+    }
+
+    if (confirmed?.id_reserva) {
+      const id_reserva = Number(confirmed.id_reserva);
+      return NextResponse.json(
+        {
+          ok: true,
+          id_reserva,
+          id_pago: null,
+          expires_at: null,
+          checkout_url: `/pago/resultado?status=success&id_reserva=${id_reserva}`,
+          fin_dia_offset,
+          confirmed: true,
+        },
+        { status: 200 }
+      );
+    }
+
     const nowIso = new Date().toISOString();
 
     // 1) Buscar reserva pendiente vigente del mismo usuario/slot
@@ -85,7 +124,7 @@ export async function GET(req: Request) {
       .eq("fin", draft.fin)
       .eq("fin_dia_offset", fin_dia_offset)
       .eq("estado", "pendiente_pago")
-      .gt("expires_at", nowIso) // <--- AGREGA ESTO AQUÍ
+      .gt("expires_at", nowIso)
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -141,6 +180,7 @@ export async function GET(req: Request) {
         expires_at,
         checkout_url,
         fin_dia_offset,
+        confirmed: false,
       },
       { status: 200 }
     );

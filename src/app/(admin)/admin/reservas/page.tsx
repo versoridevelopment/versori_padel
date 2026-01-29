@@ -24,13 +24,15 @@ export default function ReservasPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // ✅ Estado actualizado para manejar Carga On-Demand
   const [sidebarState, setSidebarState] = useState<{
     isOpen: boolean;
     mode: "view" | "create";
-    data: ReservaUI | null;
+    reservaId?: number | null;        // Guardamos solo el ID
+    initialData?: Partial<ReservaUI>; // Y los datos "light" de la grilla
     preSelectedCanchaId?: number | null;
-    preSelectedTime?: number | null; // decimal (ej: 17.5)
-  }>({ isOpen: false, mode: "view", data: null });
+    preSelectedTime?: number | null; 
+  }>({ isOpen: false, mode: "view" });
 
   const fechaISO = useMemo(() => toISODateAR(selectedDate), [selectedDate]);
 
@@ -58,15 +60,22 @@ export default function ReservasPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fechaISO]);
 
+  // ✅ Al hacer click, guardamos ID e InitialData
   const handleReservaClick = (r: ReservaUI) => {
-    setSidebarState({ isOpen: true, mode: "view", data: r });
+    setSidebarState({ 
+      isOpen: true, 
+      mode: "view", 
+      reservaId: r.id_reserva,
+      initialData: r 
+    });
   };
 
   const handleEmptySlotClick = (canchaId: number, time: number) => {
     setSidebarState({
       isOpen: true,
       mode: "create",
-      data: null,
+      reservaId: null,
+      initialData: undefined,
       preSelectedCanchaId: canchaId,
       preSelectedTime: time,
     });
@@ -79,7 +88,7 @@ export default function ReservasPage() {
           <h1 className="text-xl font-black text-slate-800 tracking-tight">Agenda</h1>
 
           <button
-            onClick={() => setSidebarState({ isOpen: true, mode: "create", data: null })}
+            onClick={() => setSidebarState({ isOpen: true, mode: "create", reservaId: null })}
             className="md:hidden bg-slate-900 text-white p-2 rounded-lg"
             aria-label="Nuevo Turno"
           >
@@ -91,7 +100,7 @@ export default function ReservasPage() {
 
         <div className="hidden md:flex items-center gap-2">
           <button
-            onClick={() => setSidebarState({ isOpen: true, mode: "create", data: null })}
+            onClick={() => setSidebarState({ isOpen: true, mode: "create", reservaId: null })}
             className="bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-xl font-bold text-sm shadow-lg shadow-slate-900/10 transition-all flex items-center gap-2"
           >
             <Plus className="w-4 h-4" /> Nuevo Turno
@@ -126,19 +135,24 @@ export default function ReservasPage() {
         )}
       </main>
 
+      {/* ✅ Pasamos los nuevos props al Sidebar */}
       <ReservaSidebar
         isOpen={sidebarState.isOpen}
         onClose={() => setSidebarState((prev) => ({ ...prev, isOpen: false }))}
-        reserva={sidebarState.data}
+        
+        // Props clave para el nuevo sistema:
+        reservaId={sidebarState.reservaId} 
+        initialData={sidebarState.initialData}
+        
         isCreating={sidebarState.mode === "create"}
         selectedDate={selectedDate}
         preSelectedCanchaId={sidebarState.preSelectedCanchaId}
         preSelectedTime={sidebarState.preSelectedTime}
         idClub={idClub ?? agenda?.id_club ?? 0}
         canchas={agenda?.canchas || []}
-        reservas={agenda?.reservas || []}          // ✅
-        startHour={agenda?.startHour ?? 8}         // ✅
-        endHour={agenda?.endHour ?? 26}            // ✅
+        reservas={agenda?.reservas || []}
+        startHour={agenda?.startHour ?? 8}
+        endHour={agenda?.endHour ?? 26}
         onCreated={() => {
           setSidebarState((prev) => ({ ...prev, isOpen: false }));
           loadAgenda();
