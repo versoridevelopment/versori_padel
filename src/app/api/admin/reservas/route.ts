@@ -126,14 +126,15 @@ export async function POST(req: Request) {
         { status: 400 }
       );
 
-    // ✅ duracion_min: si no viene, la calculamos desde fin
+    // ✅ Cálculo de duración_min
     let duracion_min = Number(body?.duracion_min || 0);
 
     if (![60, 90, 120].includes(duracion_min)) {
       if (/^\d{2}:\d{2}$/.test(finFromBody)) {
         const startMin = toMin(inicio);
         let endMin = toMin(finFromBody);
-        if (endMin <= startMin) endMin += 1440; // cruza medianoche
+        // Si el fin es menor o igual al inicio (ej. 22:00 a 00:00), sumamos 1440 (un día)
+        if (endMin <= startMin) endMin += 1440;
         duracion_min = endMin - startMin;
       }
     }
@@ -170,21 +171,24 @@ export async function POST(req: Request) {
       );
     }
 
-    // Calcular fin + fin_dia_offset (si vino fin, lo respetamos; si no, lo calculamos)
+    // --- CORRECCIÓN LÓGICA DE OFFSET ---
     const startMin = toMin(inicio);
     const endMinAbs = startMin + duracion_min;
-    const fin_dia_offset: 0 | 1 = endMinAbs > 1440 ? 1 : 0;
+
+    // Si endMinAbs >= 1440 significa que termina a las 00:00 del día siguiente o después.
+    const fin_dia_offset: 0 | 1 = endMinAbs >= 1440 ? 1 : 0;
+
     const fin = /^\d{2}:\d{2}$/.test(finFromBody)
       ? finFromBody
       : minToHHMM(endMinAbs);
+    // ------------------------------------
 
     // Segmento por tipo_turno o override
     const segmento_override: Segmento =
       body?.segmento_override ||
       (tipo_turno === "profesor" ? "profe" : "publico");
 
-    // (Opcional pero útil) Anti-solape rápido en server (además del constraint)
-    // Ventana: [fecha 00:00 AR, fecha+2 00:00 AR)
+    // Ventana de solapes
     const windowStart = new Date(arMidnightISO(fecha)).toISOString();
     const windowEnd = new Date(arMidnightISO(addDaysISO(fecha, 2))).toISOString();
 
@@ -193,7 +197,7 @@ export async function POST(req: Request) {
       .select("id_reserva")
       .eq("id_club", id_club)
       .eq("id_cancha", id_cancha)
-      .in("estado", ["confirmada", "pendiente_pago"]) 
+      .in("estado", ["confirmada", "pendiente_pago"])
       .lt("inicio_ts", windowEnd)
       .gt("fin_ts", windowStart)
       .limit(200);
@@ -205,11 +209,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // Si tenés inicio_ts/fin_ts bien generados por trigger, este check es solo defensivo.
-    // No podemos calcular rangos exactos sin replicar tu lógica de timestamps acá,
-    // así que el "constraint EXCLUDE" sigue siendo la verdad final.
-
-    // 1) Calcular precio (reusa tu endpoint)
+    // 1) Calcular precio
     const calcRes = await fetch(
       new URL("/api/reservas/calcular-precio", req.url),
       {
@@ -224,7 +224,6 @@ export async function POST(req: Request) {
           fecha,
           inicio,
           fin,
-          // si tu calcular-precio lo soporta:
           segmento_override,
         }),
         cache: "no-store",
@@ -243,6 +242,8 @@ export async function POST(req: Request) {
     }
 
     const precio_total = Number(calcJson?.precio_total || 0);
+
+    // ✅ (1) VALIDACIÓN precio_total calculado
     if (!Number.isFinite(precio_total) || precio_total <= 0) {
       return NextResponse.json(
         { error: "Precio inválido calculado" },
@@ -266,14 +267,17 @@ export async function POST(req: Request) {
         { error: `Error leyendo club: ${cErr.message}` },
         { status: 500 }
       );
-    if (!club)
-      return NextResponse.json({ error: "Club no encontrado" }, { status: 404 });
 
-    const anticipo_porcentaje = Number((club as any).anticipo_porcentaje ?? 50);
+    // ✅ (2) VALIDACIÓN club no encontrado
+    if (!club) {
+      return NextResponse.json({ error: "Club no encontrado" }, { status: 404 });
+    }
+
+    const anticipo_porcentaje = Number((club as any)?.anticipo_porcentaje ?? 50);
     const pct = Math.min(100, Math.max(0, anticipo_porcentaje));
     const monto_anticipo = round2(precio_total * (pct / 100));
 
-    // 3) Insert reserva confirmada (admin)
+    // 3) Insert reserva confirmada
     const { data: inserted, error: insErr } = await supabaseAdmin
       .from("reservas")
       .insert({
@@ -304,7 +308,6 @@ export async function POST(req: Request) {
       .single();
 
     if (insErr) {
-      // EXCLUDE constraint => Postgres exclusion_violation
       if ((insErr as any).code === "23P01") {
         return NextResponse.json({ error: "TURNOS_SOLAPADOS" }, { status: 409 });
       }
@@ -314,11 +317,9 @@ export async function POST(req: Request) {
       );
     }
 
-    const id_reserva = Number((inserted as any)?.id_reserva);
-
     return NextResponse.json({
       ok: true,
-      id_reserva,
+      id_reserva: Number((inserted as any)?.id_reserva),
       id_club,
       id_cancha,
       fecha,

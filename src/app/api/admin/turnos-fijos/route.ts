@@ -75,7 +75,6 @@ function addDaysISO(dateISO: string, add: number) {
   return `${yy}-${mm}-${dd}`;
 }
 function weekday0SunAR(fechaISO: string) {
-  // igual a tu calcular-precio: AR-safe
   const d = new Date(`${fechaISO}T00:00:00-03:00`);
   return d.getDay(); // 0..6
 }
@@ -135,12 +134,10 @@ export async function POST(req: Request) {
     const weeks_ahead = clampWeeks(Number(body?.weeks_ahead ?? 8));
     const on_conflict = (body?.on_conflict || "skip") as "skip" | "abort";
 
-    // ✅ segmento admin: igual criterio que venís usando
     const segmento_override: Segmento =
       body?.segmento_override ||
       (tipo_turno === "profesor" ? "profe" : "publico");
 
-    // ===== Validaciones =====
     if (!id_club || Number.isNaN(id_club))
       return NextResponse.json({ error: "id_club requerido" }, { status: 400 });
 
@@ -175,7 +172,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // ===== Auth =====
     const supabase = await getSupabaseServerClient();
     const { data: authRes, error: aErr } = await supabase.auth.getUser();
     if (aErr)
@@ -187,21 +183,22 @@ export async function POST(req: Request) {
     if (!adminUserId)
       return NextResponse.json({ error: "LOGIN_REQUERIDO" }, { status: 401 });
 
-    // ===== Permisos =====
     const perm = await assertAdminOrStaff({ id_club, userId: adminUserId });
     if (!perm.ok)
       return NextResponse.json({ error: perm.error }, { status: perm.status });
 
-    // ===== Calcular fin del template =====
+    // --- CORRECCIÓN LÓGICA DE OFFSET (igual que en admin/reservas) ---
     const startMin = toMin(inicio);
     const endMinAbs = startMin + duracion_min;
-    const fin_dia_offset: 0 | 1 = endMinAbs > 1440 ? 1 : 0;
+    
+    // Si endMinAbs >= 1440 significa que termina a las 00:00 del día siguiente o después.
+    const fin_dia_offset: 0 | 1 = endMinAbs >= 1440 ? 1 : 0;
     const fin = minToHHMM(endMinAbs);
+    // ----------------------------------------------------------------
 
-    // ===== DOW (AR-safe) del start_date =====
     const dow = weekday0SunAR(start_date);
 
-    // ===== 1) Crear template =====
+    // 1) Crear template
     const { data: tf, error: tfErr } = await supabaseAdmin
       .from("turnos_fijos")
       .insert({
@@ -213,15 +210,12 @@ export async function POST(req: Request) {
         fin,
         fin_dia_offset,
         activo: true,
-
         segmento: segmento_override,
         tipo_turno,
         notas: notas?.toString() || null,
-
         cliente_nombre: cliente_nombre.trim() || null,
         cliente_telefono: cliente_telefono.trim() || null,
         cliente_email: cliente_email.trim() || null,
-
         start_date,
         end_date,
         creado_por: adminUserId,
@@ -241,8 +235,7 @@ export async function POST(req: Request) {
 
     const id_turno_fijo = Number((tf as any).id_turno_fijo);
 
-    // ===== 2) Rango de generación =====
-    // start_date .. min(end_date, start_date + weeks_ahead*7)
+    // 2) Rango de generación
     const maxEnd = addDaysISO(start_date, weeks_ahead * 7);
     const limitEnd = end_date ? (end_date < maxEnd ? end_date : maxEnd) : maxEnd;
 
@@ -253,11 +246,10 @@ export async function POST(req: Request) {
       fechas.push(f);
     }
 
-    // ===== 3) Generar instancias =====
+    // 3) Generar instancias
     const conflicts: Conflict[] = [];
     let created_count = 0;
 
-    // cache club anticipo una sola vez
     const { data: club, error: cErr } = await supabaseAdmin
       .from("clubes")
       .select("id_club, anticipo_porcentaje")
@@ -274,7 +266,6 @@ export async function POST(req: Request) {
     const pctRaw = Number((club as any).anticipo_porcentaje ?? 50);
     const pct = Math.min(100, Math.max(0, pctRaw));
 
-    // helper: llamar TU calcular-precio (tal cual)
     async function calcularPrecio(params: { fecha: string; inicio: string; fin: string }) {
       const calcRes = await fetch(new URL("/api/reservas/calcular-precio", req.url), {
         method: "POST",
@@ -288,7 +279,7 @@ export async function POST(req: Request) {
           fecha: params.fecha,
           inicio: params.inicio,
           fin: params.fin,
-          segmento_override, // ✅ tu endpoint lo soporta
+          segmento_override,
         }),
         cache: "no-store",
       });
@@ -298,7 +289,6 @@ export async function POST(req: Request) {
     }
 
     for (const fecha of fechas) {
-      // 3.1 Precio (source of truth)
       let precio_total = 0;
       let id_tarifario: number | null = null;
       let id_regla: number | null = null;
@@ -319,7 +309,6 @@ export async function POST(req: Request) {
           continue;
         }
 
-        // ✅ EXACTO a tu retorno
         precio_total = Number(calcJson.precio_total || 0);
         if (!Number.isFinite(precio_total) || precio_total <= 0) {
           conflicts.push({
@@ -348,56 +337,44 @@ export async function POST(req: Request) {
         continue;
       }
 
-      // 3.2 Anticipo snapshot
       const monto_anticipo = Math.round((precio_total * (pct / 100)) * 100) / 100;
 
-      // 3.3 Insert reserva (snapshot completo + link)
       const { error: insErr } = await supabaseAdmin.from("reservas").insert({
         id_club,
         id_cancha,
         id_usuario: null,
-
         fecha,
         inicio,
         fin,
         fin_dia_offset,
-
         estado: "confirmada",
         precio_total,
         anticipo_porcentaje: pct,
         monto_anticipo,
-
         segmento,
         id_tarifario: Number.isFinite(id_tarifario) ? id_tarifario : null,
         id_regla: Number.isFinite(id_regla) ? id_regla : null,
-
         tipo_turno,
         notas: notas?.toString() || null,
-
         cliente_nombre: cliente_nombre.trim() || null,
         cliente_telefono: cliente_telefono.trim() || null,
         cliente_email: cliente_email.trim() || null,
-
         origen: "turno_fijo",
         creado_por: adminUserId,
         expires_at: null,
-
         id_turno_fijo,
       });
 
       if (insErr) {
-        // ✅ tu EXCLUDE constraint
         if ((insErr as any).code === "23P01") {
           conflicts.push({ fecha, inicio, fin, reason: "TURNOS_SOLAPADOS" });
           if (on_conflict === "abort") break;
           continue;
         }
-
         conflicts.push({ fecha, inicio, fin, reason: "ERROR_INSERT", detail: insErr });
         if (on_conflict === "abort") break;
         continue;
       }
-
       created_count++;
     }
 
@@ -412,9 +389,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: e?.message || "Error interno" }, { status: 500 });
   }
 }
+
 function dowFromISO(fechaISO: string) {
   const d = new Date(`${fechaISO}T00:00:00-03:00`);
-  return d.getDay(); // 0..6
+  return d.getDay(); 
 }
 
 function todayISO() {
@@ -428,27 +406,23 @@ function todayISO() {
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
-
     const id_club = Number(url.searchParams.get("id_club") || 0);
-    const fecha = url.searchParams.get("fecha"); // opcional
+    const fecha = url.searchParams.get("fecha"); 
     const include_future_count =
       url.searchParams.get("include_future_count") === "1" ||
       url.searchParams.get("include_future_count") === "true";
 
     if (!id_club) return NextResponse.json({ ok: false, error: "id_club requerido" }, { status: 400 });
 
-    // Auth
     const supabase = await getSupabaseServerClient();
     const { data: authRes, error: aErr } = await supabase.auth.getUser();
     if (aErr) return NextResponse.json({ ok: false, error: "No se pudo validar sesión" }, { status: 401 });
     const userId = authRes?.user?.id ?? null;
     if (!userId) return NextResponse.json({ ok: false, error: "LOGIN_REQUERIDO" }, { status: 401 });
 
-    // Permisos
     const perm = await assertAdminOrStaff({ id_club, userId });
     if (!perm.ok) return NextResponse.json({ ok: false, error: perm.error }, { status: perm.status });
 
-    // Templates base
     let q = supabaseAdmin
       .from("turnos_fijos")
       .select(
@@ -458,13 +432,11 @@ export async function GET(req: Request) {
       .order("activo", { ascending: false })
       .order("inicio", { ascending: true });
 
-    // Si viene fecha => filtrar “aplicables”
     if (fecha) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
         return NextResponse.json({ ok: false, error: "fecha inválida (YYYY-MM-DD)" }, { status: 400 });
       }
       const dow = dowFromISO(fecha);
-
       q = q
         .eq("dow", dow)
         .lte("start_date", fecha)
@@ -474,7 +446,6 @@ export async function GET(req: Request) {
     const { data: templates, error: tErr } = await q;
     if (tErr) return NextResponse.json({ ok: false, error: tErr.message }, { status: 500 });
 
-    // Si no pedís future_count, devolvemos directo
     if (!include_future_count) {
       return NextResponse.json({
         ok: true,
@@ -484,9 +455,7 @@ export async function GET(req: Request) {
       });
     }
 
-    // future_count (N+1) – OK si hay pocos templates
     const hoy = todayISO();
-
     const rows = await Promise.all(
       (templates || []).map(async (tf: any) => {
         const { count, error } = await supabaseAdmin
