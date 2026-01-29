@@ -21,6 +21,7 @@ import {
   Tag,
   Menu,
   X,
+  CalendarClock,
   BookOpen,
   LayoutGrid,
   ExternalLink,
@@ -184,6 +185,13 @@ export function Sidebar() {
       label: "Pagos / Caja",
       icon: <CreditCard size={18} />,
       allowedRoles: ["admin", "cajero"],
+    },
+    {
+      key: "turnos-fijos",
+      href: "/admin/turnos-fijos",
+      label: "Turnos fijos",
+      icon: <CalendarClock size={18} />,
+      allowedRoles: ["admin", "cajero", "staff"],
     },
   ];
 

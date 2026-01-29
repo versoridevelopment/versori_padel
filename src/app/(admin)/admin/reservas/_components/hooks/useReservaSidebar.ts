@@ -238,6 +238,10 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
     notas: "",
     canchaId: "",
     horaInicio: "",
+
+    // ✅ nuevos
+    weeksAhead: 8,
+    endDate: "", // YYYY-MM-DD o ""
   });
 
   const [priceLoading, setPriceLoading] = useState(false);
@@ -471,6 +475,36 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
 
     setCreateLoading(true);
     try {
+
+        if (formData.esTurnoFijo) {
+        const res = await fetch("/api/admin/turnos-fijos", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id_club: idClub,
+            id_cancha,
+            inicio,
+            duracion_min: dur,
+            tipo_turno: formData.tipoTurno,
+            notas: formData.notas.trim() || null,
+            cliente_nombre: formData.nombre.trim(),
+            cliente_telefono: formData.telefono.trim(),
+            cliente_email: formData.email.trim() || null,
+            start_date: fechaISO,
+            end_date: formData.endDate?.trim() || null,
+            weeks_ahead: Number(formData.weeksAhead || 8),
+            on_conflict: "skip",
+            // segmento_override lo resuelve el endpoint (profesor => profe)
+          }),
+        });
+
+        const json = await res.json().catch(() => null);
+        if (!res.ok || !json?.ok) throw new Error(json?.error || "No se pudo crear el turno fijo");
+
+        // opcional: toast con json.created_count y json.conflicts.length
+        onCreated();
+        return;
+      }
       const res = await fetch("/api/admin/reservas", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

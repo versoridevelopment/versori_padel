@@ -126,8 +126,12 @@ export default function ReservaSidebar(props: ReservaSidebarProps) {
               <button
                 onClick={handleCreate}
                 className="flex-1 py-2.5 bg-green-500 text-white rounded-full text-sm font-bold hover:bg-green-600 shadow-md flex items-center justify-center gap-2 disabled:opacity-60"
-                disabled={createLoading || priceLoading || !formData.precio || !formData.horaInicio || availableTimes.length === 0}
-              >
+                disabled={
+                    createLoading ||
+                    (!formData.esTurnoFijo && (priceLoading || !formData.precio)) ||
+                    !formData.horaInicio ||
+                    availableTimes.length === 0
+                  }    >
                 {createLoading && <Loader2 className="w-4 h-4 animate-spin" />}
                 Crear
               </button>

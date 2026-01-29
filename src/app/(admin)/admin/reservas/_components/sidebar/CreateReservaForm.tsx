@@ -1,6 +1,6 @@
-import { User, Phone, Mail, AlertCircle, Loader2 } from "lucide-react";
-import { formatMoney } from "../hooks/useReservaSidebar"; // Importar el helper
-import type { CanchaUI } from "../types"; // Ajustar ruta types
+import { User, Phone, Mail, AlertCircle, Loader2, CalendarDays } from "lucide-react";
+import { formatMoney } from "../hooks/useReservaSidebar";
+import type { CanchaUI } from "../types";
 
 interface Props {
   formData: any;
@@ -23,6 +23,17 @@ export default function CreateReservaForm({
   priceError,
   createError,
 }: Props) {
+  const esFijo = !!formData.esTurnoFijo;
+
+  const toggleFijo = (checked: boolean) => {
+    setFormData((p: any) => ({
+      ...p,
+      esTurnoFijo: checked,
+      weeksAhead: Number.isFinite(Number(p.weeksAhead)) && Number(p.weeksAhead) > 0 ? Number(p.weeksAhead) : 8,
+      endDate: p.endDate || "",
+    }));
+  };
+
   return (
     <form className="space-y-6" onSubmit={(e) => e.preventDefault()}>
       {/* SECCIÓN JUGADOR */}
@@ -45,6 +56,7 @@ export default function CreateReservaForm({
             <button
               type="button"
               className="absolute right-0 top-0 bottom-0 px-3 bg-green-600 rounded-r-lg text-white hover:bg-green-700"
+              tabIndex={-1}
             >
               <User className="w-4 h-4" />
             </button>
@@ -70,6 +82,7 @@ export default function CreateReservaForm({
             <button
               type="button"
               className="absolute right-0 top-0 bottom-0 px-3 bg-green-600 rounded-r-lg text-white hover:bg-green-700"
+              tabIndex={-1}
             >
               <Phone className="w-4 h-4" />
             </button>
@@ -127,9 +140,7 @@ export default function CreateReservaForm({
             disabled={!formData.canchaId || availableTimes.length === 0}
           >
             {!formData.canchaId && <option value="">Elegí una cancha</option>}
-            {formData.canchaId && availableTimes.length === 0 && (
-              <option value="">No hay horarios disponibles</option>
-            )}
+            {formData.canchaId && availableTimes.length === 0 && <option value="">No hay horarios disponibles</option>}
             {availableTimes.map((t) => (
               <option key={t.value} value={t.value}>
                 {t.label} (fin {t.finLabel})
@@ -144,18 +155,60 @@ export default function CreateReservaForm({
           )}
         </div>
 
-        {/* Fijo Checkbox */}
-        <div className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            id="fijo"
-            checked={formData.esTurnoFijo}
-            onChange={(e) => setFormData({ ...formData, esTurnoFijo: e.target.checked })}
-            className="w-4 h-4 text-green-600 rounded focus:ring-green-500"
-          />
-          <label htmlFor="fijo" className="text-sm text-gray-600">
-            Turno fijo
+        {/* Turno fijo */}
+        <div className="space-y-2">
+          <label className="flex items-center gap-2 text-sm font-semibold text-gray-700">
+            <input
+              type="checkbox"
+              checked={esFijo}
+              onChange={(e) => toggleFijo(e.target.checked)}
+              className="w-4 h-4 text-green-600 rounded focus:ring-green-500"
+            />
+            Turno fijo (semanal)
           </label>
+
+          {esFijo ? (
+            <div className="rounded-xl border border-green-200 bg-green-50 p-3 space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <div className="text-xs font-semibold text-gray-700 mb-1">Semanas a generar</div>
+                  <input
+                    type="number"
+                    min={1}
+                    max={52}
+                    value={Number(formData.weeksAhead || 8)}
+                    onChange={(e) =>
+                      setFormData((p: any) => ({ ...p, weeksAhead: Math.max(1, Math.min(52, Number(e.target.value || 8))) }))
+                    }
+                    className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm bg-white"
+                  />
+                  <div className="text-[11px] text-gray-600 mt-1">
+                    Se crearán reservas por adelantado (ej: 8 semanas).
+                  </div>
+                </div>
+
+                <div>
+                  <div className="text-xs font-semibold text-gray-700 mb-1">Hasta (opcional)</div>
+                  <div className="relative">
+                    <input
+                      type="date"
+                      value={formData.endDate || ""}
+                      onChange={(e) => setFormData((p: any) => ({ ...p, endDate: e.target.value }))}
+                      className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm bg-white pr-9"
+                    />
+                    <CalendarDays className="w-4 h-4 text-gray-400 absolute right-3 top-1/2 -translate-y-1/2" />
+                  </div>
+                  <div className="text-[11px] text-gray-600 mt-1">
+                    Si definís una fecha, no generará más allá de ese día.
+                  </div>
+                </div>
+              </div>
+
+              <div className="text-xs text-gray-700">
+                <span className="font-bold">Nota:</span> El precio no se fija acá. Se calcula y guarda en cada reserva creada (snapshot).
+              </div>
+            </div>
+          ) : null}
         </div>
 
         {/* Tipo de Turno */}
@@ -198,15 +251,26 @@ export default function CreateReservaForm({
         </div>
 
         {/* Precio */}
-        <div>
-          <label className="block text-xs font-bold text-gray-600 mb-1">Precio</label>
+        <div className={esFijo ? "opacity-60" : ""}>
+          <label className="block text-xs font-bold text-gray-600 mb-1">
+            Precio {esFijo ? "(informativo)" : ""}
+          </label>
+
           <div className="flex items-center gap-2">
             <div className="text-sm font-bold text-gray-800">{formatMoney(formData.precio)}</div>
-            {priceLoading && <Loader2 className="w-4 h-4 animate-spin text-slate-400" />}
+            {!esFijo && priceLoading && <Loader2 className="w-4 h-4 animate-spin text-slate-400" />}
           </div>
-          {priceError && (
+
+          {/* si es fijo, no mostramos error de precio como “bloqueante” */}
+          {!esFijo && priceError && (
             <div className="mt-1 text-xs text-red-600 flex items-center gap-1">
               <AlertCircle className="w-4 h-4" /> {priceError}
+            </div>
+          )}
+
+          {esFijo && (
+            <div className="mt-1 text-[11px] text-gray-600">
+              Para turno fijo el precio se calcula por fecha/instancia al generarlas.
             </div>
           )}
         </div>
