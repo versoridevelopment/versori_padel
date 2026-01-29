@@ -6,7 +6,7 @@ import { ArrowRight } from "lucide-react";
 import Container from "../ui/Container";
 
 export default function Profesores({ profesores }: { profesores: any[] }) {
-  // FIX: Filtrar para mostrar solo profesores activos en la home.
+  // Filtrar para mostrar solo profesores activos en la home.
   const profesoresActivos = profesores?.filter((p) => p.activo !== false) || [];
 
   if (profesoresActivos.length === 0) return null;
@@ -28,43 +28,55 @@ export default function Profesores({ profesores }: { profesores: any[] }) {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
-          {displayProfesores.map((profe) => (
-            <div
-              // CORRECCIÓN 1: Usamos 'id_profesor' en lugar de 'id'
-              key={profe.id_profesor}
-              className="bg-[#12141a] rounded-2xl overflow-hidden border border-white/5 group hover:border-white/20 transition-all duration-300 hover:-translate-y-2 shadow-lg hover:shadow-blue-900/10"
-            >
-              <div className="relative h-72 w-full bg-gray-800">
-                {profe.foto_url ? (
-                  <Image
-                    src={profe.foto_url}
-                    alt={profe.nombre}
-                    fill
-                    // CORRECCIÓN 2: Propiedad sizes para optimización
-                    sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
-                    className="object-cover group-hover:scale-105 transition-transform duration-500 grayscale group-hover:grayscale-0"
-                  />
-                ) : (
-                  <div className="flex items-center justify-center h-full text-gray-600 bg-gray-900">
-                    <span className="text-xs uppercase tracking-widest">
-                      Sin foto
-                    </span>
-                  </div>
-                )}
-                {/* Overlay gradiente */}
-                <div className="absolute inset-0 bg-gradient-to-t from-[#12141a] via-transparent to-transparent opacity-80" />
-              </div>
+          {displayProfesores.map((profe) => {
+            // Construimos el nombre completo para comparar
+            const nombreCompleto =
+              `${profe.nombre} ${profe.apellido || ""}`.trim();
 
-              <div className="p-6 relative -mt-12 text-center">
-                <h3 className="text-xl font-bold text-white mb-1">
-                  {profe.nombre} {profe.apellido}
-                </h3>
-                <p className="text-sm font-medium text-blue-400 uppercase tracking-wider">
-                  {profe.rol || "Entrenador"}
-                </p>
+            // LÓGICA PERSONALIZADA: Si es Rodrigo Toledo, forzamos el título
+            const tituloMostrar =
+              nombreCompleto === "Rodrigo Toledo"
+                ? "PREPARADOR FÍSICO"
+                : profe.rol || "ENTRENADOR";
+
+            return (
+              <div
+                key={profe.id_profesor}
+                className="bg-[#12141a] rounded-2xl overflow-hidden border border-white/5 group hover:border-white/20 transition-all duration-300 hover:-translate-y-2 shadow-lg hover:shadow-blue-900/10"
+              >
+                <div className="relative h-72 w-full bg-gray-800">
+                  {profe.foto_url ? (
+                    <Image
+                      src={profe.foto_url}
+                      alt={profe.nombre}
+                      fill
+                      sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
+                      className="object-cover group-hover:scale-105 transition-transform duration-500 grayscale group-hover:grayscale-0"
+                    />
+                  ) : (
+                    <div className="flex items-center justify-center h-full text-gray-600 bg-gray-900">
+                      <span className="text-xs uppercase tracking-widest">
+                        Sin foto
+                      </span>
+                    </div>
+                  )}
+                  {/* Overlay gradiente */}
+                  <div className="absolute inset-0 bg-gradient-to-t from-[#12141a] via-transparent to-transparent opacity-80" />
+                </div>
+
+                <div className="p-6 relative -mt-12 text-center">
+                  <h3 className="text-xl font-bold text-white mb-1">
+                    {nombreCompleto}
+                  </h3>
+
+                  {/* AQUÍ SE MUESTRA EL TÍTULO CALCULADO */}
+                  <p className="text-sm font-medium text-blue-400 uppercase tracking-wider">
+                    {tituloMostrar}
+                  </p>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         {/* --- BOTÓN CTA --- */}
