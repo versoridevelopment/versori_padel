@@ -8,11 +8,12 @@ export const revalidate = 0;
 
 type Segmento = "publico" | "profe";
 
-type Slot = {
-  absMin: number;
-  time: string;
-  dayOffset: 0 | 1;
-  available: boolean;
+type SlotPoint = {
+  absMin: number;          // punto en minutos (puede ser >1440)
+  time: string;            // HH:MM (mod 24)
+  dayOffset: 0 | 1;        // 0 fecha base, 1 fecha+1 si absMin>=1440
+  canStart: boolean;       // puedo arrancar en este punto
+  canEnd: boolean;         // puedo terminar en este punto
   reason: null | "reservado" | "bloqueado";
 };
 
@@ -20,7 +21,7 @@ type DaySlots = {
   label: string;
   dateISO: string;
   id_tarifario: number;
-  slots: Slot[];
+  slots: SlotPoint[];
   durations_allowed: number[];
   segmento: Segmento;
 };
@@ -43,12 +44,11 @@ type ReservaDb = {
   id_reserva: number;
   estado: string;
   expires_at: string | null;
-  inicio_ts: string; // puede venir sin TZ
-  fin_ts: string; // puede venir sin TZ
+  inicio_ts: string;
+  fin_ts: string;
 };
 
-// ---------------- Helpers AR ----------------
-
+// ---------- Helpers AR ----------
 function todayISOAR() {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/Argentina/Buenos_Aires",
@@ -99,17 +99,15 @@ function minToHHMM(absMin: number) {
   return `${pad2(hh)}:${pad2(mm)}`;
 }
 
-function uniqSortAbs(slots: Slot[]) {
-  const map = new Map<number, Slot>();
-  for (const s of slots) map.set(s.absMin, s);
-  return Array.from(map.values()).sort((a, b) => a.absMin - b.absMin);
+function roundDownToHalfHour(min: number) {
+  return Math.floor(min / 30) * 30;
+}
+function roundUpToHalfHour(min: number) {
+  return Math.ceil(min / 30) * 30;
 }
 
 /**
- * ✅ PARSEO ROBUSTO:
- * Si Supabase devuelve "YYYY-MM-DDTHH:MM:SS" (sin Z / sin offset),
- * en PROD (Node/Vercel) puede interpretarse distinto que en local.
- * Acá asumimos Argentina (-03:00) si viene "pelado".
+ * Parse robusto AR: si viene sin TZ lo asumimos -03:00
  */
 function parseTsAR(ts: string) {
   const s = String(ts || "");
@@ -117,8 +115,7 @@ function parseTsAR(ts: string) {
   return new Date(`${s}-03:00`).getTime();
 }
 
-// ---------------- Resoluciones DB ----------------
-
+// ---------- Resoluciones DB ----------
 async function resolveTarifarioId(params: { id_club: number; id_cancha: number }) {
   const { data: cancha, error: cErr } = await supabaseAdmin
     .from("canchas")
@@ -161,16 +158,49 @@ async function resolveSegmento(id_club: number): Promise<Segmento> {
     .eq("roles.nombre", "profe")
     .limit(1);
 
-  if (error) {
-    console.error("[resolveSegmento] error:", error);
-    return "publico";
-  }
-
+  if (error) return "publico";
   return data && data.length > 0 ? "profe" : "publico";
 }
 
-// ---------------- API ----------------
+// ---------- Utilidad: intervalos ----------
+type Interval = { start: number; end: number }; // minutos absolutos, end > start
 
+function mergeIntervals(intervals: Interval[]) {
+  const sorted = [...intervals].sort((a, b) => a.start - b.start);
+  const out: Interval[] = [];
+  for (const it of sorted) {
+    if (!out.length) out.push({ ...it });
+    else {
+      const last = out[out.length - 1];
+      if (it.start <= last.end) last.end = Math.max(last.end, it.end);
+      else out.push({ ...it });
+    }
+  }
+  return out;
+}
+
+function intervalCovers(intervals: Interval[], a: number, b: number) {
+  // existe algún intervalo que cubra completamente [a,b)
+  return intervals.some((it) => it.start <= a && b <= it.end);
+}
+
+type Busy = { startMs: number; endMs: number; reason: "reservado" | "bloqueado" };
+
+function overlapsInterval(busy: Busy[], aMs: number, bMs: number) {
+  // solapa si a < end && start < b
+  return busy.some((bi) => aMs < bi.endMs && bi.startMs < bMs);
+}
+
+function pointInsideBusyStrict(busy: Busy[], tMs: number) {
+  // IMPORTANTE: estricto => si t == startMs NO bloquea el "fin"
+  // (permite terminar cuando justo empieza una reserva)
+  for (const bi of busy) {
+    if (bi.startMs < tMs && tMs < bi.endMs) return bi.reason;
+  }
+  return null;
+}
+
+// ---------- API ----------
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
@@ -179,20 +209,11 @@ export async function GET(req: Request) {
     const id_cancha = Number(searchParams.get("id_cancha"));
     const fecha_desde = searchParams.get("fecha_desde") || todayISOAR();
     const dias = Number(searchParams.get("dias") || 7);
-    const debug = searchParams.get("debug") === "1";
 
-    if (!id_club || Number.isNaN(id_club)) {
-      return NextResponse.json({ error: "id_club es requerido" }, { status: 400 });
-    }
-    if (!id_cancha || Number.isNaN(id_cancha)) {
-      return NextResponse.json({ error: "id_cancha es requerido" }, { status: 400 });
-    }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha_desde)) {
-      return NextResponse.json({ error: "fecha_desde inválida (YYYY-MM-DD)" }, { status: 400 });
-    }
-    if (Number.isNaN(dias) || dias < 1 || dias > 14) {
-      return NextResponse.json({ error: "dias inválido (1..14)" }, { status: 400 });
-    }
+    if (!id_club || Number.isNaN(id_club)) return NextResponse.json({ error: "id_club es requerido" }, { status: 400 });
+    if (!id_cancha || Number.isNaN(id_cancha)) return NextResponse.json({ error: "id_cancha es requerido" }, { status: 400 });
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha_desde)) return NextResponse.json({ error: "fecha_desde inválida (YYYY-MM-DD)" }, { status: 400 });
+    if (Number.isNaN(dias) || dias < 1 || dias > 14) return NextResponse.json({ error: "dias inválido (1..14)" }, { status: 400 });
 
     const tar = await resolveTarifarioId({ id_club, id_cancha });
     if ("error" in tar) return NextResponse.json({ error: tar.error }, { status: 400 });
@@ -200,7 +221,7 @@ export async function GET(req: Request) {
 
     const segmento = await resolveSegmento(id_club);
 
-    // Ventana de búsqueda de reservas (en AR)
+    // Ventana de búsqueda reservas (AR)
     const windowStartMs = new Date(arMidnightISO(fecha_desde)).getTime();
     const windowEndMs = new Date(arMidnightISO(addDaysISO(fecha_desde, dias + 1))).getTime();
     const nowMs = Date.now();
@@ -214,35 +235,28 @@ export async function GET(req: Request) {
       .lt("inicio_ts", new Date(windowEndMs).toISOString())
       .gt("fin_ts", new Date(windowStartMs).toISOString());
 
-    if (resErr) {
-      return NextResponse.json({ error: `Error leyendo reservas: ${resErr.message}` }, { status: 500 });
-    }
+    if (resErr) return NextResponse.json({ error: `Error leyendo reservas: ${resErr.message}` }, { status: 500 });
 
     const reservas = (reservasRaw || []) as ReservaDb[];
 
-    const busyIntervals = reservas
+    const busyIntervals: Busy[] = reservas
       .map((r) => {
         const startMs = parseTsAR(r.inicio_ts);
         const endMs = parseTsAR(r.fin_ts);
         if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return null;
 
         if (r.estado === "confirmada") {
-          return { startMs, endMs, reason: "reservado" as const, id_reserva: r.id_reserva };
+          return { startMs, endMs, reason: "reservado" as const };
         }
 
-        // pendiente_pago: bloquea solo si expires_at es futura
+        // pendiente_pago: bloquea solo si expires_at futura
         const expMs = r.expires_at ? new Date(r.expires_at).getTime() : NaN;
         const vigente = Number.isFinite(expMs) ? expMs > nowMs : false;
         if (!vigente) return null;
 
-        return { startMs, endMs, reason: "bloqueado" as const, id_reserva: r.id_reserva };
+        return { startMs, endMs, reason: "bloqueado" as const };
       })
-      .filter(Boolean) as {
-      startMs: number;
-      endMs: number;
-      reason: "reservado" | "bloqueado";
-      id_reserva: number;
-    }[];
+      .filter(Boolean) as Busy[];
 
     const outDays: DaySlots[] = [];
 
@@ -252,9 +266,7 @@ export async function GET(req: Request) {
 
       const { data: reglas, error: rErr } = await supabaseAdmin
         .from("canchas_tarifas_reglas")
-        .select(
-          "id_regla,id_tarifario,segmento,dow,hora_desde,hora_hasta,cruza_medianoche,duracion_min,activo,vigente_desde,vigente_hasta"
-        )
+        .select("id_regla,id_tarifario,segmento,dow,hora_desde,hora_hasta,cruza_medianoche,duracion_min,activo,vigente_desde,vigente_hasta")
         .eq("id_tarifario", id_tarifario)
         .eq("activo", true)
         .eq("segmento", segmento)
@@ -262,9 +274,7 @@ export async function GET(req: Request) {
         .lte("vigente_desde", fecha)
         .or(`vigente_hasta.is.null,vigente_hasta.gte.${fecha}`);
 
-      if (rErr) {
-        return NextResponse.json({ error: `Error leyendo reglas: ${rErr.message}` }, { status: 500 });
-      }
+      if (rErr) return NextResponse.json({ error: `Error leyendo reglas: ${rErr.message}` }, { status: 500 });
 
       const rules = (reglas || []) as ReglaDb[];
 
@@ -272,62 +282,96 @@ export async function GET(req: Request) {
         .filter((n) => Number.isFinite(n) && n > 0)
         .sort((a, b) => a - b);
 
-      const dayStartMs = new Date(arMidnightISO(fecha)).getTime();
-      const slotsRaw: Slot[] = [];
+      // Intervalos permitidos por reglas (minutos absolutos)
+      const allowedRaw: Interval[] = [];
+      let minStart = Infinity;
+      let maxEnd = 0;
 
       for (const r of rules) {
         const start = toMin(r.hora_desde);
         const endBase = toMin(r.hora_hasta);
-
         const crosses = !!r.cruza_medianoche || endBase <= start;
         const end = crosses ? endBase + 1440 : endBase;
 
-        for (let m = start; m <= end; m += 30) {
-          const dayOffset = (m >= 1440 ? 1 : 0) as 0 | 1;
+        minStart = Math.min(minStart, start);
+        maxEnd = Math.max(maxEnd, end);
 
-          const slotMs = dayStartMs + m * 60_000;
-          const slotEndMs = slotMs + 30 * 60_000;
-
-          let available = true;
-          let reason: Slot["reason"] = null;
-
-          for (const bi of busyIntervals) {
-            if (slotMs < bi.endMs && bi.startMs < slotEndMs) {
-              available = false;
-              reason = bi.reason;
-              break;
-            }
-          }
-
-          slotsRaw.push({
-            absMin: m,
-            time: minToHHMM(m),
-            dayOffset,
-            available,
-            reason,
-          });
-        }
+        // Importante: en puntos trabajamos con rango [start, end]
+        // Para segmentos de 30m, consideramos [start, end) y generamos puntos hasta end.
+        allowedRaw.push({ start, end });
       }
 
-      const slots = uniqSortAbs(slotsRaw).map((s) => ({
-        absMin: s.absMin,
-        time: s.time,
-        dayOffset: s.dayOffset,
-        available: !!s.available,
-        reason: s.reason ?? null,
-      }));
+      if (minStart === Infinity) {
+        // sin reglas => sin slots
+        outDays.push({
+          label: dayLabel(fecha, i),
+          dateISO: fecha,
+          id_tarifario,
+          slots: [],
+          durations_allowed: durations_allowed.length ? durations_allowed : [60, 90, 120],
+          segmento,
+        });
+        continue;
+      }
+
+      minStart = roundDownToHalfHour(minStart);
+      maxEnd = roundUpToHalfHour(maxEnd);
+      if (maxEnd <= minStart) {
+        minStart = 8 * 60;
+        maxEnd = 26 * 60;
+      }
+
+      const allowed = mergeIntervals(allowedRaw);
+
+      const dayStartMs = new Date(arMidnightISO(fecha)).getTime();
+
+      // Generamos PUNTOS cada 30 min (incluye el end)
+      const points: SlotPoint[] = [];
+
+      for (let m = minStart; m <= maxEnd; m += 30) {
+        const dayOffset = (m >= 1440 ? 1 : 0) as 0 | 1;
+
+        const pointMs = dayStartMs + m * 60_000;
+
+        // Definimos segmento anterior y siguiente para canStart/canEnd
+        const nextA = m;
+        const nextB = m + 30;
+        const prevA = m - 30;
+        const prevB = m;
+
+        const nextSegAllowed = intervalCovers(allowed, nextA, nextB);
+        const prevSegAllowed = intervalCovers(allowed, prevA, prevB);
+
+        const nextSegFree = nextSegAllowed && !overlapsInterval(busyIntervals, dayStartMs + nextA * 60_000, dayStartMs + nextB * 60_000);
+        const prevSegFree = prevSegAllowed && !overlapsInterval(busyIntervals, dayStartMs + prevA * 60_000, dayStartMs + prevB * 60_000);
+
+        const canStart = !!nextSegFree;
+        const canEnd = !!prevSegFree;
+
+        // reason (solo para UI): si el punto cae estrictamente “adentro” de una reserva, marcamos
+        const reason = pointInsideBusyStrict(busyIntervals, pointMs);
+
+        points.push({
+          absMin: m,
+          time: minToHHMM(m),
+          dayOffset,
+          canStart,
+          canEnd,
+          reason,
+        });
+      }
 
       outDays.push({
         label: dayLabel(fecha, i),
         dateISO: fecha,
         id_tarifario,
-        slots,
+        slots: points,
         durations_allowed: durations_allowed.length ? durations_allowed : [60, 90, 120],
         segmento,
       });
     }
 
-    const body: any = {
+    const res = NextResponse.json({
       ok: true,
       id_club,
       id_cancha,
@@ -336,43 +380,16 @@ export async function GET(req: Request) {
       dias,
       segmento,
       days: outDays,
-    };
+    });
 
-    if (debug) {
-      body.debug = {
-        windowStartISO: new Date(windowStartMs).toISOString(),
-        windowEndISO: new Date(windowEndMs).toISOString(),
-        reservasRaw: reservas,
-        busyIntervals,
-        nowISO: new Date(nowMs).toISOString(),
-        parseExample: reservas.slice(0, 3).map((r) => ({
-          id_reserva: r.id_reserva,
-          inicio_ts_raw: r.inicio_ts,
-          fin_ts_raw: r.fin_ts,
-          inicio_ts_parsedISO: new Date(parseTsAR(r.inicio_ts)).toISOString(),
-          fin_ts_parsedISO: new Date(parseTsAR(r.fin_ts)).toISOString(),
-        })),
-      };
-    }
-
-    const res = NextResponse.json(body);
-
-    // Anti-cache fuerte (y explícito)
-    res.headers.set(
-      "Cache-Control",
-      "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0"
-    );
+    res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0");
     res.headers.set("Pragma", "no-cache");
     res.headers.set("Expires", "0");
-
     return res;
   } catch (e: any) {
     console.error("[GET /api/reservas/slots] ex:", e);
     const res = NextResponse.json({ error: e?.message || "Error interno" }, { status: 500 });
-    res.headers.set(
-      "Cache-Control",
-      "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0"
-    );
+    res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0");
     res.headers.set("Pragma", "no-cache");
     res.headers.set("Expires", "0");
     return res;

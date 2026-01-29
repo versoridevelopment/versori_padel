@@ -4,10 +4,18 @@ import Image from "next/image";
 import { useEffect, useMemo, useState, CSSProperties } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { Calendar, CheckCircle2, AlertTriangle, Clock, Lock, ArrowLeft, Loader2 } from "lucide-react";
+import {
+  Calendar,
+  CheckCircle2,
+  AlertTriangle,
+  Clock,
+  Lock,
+  ArrowLeft,
+  Loader2,
+} from "lucide-react";
 import type { Club } from "@/lib/ObetenerClubUtils/getClubBySubdomain";
 
-// --- TIPOS ---
+import SingleCourtAgenda, { type SlotPoint } from "./SingleCourtAgenda"; // 👈 ajustá ruta
 
 type Segmento = "publico" | "profe";
 
@@ -30,23 +38,15 @@ type PrecioPreviewOk = {
 
 type PrecioPreviewErr = { ok?: false; error: string };
 
-type Slot = {
-  absMin: number;
-  time: string;
-  dayOffset: 0 | 1;
-  available: boolean;
-  reason: null | "reservado" | "bloqueado";
-};
-
 type DaySlots = {
   label: string;
   dateISO: string;
-  slots: Slot[];
+  slots: SlotPoint[];
   durations_allowed: number[];
   segmento?: Segmento;
 };
 
-// --- HELPERS ---
+const CELL_MIN = 30;
 
 function addDaysISO(dateISO: string, add: number) {
   const [y, m, d] = dateISO.split("-").map(Number);
@@ -57,8 +57,6 @@ function addDaysISO(dateISO: string, add: number) {
   return `${yy}-${mm}-${dd}`;
 }
 
-// --- COMPONENTE PRINCIPAL ---
-
 export default function ReservaCanchaClient({
   club,
   cancha,
@@ -68,34 +66,31 @@ export default function ReservaCanchaClient({
 }) {
   const router = useRouter();
 
-  // 🚀 ESTADO DE CARGA DE NAVEGACIÓN
+  // loader navegación
   const [isNavigating, setIsNavigating] = useState(false);
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  // 1. Detectar fin de navegación para quitar el loader
   useEffect(() => {
     setIsNavigating(false);
   }, [pathname, searchParams]);
 
-  // Estados de datos
+  // data
   const [availableDays, setAvailableDays] = useState<DaySlots[]>([]);
   const [openDateISO, setOpenDateISO] = useState<string>("");
   const [openDayLabel, setOpenDayLabel] = useState<string>("Hoy");
   const [showDays, setShowDays] = useState(false);
   const [segmentoActual, setSegmentoActual] = useState<Segmento>("publico");
 
-  // Estados de selección
+  // selección por CELDAS (cada celda = 30m)
   const [anchorAbs, setAnchorAbs] = useState<number | null>(null);
   const [selectedAbs, setSelectedAbs] = useState<number[]>([]);
   const [validEndAbsSet, setValidEndAbsSet] = useState<Set<number>>(new Set());
   const [warning, setWarning] = useState<string | null>(null);
 
-  // Estados de precio
+  // precio
   const [priceLoading, setPriceLoading] = useState(false);
   const [pricePreview, setPricePreview] = useState<PrecioPreviewOk | PrecioPreviewErr | null>(null);
-
-  // -- Computados básicos --
 
   const openDay = useMemo(() => {
     return availableDays.find((d) => d.dateISO === openDateISO) || null;
@@ -106,7 +101,7 @@ export default function ReservaCanchaClient({
   }, [openDay]);
 
   const slotsByAbs = useMemo(() => {
-    const map = new Map<number, Slot>();
+    const map = new Map<number, SlotPoint>();
     for (const s of openDay?.slots || []) map.set(s.absMin, s);
     return map;
   }, [openDay]);
@@ -115,19 +110,37 @@ export default function ReservaCanchaClient({
     return (openDay?.slots || []).map((s) => s.absMin).sort((a, b) => a - b);
   }, [openDay]);
 
-  // -- Selección y Validación --
+  // ✅ celda libre = slot existe + canStart true + sin reason
+  const isCellFree = (abs: number) => {
+    const sl = slotsByAbs.get(abs);
+    return !!sl && sl.canStart === true && !sl.reason;
+  };
 
-  const hasValidSelection = selectedAbs.length >= 2;
-  const startAbs = hasValidSelection ? selectedAbs[0] : null;
-  const endAbs = hasValidSelection ? selectedAbs[selectedAbs.length - 1] : null;
+  const timeAt = (abs: number) => slotsByAbs.get(abs)?.time ?? null;
+
+  const resetSelection = () => {
+    setAnchorAbs(null);
+    setSelectedAbs([]);
+    setValidEndAbsSet(new Set());
+  };
+
+  // --- Computados selección por celdas ---
+  const hasAnySelection = selectedAbs.length >= 1;
+  const startCellAbs = hasAnySelection ? selectedAbs[0] : null;
+  const lastCellAbs = hasAnySelection ? selectedAbs[selectedAbs.length - 1] : null;
+
+  const endBoundaryAbs =
+    startCellAbs != null && lastCellAbs != null ? lastCellAbs + CELL_MIN : null;
+
   const durationMinutes =
-    hasValidSelection && startAbs != null && endAbs != null ? endAbs - startAbs : 0;
+    startCellAbs != null && endBoundaryAbs != null ? endBoundaryAbs - startCellAbs : 0;
+
   const durationOk = durationsAllowed.includes(durationMinutes);
 
-  const startSlot = startAbs != null ? slotsByAbs.get(startAbs) : null;
-  const endSlot = endAbs != null ? slotsByAbs.get(endAbs) : null;
-  const startTime = startSlot?.time ?? null;
-  const endTime = endSlot?.time ?? null;
+  const startTime = startCellAbs != null ? timeAt(startCellAbs) : null;
+  const endTime = endBoundaryAbs != null ? timeAt(endBoundaryAbs) : null;
+
+  const startSlot = startCellAbs != null ? slotsByAbs.get(startCellAbs) : null;
 
   const requestFecha = useMemo(() => {
     if (!openDateISO || !startSlot) return openDateISO;
@@ -144,8 +157,7 @@ export default function ReservaCanchaClient({
     });
   }, [openDateISO]);
 
-  // -- Efectos --
-
+  // --- Load slots ---
   useEffect(() => {
     let alive = true;
     async function loadSlots() {
@@ -164,6 +176,7 @@ export default function ReservaCanchaClient({
 
         const days = (data?.days || []) as DaySlots[];
         const seg = (data?.segmento || days?.[0]?.segmento || "publico") as Segmento;
+
         setSegmentoActual(seg);
         setAvailableDays(days);
 
@@ -184,33 +197,44 @@ export default function ReservaCanchaClient({
     };
   }, [club.id_club, cancha.id_cancha]);
 
-  function resetSelection() {
-    setAnchorAbs(null);
-    setSelectedAbs([]);
-    setValidEndAbsSet(new Set());
-  }
-
+  // --- Selector por celdas (30m) ---
   const handleSelect = (absMin: number) => {
     setWarning(null);
-    const s = slotsByAbs.get(absMin);
 
-    if (!s || (s.available === false || !!s.reason)) {
-      return;
-    }
+    // solo click en celdas libres
+    if (!isCellFree(absMin)) return;
 
+    // primer click -> anchor
     if (anchorAbs === null) {
       setAnchorAbs(absMin);
+
+      // valid ends = última CELDA a tocar
       const ends = new Set<number>();
+
       for (const d of durationsAllowed) {
-        const end = absMin + d;
-        const endS = slotsByAbs.get(end);
-        if (endS) ends.add(end);
+        const cellsNeeded = d / CELL_MIN; // 60->2, 90->3, 120->4
+        if (!Number.isFinite(cellsNeeded) || cellsNeeded < 1) continue;
+
+        const last = absMin + (cellsNeeded - 1) * CELL_MIN;
+        const boundary = last + CELL_MIN;
+
+        // 1) deben existir y ser libres todas las celdas del rango
+        const okRange = allAbsSorted
+          .filter((m) => m >= absMin && m <= last)
+          .every((m) => isCellFree(m));
+
+        // 2) boundary debe existir para poder tomar endTime
+        const boundaryExists = !!slotsByAbs.get(boundary);
+
+        if (okRange && boundaryExists) ends.add(last);
       }
+
       setValidEndAbsSet(ends);
       setSelectedAbs([absMin]);
       return;
     }
 
+    // segundo click: elegir última celda
     if (absMin === anchorAbs) {
       resetSelection();
       return;
@@ -222,15 +246,15 @@ export default function ReservaCanchaClient({
     }
 
     const start = Math.min(anchorAbs, absMin);
-    const end = Math.max(anchorAbs, absMin);
-    const range = allAbsSorted.filter((m) => m >= start && m <= end);
+    const endLastCell = Math.max(anchorAbs, absMin);
 
-    const hasBlockInMiddle = range.some((m) => {
-      const sl = slotsByAbs.get(m);
-      return sl?.available === false || !!sl?.reason;
-    });
+    // construir rango de celdas [start..endLastCell] cada 30m
+    const range: number[] = [];
+    for (let m = start; m <= endLastCell; m += CELL_MIN) range.push(m);
 
-    if (hasBlockInMiddle) {
+    // validar que no haya bloqueos en el medio
+    const hasBlock = range.some((m) => !isCellFree(m));
+    if (hasBlock) {
       setWarning("La selección incluye horarios no disponibles.");
       resetSelection();
       return;
@@ -241,11 +265,14 @@ export default function ReservaCanchaClient({
     setValidEndAbsSet(new Set());
   };
 
+  // --- Calcular precio ---
   useEffect(() => {
     let alive = true;
     async function calc() {
       setPricePreview(null);
-      if (!hasValidSelection || !durationOk || !startTime || !endTime) return;
+
+      // para cotizar: necesitamos duración válida y start/end time
+      if (!hasAnySelection || !durationOk || !startTime || !endTime) return;
 
       setPriceLoading(true);
       try {
@@ -261,6 +288,7 @@ export default function ReservaCanchaClient({
           }),
           cache: "no-store",
         });
+
         const data = await res.json().catch(() => null);
         if (!alive) return;
 
@@ -285,22 +313,32 @@ export default function ReservaCanchaClient({
         if (alive) setPriceLoading(false);
       }
     }
+
     calc();
     return () => {
       alive = false;
     };
-  }, [hasValidSelection, durationOk, startTime, endTime, requestFecha, club.id_club, cancha.id_cancha, durationMinutes]);
+  }, [
+    hasAnySelection,
+    durationOk,
+    startTime,
+    endTime,
+    requestFecha,
+    club.id_club,
+    cancha.id_cancha,
+    durationMinutes,
+  ]);
 
   const canConfirm = useMemo(() => {
     return (
-      hasValidSelection &&
+      hasAnySelection &&
       durationOk &&
       pricePreview &&
       "ok" in pricePreview &&
       pricePreview.ok &&
       pricePreview.precio_total > 0
     );
-  }, [hasValidSelection, durationOk, pricePreview]);
+  }, [hasAnySelection, durationOk, pricePreview]);
 
   const etiquetaTarifa = useMemo(() => {
     const seg =
@@ -309,8 +347,6 @@ export default function ReservaCanchaClient({
         : segmentoActual;
     return seg === "profe" ? "Tarifa Profe" : "Tarifa Público";
   }, [pricePreview, segmentoActual]);
-
-  // --- RENDER ---
 
   const customStyle = {
     "--primary": club.color_primario || "#3b82f6",
@@ -323,7 +359,7 @@ export default function ReservaCanchaClient({
       style={customStyle}
       className="min-h-screen bg-gradient-to-br from-slate-950 via-[#0a0f1d] to-[var(--primary)]/40 flex flex-col items-center text-white px-3 pt-24 pb-10 sm:px-6 sm:pt-36 sm:pb-12 relative selection:bg-[var(--primary)] selection:text-white"
     >
-      {/* 🌟 OVERLAY DE CARGA 🌟 */}
+      {/* overlay de carga */}
       {isNavigating && (
         <div className="fixed inset-0 z-[100] bg-neutral-950/80 backdrop-blur-sm flex flex-col items-center justify-center transition-opacity duration-300">
           <div className="flex flex-col items-center gap-4">
@@ -335,7 +371,7 @@ export default function ReservaCanchaClient({
 
       <button
         onClick={() => {
-          setIsNavigating(true); // 👈 Activamos al volver
+          setIsNavigating(true);
           router.back();
         }}
         className="absolute top-20 left-4 sm:top-28 z-20 flex items-center justify-center p-2 rounded-full bg-black/20 backdrop-blur-md border border-white/10 hover:bg-[var(--primary)] transition-all duration-300 group"
@@ -343,7 +379,7 @@ export default function ReservaCanchaClient({
         <ArrowLeft className="w-5 h-5 text-white group-hover:-translate-x-1 transition-transform" />
       </button>
 
-      {/* Hero Header */}
+      {/* hero */}
       <div className="w-full max-w-5xl relative z-10 mb-8">
         <div className="relative w-full h-48 sm:h-64 rounded-3xl overflow-hidden shadow-2xl border border-white/10">
           <Image src={cancha.imagen} alt={cancha.nombre} fill className="object-cover" priority />
@@ -368,12 +404,11 @@ export default function ReservaCanchaClient({
         </div>
       </div>
 
-      {/* Main Card */}
+      {/* card */}
       <div className="w-full max-w-5xl bg-[#111827]/60 backdrop-blur-xl border border-white/10 rounded-3xl p-4 sm:p-8 shadow-2xl relative overflow-hidden">
-        {/* Glow effect decorativo */}
         <div className="absolute -top-20 -right-20 w-64 h-64 bg-[var(--primary)] rounded-full blur-[100px] opacity-20 pointer-events-none" />
 
-        {/* Date Selector Header */}
+        {/* selector fecha */}
         <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4 relative z-10">
           <button
             onClick={() => setShowDays((p) => !p)}
@@ -383,7 +418,9 @@ export default function ReservaCanchaClient({
               <Calendar className="w-5 h-5 text-[var(--primary)]" />
               <div className="flex flex-col items-start">
                 <span className="text-xs text-neutral-400 uppercase font-bold tracking-wider">Fecha</span>
-                <span className="text-sm font-semibold capitalize text-white">{openDayLabel} <span className="opacity-50 font-normal">({fechaTexto})</span></span>
+                <span className="text-sm font-semibold capitalize text-white">
+                  {openDayLabel} <span className="opacity-50 font-normal">({fechaTexto})</span>
+                </span>
               </div>
             </div>
             <motion.span animate={{ rotate: showDays ? 180 : 0 }} className="text-neutral-400">
@@ -392,13 +429,23 @@ export default function ReservaCanchaClient({
           </button>
 
           <div className="flex gap-4 text-xs text-neutral-400">
-            <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-[var(--primary)] shadow-[0_0_8px_var(--primary)]"></div>Selección</div>
-            <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-emerald-500/20 border border-emerald-500/50"></div>Libre</div>
-            <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-black/40 border border-white/5 flex items-center justify-center"><Lock className="w-1.5 h-1.5 opacity-50"/></div>Ocupado</div>
+            <div className="flex items-center gap-1.5">
+              <div className="w-2 h-2 rounded-full bg-[var(--primary)] shadow-[0_0_8px_var(--primary)]"></div>
+              Selección
+            </div>
+            <div className="flex items-center gap-1.5">
+              <div className="w-2 h-2 rounded-full bg-emerald-500/20 border border-emerald-500/50"></div>
+              Libre
+            </div>
+            <div className="flex items-center gap-1.5">
+              <div className="w-2 h-2 rounded-full bg-black/40 border border-white/5 flex items-center justify-center">
+                <Lock className="w-1.5 h-1.5 opacity-50" />
+              </div>
+              Ocupado
+            </div>
           </div>
         </div>
 
-        {/* Date Dropdown */}
         <AnimatePresence>
           {showDays && (
             <motion.div
@@ -433,69 +480,44 @@ export default function ReservaCanchaClient({
           )}
         </AnimatePresence>
 
-        {/* Grilla de Horarios */}
+        {/* ✅ agenda vertical */}
         {!openDay ? (
-          <div className="h-40 flex items-center justify-center text-neutral-500 animate-pulse">Cargando disponibilidad...</div>
+          <div className="h-40 flex items-center justify-center text-neutral-500 animate-pulse">
+            Cargando disponibilidad...
+          </div>
         ) : openDay.slots.length === 0 ? (
           <div className="p-8 text-center bg-white/5 rounded-2xl border border-dashed border-white/10">
-            <p className="text-neutral-400">No hay canchas disponibles para esta fecha.</p>
+            <p className="text-neutral-400">No hay disponibilidad para esta fecha.</p>
           </div>
         ) : (
-          <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 gap-2 sm:gap-3">
-            {openDay.slots.sort((a, b) => a.absMin - b.absMin).map((slot) => {
-              const isBlocked = slot.available === false || !!slot.reason;
-              const isSelected = selectedAbs.includes(slot.absMin);
-              const isValidEnd = anchorAbs !== null && validEndAbsSet.has(slot.absMin);
-
-              if (isBlocked) {
-                return (
-                  <div
-                    key={`blocked-${slot.absMin}`}
-                    className="py-3 rounded-lg bg-black/30 border border-white/5 flex flex-col items-center justify-center text-xs text-neutral-600 select-none opacity-50 cursor-not-allowed"
-                  >
-                    <div className="flex items-center gap-1 mb-0.5">
-                      <Lock className="w-3 h-3" />
-                    </div>
-                    <span className="line-through decoration-neutral-600 text-[10px]">{slot.time}</span>
-                  </div>
-                );
-              }
-
-              // Slot Disponible
-              let slotClass = "bg-[#1f2937] border-white/5 text-neutral-300 hover:bg-[#374151]";
-              if (isSelected) slotClass = "bg-[var(--primary)] border-[var(--primary)] text-white shadow-[0_0_15px_var(--primary)] z-10 scale-105";
-              else if (isValidEnd) slotClass = "bg-emerald-900/30 border-emerald-500/50 text-emerald-100 cursor-pointer";
-
-              return (
-                <motion.button
-                  key={`slot-${slot.absMin}`}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={() => handleSelect(slot.absMin)}
-                  className={`
-                      relative py-3 rounded-lg border text-sm font-medium transition-all duration-200 flex flex-col items-center justify-center gap-0.5
-                      ${slotClass}
-                    `}
-                >
-                  <span className="font-bold tracking-tight">{slot.time}</span>
-                  {isSelected && <span className="text-[9px] uppercase opacity-80 font-bold">Inicio</span>}
-                </motion.button>
-              );
-            })}
-          </div>
+          <SingleCourtAgenda
+            slots={openDay.slots}
+            canchaNombre={cancha.nombre}
+            selectedAbs={selectedAbs}
+            anchorAbs={anchorAbs}
+            validEndAbsSet={validEndAbsSet}
+            onSelect={handleSelect}
+            primaryCssVar={"var(--primary)"}
+          />
         )}
 
-        {/* Validaciones y Footer */}
+        {/* footer / warnings */}
         <div className="mt-8 space-y-4">
           <AnimatePresence>
             {warning && (
-              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="bg-amber-500/10 border border-amber-500/20 text-amber-200 p-3 rounded-xl flex items-center gap-3 text-sm">
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                className="bg-amber-500/10 border border-amber-500/20 text-amber-200 p-3 rounded-xl flex items-center gap-3 text-sm"
+              >
                 <AlertTriangle className="w-5 h-5 text-amber-500" />
                 {warning}
               </motion.div>
             )}
           </AnimatePresence>
 
-          {hasValidSelection && durationOk && (
+          {hasAnySelection && durationOk && startTime && endTime && (
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -508,7 +530,9 @@ export default function ReservaCanchaClient({
                 <div>
                   <p className="text-neutral-400 text-xs uppercase font-bold tracking-wider">Resumen</p>
                   <div className="text-white font-medium flex gap-2 items-center">
-                    <span>{startTime} - {endTime}</span>
+                    <span>
+                      {startTime} - {endTime}
+                    </span>
                     <span className="w-1 h-1 bg-neutral-600 rounded-full" />
                     <span className="text-neutral-300">{durationMinutes} min</span>
                   </div>
@@ -541,7 +565,6 @@ export default function ReservaCanchaClient({
             onClick={async () => {
               if (!canConfirm || !startTime || !endTime) return;
 
-              // 1. 🔥 ACTIVAMOS EL LOADING INMEDIATAMENTE
               setIsNavigating(true);
 
               try {
@@ -561,27 +584,26 @@ export default function ReservaCanchaClient({
                 const data = await res.json().catch(() => null);
 
                 if (!res.ok) {
-                  // ❌ SI FALLA, QUITAMOS EL LOADING
                   setIsNavigating(false);
                   alert(data?.error || "No se pudo preparar la reserva");
                   return;
                 }
 
-                // ✅ SI OK, DEJAMOS EL LOADING Y REDIRIGIMOS
                 router.push("/reserva/confirmacion");
               } catch (error) {
-                // Error de red
                 setIsNavigating(false);
                 console.error(error);
                 alert("Error de conexión. Intente nuevamente.");
               }
             }}
             className={`
-                    w-full py-4 rounded-xl font-bold text-lg shadow-xl transition-all flex items-center justify-center gap-3
-                    ${canConfirm
-                ? "bg-[var(--primary)] hover:brightness-110 text-white shadow-[var(--primary)]/30 hover:shadow-[var(--primary)]/50 transform hover:-translate-y-1"
-                : "bg-white/5 text-neutral-600 cursor-not-allowed border border-white/5"}
-                  `}
+              w-full py-4 rounded-xl font-bold text-lg shadow-xl transition-all flex items-center justify-center gap-3
+              ${
+                canConfirm
+                  ? "bg-[var(--primary)] hover:brightness-110 text-white shadow-[var(--primary)]/30 hover:shadow-[var(--primary)]/50 transform hover:-translate-y-1"
+                  : "bg-white/5 text-neutral-600 cursor-not-allowed border border-white/5"
+              }
+            `}
           >
             Confirmar Reserva
             {canConfirm && <CheckCircle2 className="w-5 h-5" />}
