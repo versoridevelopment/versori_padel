@@ -27,8 +27,17 @@ import {
   User as UserIcon,
 } from "lucide-react";
 
-// Tipos
-type UserRole = "admin" | "cajero" | "profe"; // Agregamos 'profe' por si acaso
+// Tipos permitidos en la UI
+type UserRole = "admin" | "cajero" | "staff" | "profe" | "cliente";
+
+// MAPA DE ROLES (Basado en tu base de datos)
+const ROLE_MAP: Record<number, UserRole> = {
+  1: "admin",
+  2: "staff",
+  3: "cliente",
+  4: "profe",
+  5: "cajero",
+};
 
 type MenuLink = {
   key: string;
@@ -46,11 +55,10 @@ export function Sidebar() {
     ),
   );
 
-  // Estados de Usuario
   const [userRole, setUserRole] = useState<UserRole>("cajero");
   const [userData, setUserData] = useState<{
     nombreCompleto: string;
-    rolLabel: string; // Texto para mostrar en UI
+    rolLabel: string;
     fotoPerfil: string | null;
   }>({
     nombreCompleto: "Cargando...",
@@ -65,7 +73,6 @@ export function Sidebar() {
   const [isPersonalizacionOpen, setIsPersonalizacionOpen] = useState(false);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
 
-  // Helper para iniciales
   const getInitials = (name: string) => {
     if (!name || name === "Cargando...") return "";
     return name
@@ -79,23 +86,20 @@ export function Sidebar() {
   // --- CARGAR DATOS ---
   useEffect(() => {
     const loadUserAndRole = async () => {
-      // 1. Usuario Auth
+      // 1. Obtener Usuario
       const {
         data: { user },
       } = await supabase.auth.getUser();
 
       if (!user) return;
 
-      // 2. Determinar ID Club (Lógica Robusta)
-      let currentClubId = 9; // ⚠️ TEMPORAL: Forzamos el 9 (Fer Padel) para probar si es error de detección de host
+      // 2. Determinar Club ID
+      let currentClubId = 9;
 
-      // Intentamos detectar dinámicamente si estamos en producción
       if (typeof window !== "undefined") {
         const hostname = window.location.hostname;
         const subdomain = hostname.split(".")[0];
 
-        // Si es localhost y no es un subdominio explícito, usamos 9 por defecto para dev
-        // Si tienes lógica de subdominios locales (ej: ferpadel.localhost), esto funcionará:
         if (subdomain && subdomain !== "localhost" && subdomain !== "www") {
           const { data: clubData } = await supabase
             .from("clubes")
@@ -106,13 +110,6 @@ export function Sidebar() {
         }
       }
 
-      console.log(
-        "🔍 Buscando rol para Club ID:",
-        currentClubId,
-        "Usuario:",
-        user.id,
-      );
-
       // 3. Obtener Perfil
       const { data: profile } = await supabase
         .from("profiles")
@@ -120,48 +117,55 @@ export function Sidebar() {
         .eq("id_usuario", user.id)
         .single();
 
-      // 4. Obtener Rol (Consulta Segura)
-      const { data: rolesData, error: rolesError } = await supabase
+      // 4. Obtener Roles (CORRECCIÓN: Traemos TODOS los registros, no solo uno)
+      // Esto soluciona el error PGRST116 (3 rows returned)
+      const { data: memberships, error: memError } = await supabase
         .from("club_usuarios")
-        .select(
-          `
-            roles (
-                nombre
-            )
-        `,
-        )
+        .select("id_rol")
         .eq("id_usuario", user.id)
-        .eq("id_club", currentClubId)
-        .maybeSingle();
+        .eq("id_club", currentClubId);
 
-      if (rolesError) console.error("Error fetching roles:", rolesError);
+      if (memError) console.error("Error membresía:", memError);
 
-      // 5. Extracción Segura del Rol (Array vs Objeto)
-      let roleKey = "cajero"; // Fallback por defecto
-      const rawRoles = rolesData?.roles;
+      // 5. Lógica de Prioridad de Roles
+      // Si el usuario tiene multiples roles (ej: Cliente + Admin), priorizamos Admin.
+      let roleKey: UserRole = "cajero"; // Fallback seguro
 
-      if (rawRoles) {
-        if (Array.isArray(rawRoles) && rawRoles.length > 0) {
-          // Si devuelve array: [{ nombre: 'admin' }]
-          roleKey = rawRoles[0].nombre;
-        } else if (!Array.isArray(rawRoles) && (rawRoles as any).nombre) {
-          // Si devuelve objeto: { nombre: 'admin' }
-          roleKey = (rawRoles as any).nombre;
+      if (memberships && memberships.length > 0) {
+        // Extraemos todos los IDs de rol que tenga el usuario
+        const roleIds = memberships.map((m) => m.id_rol);
+
+        if (roleIds.includes(1)) {
+          roleKey = "admin";
+        } else if (roleIds.includes(5)) {
+          roleKey = "cajero";
+        } else if (roleIds.includes(2)) {
+          roleKey = "staff";
+        } else {
+          // Cualquier otro rol (cliente, profe)
+          const firstId = roleIds[0];
+          roleKey = ROLE_MAP[firstId] || "cliente";
         }
-      }
 
-      console.log("✅ Rol detectado en DB:", roleKey);
+        console.log(
+          `✅ Roles encontrados: [${roleIds.join(", ")}] -> Rol seleccionado: ${roleKey}`,
+        );
+      } else {
+        console.warn(
+          "⚠️ No se encontraron roles para este usuario en este club.",
+        );
+      }
 
       // 6. Actualizar Estado
       setUserData({
         nombreCompleto: profile
           ? `${profile.nombre} ${profile.apellido}`
           : "Usuario",
-        rolLabel: roleKey.charAt(0).toUpperCase() + roleKey.slice(1), // Capitalizar (ej: 'Admin')
+        rolLabel: roleKey.charAt(0).toUpperCase() + roleKey.slice(1),
         fotoPerfil: null,
       });
 
-      setUserRole(roleKey as UserRole);
+      setUserRole(roleKey);
     };
 
     loadUserAndRole();
@@ -194,21 +198,21 @@ export function Sidebar() {
   const isActive = (href: string) =>
     pathname === href || pathname.startsWith(`${href}/`);
 
-  // --- MENU ---
+  // --- CONFIGURACIÓN MENÚ ---
   const mainLinks: MenuLink[] = [
     {
       key: "dashboard",
       href: "/admin",
       label: "Dashboard",
       icon: <LayoutDashboard size={18} />,
-      allowedRoles: ["admin", "cajero"],
+      allowedRoles: ["admin", "cajero", "staff"],
     },
     {
       key: "reservas",
       href: "/admin/reservas",
       label: "Reservas",
       icon: <Calendar size={18} />,
-      allowedRoles: ["admin", "cajero"],
+      allowedRoles: ["admin", "cajero", "staff"],
     },
     {
       key: "usuarios",
@@ -345,22 +349,14 @@ export function Sidebar() {
           <h2 className="mt-3 text-sm font-semibold tracking-wide text-gray-100 text-center">
             {userData.nombreCompleto}
           </h2>
-
-          {/* ETIQUETA DE ROL DINÁMICA */}
           <span
-            className={`px-3 py-1 mt-2 text-[10px] uppercase font-bold tracking-wider rounded-full border 
-            ${
-              userRole === "admin"
-                ? "bg-blue-500/20 text-blue-300 border-blue-500/30"
-                : "bg-gray-700/50 text-gray-400 border-gray-600"
-            }`}
+            className={`px-2 py-0.5 mt-1 text-[10px] uppercase font-bold tracking-wider rounded-full border ${userRole === "admin" ? "bg-blue-900/40 text-blue-300 border-blue-800/50" : "bg-purple-900/40 text-purple-300 border-purple-800/50"}`}
           >
-            {userData.rolLabel}{" "}
-            {/* Aquí mostrará EXACTAMENTE lo que traiga la DB */}
+            {userData.rolLabel}
           </span>
         </div>
 
-        {/* NAVEGACIÓN */}
+        {/* NAV */}
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto custom-scrollbar">
           {visibleMainLinks.map((link) => (
             <Link
@@ -378,7 +374,6 @@ export function Sidebar() {
             </Link>
           ))}
 
-          {/* GESTIÓN */}
           {visibleGestionLinks.length > 0 && (
             <div className="pt-4 mt-2 border-t border-gray-800/50">
               <button
@@ -416,7 +411,6 @@ export function Sidebar() {
             </div>
           )}
 
-          {/* PERSONALIZACIÓN */}
           {visiblePersonalizacionLinks.length > 0 && (
             <div className="pt-2 mt-2">
               <button
@@ -457,7 +451,6 @@ export function Sidebar() {
           )}
         </nav>
 
-        {/* FOOTER */}
         <div className="p-3 border-t border-gray-800 bg-[#0b1623] space-y-2 pb-6 md:pb-3">
           <Link
             href="/"
@@ -465,7 +458,6 @@ export function Sidebar() {
           >
             <ExternalLink size={14} /> Volver al sitio
           </Link>
-
           <button
             onClick={() => {
               handleLogout();
