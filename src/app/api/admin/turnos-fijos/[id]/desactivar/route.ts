@@ -22,7 +22,6 @@ async function assertAdminOrStaff(params: { id_club: number; userId: string }) {
   return { ok: true as const };
 }
 
-// YYYY-MM-DD (AR local-ish). Para filtrar por fecha, esto alcanza.
 function todayISO() {
   const dt = new Date();
   const y = dt.getFullYear();
@@ -33,15 +32,16 @@ function todayISO() {
 
 type Body = {
   id_club: number;
-  cancelar_futuras?: boolean; // default true
-  motivo?: string | null; // opcional
-  // opcional: si querés cancelar también las de HOY (default true)
+  cancelar_futuras?: boolean;
+  motivo?: string | null;
   incluir_hoy?: boolean;
 };
 
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const id_turno_fijo = Number(params.id);
+    const resolvedParams = await params;
+    const id_turno_fijo = Number(resolvedParams.id);
+    
     if (!id_turno_fijo) return NextResponse.json({ error: "ID inválido" }, { status: 400 });
 
     const body = (await req.json().catch(() => null)) as Body | null;
@@ -52,18 +52,15 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
     if (!id_club) return NextResponse.json({ error: "id_club requerido" }, { status: 400 });
 
-    // Auth
     const supabase = await getSupabaseServerClient();
     const { data: authRes, error: aErr } = await supabase.auth.getUser();
     if (aErr) return NextResponse.json({ error: "No se pudo validar sesión" }, { status: 401 });
     const userId = authRes?.user?.id ?? null;
     if (!userId) return NextResponse.json({ error: "LOGIN_REQUERIDO" }, { status: 401 });
 
-    // Permisos
     const perm = await assertAdminOrStaff({ id_club, userId });
     if (!perm.ok) return NextResponse.json({ error: perm.error }, { status: perm.status });
 
-    // Verificar que el turno fijo es del club
     const { data: tf, error: tfErr } = await supabaseAdmin
       .from("turnos_fijos")
       .select("id_turno_fijo,id_club,activo")
@@ -75,7 +72,6 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       return NextResponse.json({ error: "Turno fijo no encontrado" }, { status: 404 });
     }
 
-    // 1) Desactivar template
     const { error: upErr } = await supabaseAdmin
       .from("turnos_fijos")
       .update({ activo: false, updated_at: new Date().toISOString() })
@@ -86,14 +82,8 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
     let canceled_count = 0;
 
-    // 2) Cancelar instancias futuras (opcional)
     if (cancelar_futuras) {
       const hoy = todayISO();
-
-      // Si incluir_hoy=false => solo fecha > hoy
-      // Si incluir_hoy=true  => fecha >= hoy
-      const fechaOp = incluir_hoy ? "gte" : "gt";
-
       const updatePayload: any = {
         estado: "cancelada",
         cancelado_por: userId,
@@ -101,7 +91,6 @@ export async function POST(req: Request, { params }: { params: { id: string } })
         motivo_cancelacion: motivo,
       };
 
-      // supabase-js no deja operador dinámico directo, así que armamos 2 ramas
       const base = supabaseAdmin
         .from("reservas")
         .update(updatePayload)
@@ -114,15 +103,10 @@ export async function POST(req: Request, { params }: { params: { id: string } })
         : await base.gt("fecha", hoy).select("id_reserva");
 
       if (canErr) return NextResponse.json({ error: canErr.message }, { status: 500 });
-
       canceled_count = Array.isArray(upd) ? upd.length : 0;
     }
 
-    return NextResponse.json({
-      ok: true,
-      id_turno_fijo,
-      canceled_count,
-    });
+    return NextResponse.json({ ok: true, id_turno_fijo, canceled_count });
   } catch (e: any) {
     console.error("[POST /api/admin/turnos-fijos/:id/desactivar] ex:", e);
     return NextResponse.json({ error: e?.message || "Error interno" }, { status: 500 });
