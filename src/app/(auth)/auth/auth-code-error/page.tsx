@@ -1,12 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { createBrowserClient } from "@supabase/ssr";
 
 export default function AuthCodeErrorPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const [msg, setMsg] = useState("Recuperando sesión...");
 
   const supabase = useMemo(() => {
@@ -26,9 +25,11 @@ export default function AuthCodeErrorPage() {
   useEffect(() => {
     const run = async () => {
       try {
-        const next = searchParams.get("next") || "/";
+        // ✅ leer next desde window (evita useSearchParams + Suspense)
+        const url = new URL(window.location.href);
+        const next = url.searchParams.get("next") || "/";
 
-        // #access_token=...&refresh_token=...&type=signup...
+        // ✅ Parsear hash: #access_token=...&refresh_token=...&type=signup...
         const hash = window.location.hash?.startsWith("#")
           ? window.location.hash.slice(1)
           : "";
@@ -53,6 +54,7 @@ export default function AuthCodeErrorPage() {
           return;
         }
 
+        // ✅ forzar refresh para que middleware/layout lean cookies
         router.refresh();
         router.replace(next);
       } catch (e: any) {
