@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { motion } from "framer-motion";
 import { supabase } from "../../../lib/supabase/supabaseClient";
@@ -10,6 +10,8 @@ type MessageType = "success" | "error" | "info" | null;
 
 const ResetPasswordPage = () => {
   const router = useRouter();
+  const searchParams = useSearchParams();
+
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -21,24 +23,42 @@ const ResetPasswordPage = () => {
   const [isSessionValid, setIsSessionValid] = useState(true);
   const [isCompleted, setIsCompleted] = useState(false);
 
-  // 1. AL CARGAR: Verificar sesión y SETEAR COOKIE
+  // 1) AL CARGAR: si viene ?code=... (PKCE) -> exchange -> sesión -> cookie
   useEffect(() => {
-    const checkSession = async () => {
-      const { data } = await supabase.auth.getSession();
+    const init = async () => {
+      try {
+        const code = searchParams.get("code");
 
-      if (!data.session) {
+        // ✅ PKCE: convertir "code" en sesión
+        if (code) {
+          const { error } = await supabase.auth.exchangeCodeForSession(code);
+          if (error) {
+            console.error("[ResetPassword] exchangeCodeForSession error:", error);
+          }
+
+          // ✅ limpiar URL para que no quede ?code=... y no se re-ejecute
+          router.replace("/reset-password");
+        }
+
+        const { data } = await supabase.auth.getSession();
+
+        if (!data.session) {
+          setIsSessionValid(false);
+          setMessage("El enlace es inválido o ya fue utilizado. Solicitá uno nuevo.");
+          document.cookie = "recovery_pending=; path=/; max-age=0";
+        } else {
+          document.cookie = "recovery_pending=true; path=/; max-age=3600";
+        }
+      } catch (e) {
+        console.error("[ResetPassword] init error:", e);
         setIsSessionValid(false);
         setMessage("El enlace es inválido o ya fue utilizado. Solicitá uno nuevo.");
-
-        // Si no hay sesión, borramos la cookie para no bloquear el futuro login
         document.cookie = "recovery_pending=; path=/; max-age=0";
-      } else {
-        // Cookie que el middleware usa para bloquear otras páginas
-        document.cookie = "recovery_pending=true; path=/; max-age=3600";
       }
     };
-    checkSession();
-  }, []);
+
+    init();
+  }, [router, searchParams]);
 
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
@@ -85,7 +105,6 @@ const ResetPasswordPage = () => {
     setIsLoading(true);
 
     try {
-      // 2. Race Condition Fix
       const updatePasswordPromise = async () => {
         const { error } = await supabase.auth.updateUser({ password });
         if (error) throw error;
@@ -97,7 +116,7 @@ const ResetPasswordPage = () => {
 
       await Promise.race([updatePasswordPromise(), timeoutPromise]);
 
-      // 3. ÉXITO: BORRAR COOKIE, CERRAR SESIÓN Y MOSTRAR MENSAJE EN PANTALLA
+      // ÉXITO: borrar cookie y cerrar sesión
       document.cookie = "recovery_pending=; path=/; max-age=0";
       await supabase.auth.signOut();
 
@@ -105,7 +124,7 @@ const ResetPasswordPage = () => {
       setMessageType("success");
       setIsCompleted(true);
     } catch (err: any) {
-      if (err.message === "TIMEOUT_FORCE_SUCCESS") {
+      if (err?.message === "TIMEOUT_FORCE_SUCCESS") {
         console.warn("Forzando éxito por timeout.");
 
         document.cookie = "recovery_pending=; path=/; max-age=0";
@@ -221,15 +240,9 @@ const ResetPasswordPage = () => {
           </div>
         )}
 
-        <form
-          noValidate
-          onSubmit={handleSubmit}
-          className="flex flex-col gap-4 text-left"
-        >
+        <form noValidate onSubmit={handleSubmit} className="flex flex-col gap-4 text-left">
           <div>
-            <label className="block text-sm text-gray-300 mb-1">
-              Nueva contraseña
-            </label>
+            <label className="block text-sm text-gray-300 mb-1">Nueva contraseña</label>
             <input
               type="password"
               value={password}
@@ -241,15 +254,11 @@ const ResetPasswordPage = () => {
                 errors.password ? "border-red-500" : "border-blue-900/40"
               } text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-600`}
             />
-            {errors.password && (
-              <p className="mt-1 text-xs text-red-400">{errors.password}</p>
-            )}
+            {errors.password && <p className="mt-1 text-xs text-red-400">{errors.password}</p>}
           </div>
 
           <div>
-            <label className="block text-sm text-gray-300 mb-1">
-              Confirmar contraseña
-            </label>
+            <label className="block text-sm text-gray-300 mb-1">Confirmar contraseña</label>
             <input
               type="password"
               value={confirmPassword}
@@ -262,9 +271,7 @@ const ResetPasswordPage = () => {
               } text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-600`}
             />
             {errors.confirmPassword && (
-              <p className="mt-1 text-xs text-red-400">
-                {errors.confirmPassword}
-              </p>
+              <p className="mt-1 text-xs text-red-400">{errors.confirmPassword}</p>
             )}
           </div>
 
