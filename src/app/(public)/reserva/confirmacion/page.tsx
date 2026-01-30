@@ -709,16 +709,6 @@ function ConfirmacionTurno() {
             )}
           </div>
         </div>
-
-        <div className="text-center mt-6 flex justify-center gap-4 opacity-50">
-          <Image
-            src="/sponsors/versori/VERSORI_TRANSPARENTE.PNG"
-            alt="Versori"
-            width={80}
-            height={30}
-            className="grayscale hover:grayscale-0 transition-all"
-          />
-        </div>
       </motion.div>
     </section>
   );

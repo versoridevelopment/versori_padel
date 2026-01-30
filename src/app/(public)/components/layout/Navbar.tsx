@@ -15,7 +15,7 @@ import {
   User as UserIcon,
   Loader2,
   LayoutDashboard,
-  CalendarDays, // Icono para Mis Reservas
+  CalendarDays,
 } from "lucide-react";
 
 interface NavbarProps {
@@ -29,7 +29,7 @@ interface NavbarProps {
 type UserProfile = {
   nombre: string | null;
   apellido: string | null;
-  isAdmin?: boolean;
+  canAccessPanel?: boolean;
 };
 
 const Navbar = ({
@@ -48,8 +48,6 @@ const Navbar = ({
 
   const [hidden, setHidden] = useState<boolean>(false);
   const [lastScrollY, setLastScrollY] = useState<number>(0);
-
-  // CONTROL DE HIDRATACIÓN
   const [isMounted, setIsMounted] = useState(false);
 
   const [user, setUser] = useState<User | null>(initialUser);
@@ -62,7 +60,6 @@ const Navbar = ({
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  // 1. Evitar Mismatch
   useEffect(() => {
     setIsMounted(true);
   }, []);
@@ -101,24 +98,25 @@ const Navbar = ({
           .eq("id_usuario", userId)
           .single();
 
-        // Ajusta el ID Club según tu lógica real (aquí ejemplo id=1)
+        // Obtener roles para determinar acceso al panel
         const { data: rolesData } = await supabase
           .from("club_usuarios")
           .select("roles(nombre)")
-          .eq("id_usuario", userId)
-          .eq("id_club", 1);
+          .eq("id_usuario", userId);
 
-        // Manejo seguro de array de roles
-        let isAdmin = false;
+        let canAccessPanel = false;
         if (rolesData && Array.isArray(rolesData)) {
+          // 🔴 MODIFICACIÓN: Quitamos 'profe' de la lista permitida para ver el botón
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          isAdmin = rolesData.some((r: any) => r.roles?.nombre === "admin");
+          canAccessPanel = rolesData.some((r: any) =>
+            ["admin", "cajero", "staff"].includes(r.roles?.nombre),
+          );
         }
 
         setUserProfile({
           nombre: profile?.nombre ?? null,
           apellido: profile?.apellido ?? null,
-          isAdmin,
+          canAccessPanel,
         });
       } catch (err) {
         console.error("Error fetching profile", err);
@@ -216,7 +214,6 @@ const Navbar = ({
                   alt={`${brandName} Logo`}
                   fill
                   className="object-contain"
-                  // FIX: Tamaños exactos para evitar warning y mismatch
                   sizes="(max-width: 768px) 32px, 40px"
                   priority
                 />
@@ -268,7 +265,6 @@ const Navbar = ({
               </Link>
             </nav>
 
-            {/* SECCIÓN USUARIO (Protegida con isMounted para evitar Hydration Error) */}
             {isMounted ? (
               !user ? (
                 <div className="flex items-center gap-4 border-l border-neutral-800 pl-6 ml-2">
@@ -289,7 +285,8 @@ const Navbar = ({
                 </div>
               ) : (
                 <div className="flex items-center gap-4 border-l border-neutral-800 pl-6 ml-2">
-                  {userProfile?.isAdmin && (
+                  {/* BOTÓN PANEL (Solo si canAccessPanel es true) */}
+                  {userProfile?.canAccessPanel && (
                     <Link
                       href="/admin/"
                       onClick={() => handleNavClick("/admin/")}
@@ -303,11 +300,10 @@ const Navbar = ({
                     </Link>
                   )}
 
-                  {/* NUEVO: ENLACE A MIS RESERVAS */}
                   <Link
                     href="/mis-reservas"
                     onClick={() => handleNavClick("/mis-reservas")}
-                    className="group flex flex-col items-end cursor-pointer"
+                    className="group flex flex-col items-end cursor-pointer ml-4 mr-2"
                     title="Ver mis reservas"
                   >
                     <span className="text-neutral-200 text-sm font-semibold whitespace-nowrap group-hover:text-blue-400 transition-colors">
@@ -345,7 +341,6 @@ const Navbar = ({
                 </div>
               )
             ) : (
-              // FIX: Placeholder EXACTAMENTE del mismo ancho que el estado inicial para evitar salto
               <div className="w-[140px] h-8"></div>
             )}
           </div>
@@ -427,7 +422,8 @@ const Navbar = ({
                       : "Bienvenido"}
                   </p>
 
-                  {userProfile?.isAdmin && (
+                  {/* BOTÓN PANEL MÓVIL */}
+                  {userProfile?.canAccessPanel && (
                     <Link
                       href="/admin/"
                       onClick={() => handleNavClick("/admin/")}
@@ -437,7 +433,6 @@ const Navbar = ({
                     </Link>
                   )}
 
-                  {/* ENLACE MÓVIL A MIS RESERVAS */}
                   <Link
                     href="/mis-reservas"
                     onClick={() => handleNavClick("/mis-reservas")}

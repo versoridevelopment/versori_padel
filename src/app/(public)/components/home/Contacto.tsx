@@ -17,14 +17,10 @@ export default function Contacto({ data, colors, phoneOverride }: Props) {
 
   // --- 2. LÓGICA DE UBICACIÓN ---
   const dirObj = data.direcciones?.[0];
-
-  // Extraemos datos evitando undefined
   const calle = dirObj?.calle?.trim() || "";
-  // En la DB es 'altura_calle', aseguramos compatibilidad
   const altura = dirObj?.altura_calle?.trim() || dirObj?.altura?.trim() || "";
   const barrio = dirObj?.barrio?.trim() || "";
 
-  // A. Texto para mostrar en pantalla
   let direccionVisual = "";
   if (calle) {
     direccionVisual += calle;
@@ -35,19 +31,23 @@ export default function Contacto({ data, colors, phoneOverride }: Props) {
   }
   const hayDireccion = direccionVisual.length > 0;
 
-  // B. URL para Google Maps (Búsqueda inteligente)
-  // Generamos un query string: "Calle Altura, Barrio"
   const googleMapsUrl = hayDireccion
     ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(direccionVisual)}`
     : "#";
 
   // --- 3. OTROS DATOS ---
-  const email = data.email || "No especificado";
+  // Validamos que el email exista y no esté vacío
+  const email = data.email && data.email.trim() !== "" ? data.email : null;
   const instagramUser = data.usuario_instagram;
+
+  // --- 4. LÓGICA DE GRILLA DINÁMICA ---
+  // Si hay email, usamos 4 columnas en Desktop. Si no, usamos 3.
+  const gridColsClass = email
+    ? "lg:grid-cols-4"
+    : "lg:grid-cols-3 max-w-5xl mx-auto"; // max-w-5xl ayuda a que no se estiren demasiado si son 3
 
   return (
     <section className="py-20 bg-[#0b0d12] border-t border-white/5 relative overflow-hidden">
-      {/* Fondo decorativo sutil */}
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-full bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-blue-900/10 via-[#0b0d12] to-[#0b0d12] pointer-events-none" />
 
       <Container className="relative z-10">
@@ -61,9 +61,11 @@ export default function Contacto({ data, colors, phoneOverride }: Props) {
             </p>
           </div>
 
-          {/* GRILLA DE CONTACTO */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {/* 1. UBICACIÓN (Con enlace a Maps) */}
+          {/* GRILLA DE CONTACTO DINÁMICA */}
+          <div
+            className={`grid grid-cols-1 md:grid-cols-2 ${gridColsClass} gap-6`}
+          >
+            {/* 1. UBICACIÓN */}
             <div className="flex flex-col items-center text-center p-6 rounded-2xl bg-white/[0.02] border border-white/5 hover:border-white/10 transition-colors group h-full">
               <div className="p-4 rounded-full bg-white/5 group-hover:bg-white/10 transition-colors mb-4 text-blue-500">
                 <MapPin className="w-6 h-6" style={{ color: colors.primary }} />
@@ -109,18 +111,20 @@ export default function Contacto({ data, colors, phoneOverride }: Props) {
               )}
             </div>
 
-            {/* 3. EMAIL */}
-            <div className="flex flex-col items-center text-center p-6 rounded-2xl bg-white/[0.02] border border-white/5 hover:border-white/10 transition-colors group h-full">
-              <div className="p-4 rounded-full bg-white/5 group-hover:bg-white/10 transition-colors mb-4">
-                <Mail className="w-6 h-6" style={{ color: colors.primary }} />
+            {/* 3. EMAIL (SOLO SE RENDERIZA SI EXISTE) */}
+            {email && (
+              <div className="flex flex-col items-center text-center p-6 rounded-2xl bg-white/[0.02] border border-white/5 hover:border-white/10 transition-colors group h-full">
+                <div className="p-4 rounded-full bg-white/5 group-hover:bg-white/10 transition-colors mb-4">
+                  <Mail className="w-6 h-6" style={{ color: colors.primary }} />
+                </div>
+                <h3 className="text-white font-semibold mb-2 text-sm uppercase tracking-wider">
+                  Email
+                </h3>
+                <p className="text-gray-300 font-medium break-all">{email}</p>
               </div>
-              <h3 className="text-white font-semibold mb-2 text-sm uppercase tracking-wider">
-                Email
-              </h3>
-              <p className="text-gray-300 font-medium break-all">{email}</p>
-            </div>
+            )}
 
-            {/* 4. REDES (Instagram) */}
+            {/* 4. REDES */}
             <div className="flex flex-col items-center text-center p-6 rounded-2xl bg-white/[0.02] border border-white/5 hover:border-white/10 transition-colors group h-full">
               <div className="p-4 rounded-full bg-white/5 group-hover:bg-white/10 transition-colors mb-4">
                 <Instagram className="w-6 h-6 text-pink-500" />

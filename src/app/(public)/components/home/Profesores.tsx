@@ -51,7 +51,11 @@ export default function Profesores({ profesores }: { profesores: any[] }) {
                       alt={profe.nombre}
                       fill
                       sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
-                      className="object-cover group-hover:scale-105 transition-transform duration-500 grayscale group-hover:grayscale-0"
+                      // CAMBIO AQUÍ:
+                      // 1. Quitamos 'grayscale' base (para que en móvil sea color).
+                      // 2. Agregamos 'lg:grayscale' (solo B&N en pantallas grandes).
+                      // 3. 'lg:group-hover:grayscale-0' (recupera color al hover en escritorio).
+                      className="object-cover group-hover:scale-105 transition-transform duration-500 lg:grayscale lg:group-hover:grayscale-0"
                     />
                   ) : (
                     <div className="flex items-center justify-center h-full text-gray-600 bg-gray-900">
