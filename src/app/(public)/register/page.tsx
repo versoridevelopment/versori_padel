@@ -20,6 +20,23 @@ const formatName = (value: string) => {
     .join(" ");
 };
 
+const COOLDOWN_SECONDS = 60;
+
+async function apiResendSmart(email: string, redirectTo: string) {
+  const r = await fetch("/api/auth/resend-signup", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, redirectTo }),
+  });
+
+  const j = await r.json().catch(() => ({}));
+  return {
+    ok: Boolean(j.ok),
+    status: j.status as "CONFIRMED" | "RESENT" | "NOT_FOUND" | undefined,
+    error: j.error as string | undefined,
+  };
+}
+
 const RegisterPage: FC = () => {
   const [nombre, setNombre] = useState("");
   const [apellido, setApellido] = useState("");
@@ -39,6 +56,10 @@ const RegisterPage: FC = () => {
   const [clubLogo, setClubLogo] = useState<string | null>(null);
   const [clubLoading, setClubLoading] = useState(true);
   const [subdomain, setSubdomain] = useState<string | null>(null);
+
+  // ✅ Cooldown / Resend
+  const [cooldown, setCooldown] = useState(0);
+  const [resending, setResending] = useState(false);
 
   useEffect(() => {
     const fetchClub = async () => {
@@ -62,30 +83,83 @@ const RegisterPage: FC = () => {
     fetchClub();
   }, []);
 
+  // --- Cooldown helpers (persistente) ---
+  const cooldownKey = (mail: string) =>
+    `resend_cooldown_until:${mail.toLowerCase().trim()}`;
+
+  const startCooldown = (mail: string) => {
+    const until = Date.now() + COOLDOWN_SECONDS * 1000;
+    try {
+      localStorage.setItem(cooldownKey(mail), String(until));
+    } catch {}
+    setCooldown(COOLDOWN_SECONDS);
+  };
+
+  const syncCooldownFromStorage = (mail: string) => {
+    try {
+      const raw = localStorage.getItem(cooldownKey(mail));
+      if (!raw) return;
+      const until = Number(raw);
+      if (!Number.isFinite(until)) return;
+
+      const remaining = Math.max(0, Math.ceil((until - Date.now()) / 1000));
+      setCooldown(remaining);
+    } catch {}
+  };
+
+  useEffect(() => {
+    if (!isSubmitted) return;
+    const mail = email.trim();
+    if (!mail) return;
+
+    syncCooldownFromStorage(mail);
+
+    const id = window.setInterval(() => {
+      try {
+        const raw = localStorage.getItem(cooldownKey(mail));
+        const until = raw ? Number(raw) : 0;
+        const remaining = Math.max(0, Math.ceil((until - Date.now()) / 1000));
+        setCooldown(remaining);
+      } catch {
+        setCooldown((prev) => Math.max(0, prev - 1));
+      }
+    }, 1000);
+
+    return () => window.clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSubmitted]);
+
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
 
     if (!nombre.trim()) newErrors.nombre = "El nombre es obligatorio.";
-    else if (nombre.trim().length < 2) newErrors.nombre = "El nombre debe tener al menos 2 caracteres.";
+    else if (nombre.trim().length < 2)
+      newErrors.nombre = "El nombre debe tener al menos 2 caracteres.";
 
     if (!apellido.trim()) newErrors.apellido = "El apellido es obligatorio.";
-    else if (apellido.trim().length < 2) newErrors.apellido = "El apellido debe tener al menos 2 caracteres.";
+    else if (apellido.trim().length < 2)
+      newErrors.apellido = "El apellido debe tener al menos 2 caracteres.";
 
     const telClean = telefono.replace(/\D/g, "");
     if (!telClean) newErrors.telefono = "El teléfono es obligatorio.";
-    else if (telClean.length < 6) newErrors.telefono = "El teléfono debe tener al menos 6 dígitos.";
+    else if (telClean.length < 6)
+      newErrors.telefono = "El teléfono debe tener al menos 6 dígitos.";
 
     if (!email.trim()) newErrors.email = "El email es obligatorio.";
     else {
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(email.trim())) newErrors.email = "Ingresá un email válido.";
+      if (!emailRegex.test(email.trim()))
+        newErrors.email = "Ingresá un email válido.";
     }
 
     if (!password) newErrors.password = "La contraseña es obligatoria.";
-    else if (password.length < 6) newErrors.password = "La contraseña debe tener al menos 6 caracteres.";
+    else if (password.length < 6)
+      newErrors.password = "La contraseña debe tener al menos 6 caracteres.";
 
-    if (!confirmPassword) newErrors.confirmPassword = "Debés confirmar la contraseña.";
-    else if (password !== confirmPassword) newErrors.confirmPassword = "Las contraseñas no coinciden.";
+    if (!confirmPassword)
+      newErrors.confirmPassword = "Debés confirmar la contraseña.";
+    else if (password !== confirmPassword)
+      newErrors.confirmPassword = "Las contraseñas no coinciden.";
 
     setErrors(newErrors);
 
@@ -96,6 +170,74 @@ const RegisterPage: FC = () => {
     }
 
     return true;
+  };
+
+  // ✅ Flujo correcto: SOLO manda a "Registro procesado" si NO está confirmado
+  const smartExistingFlow = async (mail: string) => {
+    const redirectTo = `${window.location.origin}/auth/callback`;
+    const res = await apiResendSmart(mail, redirectTo);
+
+    if (!res.ok) {
+      setMessage("No se pudo procesar el reenvío: " + (res.error || "Error"));
+      setMessageType("error");
+      setIsSubmitted(false);
+      return;
+    }
+
+    if (res.status === "CONFIRMED") {
+      setMessage(
+        "Atención: este email ya está registrado. Iniciá sesión con tu contraseña original."
+      );
+      setMessageType("warning");
+      setIsSubmitted(false);
+      return;
+    }
+
+    // RESENT o NOT_FOUND (por seguridad, mensaje genérico)
+    setMessage(
+      "Si este email existe y todavía no está verificado, te reenviamos el enlace de verificación. Revisá tu correo."
+    );
+    setMessageType("warning");
+    setIsSubmitted(true);
+    startCooldown(mail);
+  };
+
+  const handleResend = async () => {
+    const mail = email.trim().toLowerCase();
+    if (!mail) return;
+    if (cooldown > 0) return;
+
+    setResending(true);
+    setMessage(null);
+    setMessageType(null);
+
+    try {
+      const redirectTo = `${window.location.origin}/auth/callback`;
+      const res = await apiResendSmart(mail, redirectTo);
+
+      if (!res.ok) {
+        setMessage("No se pudo reenviar: " + (res.error || "Error"));
+        setMessageType("error");
+        setResending(false);
+        return;
+      }
+
+      if (res.status === "CONFIRMED") {
+        setMessage("Este email ya está verificado. Iniciá sesión con tu contraseña.");
+        setMessageType("warning");
+        setResending(false);
+        return;
+      }
+
+      setMessage("Listo ✅ Si corresponde, te reenviamos el enlace. Revisá tu correo.");
+      setMessageType("success");
+      startCooldown(mail);
+      setResending(false);
+    } catch {
+      setMessage("Ocurrió un error al reenviar. Intentá de nuevo.");
+      setMessageType("error");
+      setResending(false);
+    }
   };
 
   const handleSignUp = async (e: FormEvent) => {
@@ -114,11 +256,13 @@ const RegisterPage: FC = () => {
 
     setIsLoading(true);
 
-    // (Opcional) tu check de profiles, lo dejo intacto:
+    const mail = email.trim().toLowerCase();
+
+    // Tu check de profiles lo dejamos, pero ahora NO decide confirmado/no confirmado.
     const { data: existingProfile, error: profileError } = await supabase
       .from("profiles")
       .select("id_usuario")
-      .eq("email", email.trim())
+      .eq("email", mail)
       .maybeSingle();
 
     if (profileError) {
@@ -129,20 +273,17 @@ const RegisterPage: FC = () => {
       return;
     }
 
+    // Si existe en el sistema, resolvemos con endpoint (CONFIRMED vs RESENT)
     if (existingProfile) {
-      setMessage(
-        "Atención: este email ya está registrado en el sistema VERSORI. Ya te registraste en otro club. Iniciá sesión con tu contraseña original."
-      );
-      setMessageType("warning");
+      await smartExistingFlow(mail);
       setIsLoading(false);
       return;
     }
 
-    // ✅ Callback SSR que intercambia code -> cookies
     const redirectTo = `${window.location.origin}/auth/callback`;
 
     const { error: signUpError } = await supabase.auth.signUp({
-      email: email.trim(),
+      email: mail,
       password,
       options: {
         data: {
@@ -157,14 +298,17 @@ const RegisterPage: FC = () => {
 
     if (signUpError) {
       console.error("[Register] signUp error:", signUpError);
-      const msg = signUpError.message || "";
-      if (msg.toLowerCase().includes("already registered") || msg.toLowerCase().includes("already exists")) {
-        setMessage("Atención: este email ya está registrado. Iniciá sesión con tu contraseña original.");
-        setMessageType("warning");
-      } else {
-        setMessage("Error al registrar: " + signUpError.message);
-        setMessageType("error");
+      const msg = (signUpError.message || "").toLowerCase();
+
+      // Si Supabase dice que ya existe, resolvemos con endpoint (CONFIRMED vs RESENT)
+      if (msg.includes("already registered") || msg.includes("already exists")) {
+        await smartExistingFlow(mail);
+        setIsLoading(false);
+        return;
       }
+
+      setMessage("Error al registrar: " + signUpError.message);
+      setMessageType("error");
       setIsLoading(false);
       return;
     }
@@ -172,6 +316,7 @@ const RegisterPage: FC = () => {
     setMessage("Te enviamos un enlace de verificación. Revisá tu correo para activar tu cuenta.");
     setMessageType("success");
     setIsSubmitted(true);
+    startCooldown(mail);
     setIsLoading(false);
   };
 
@@ -199,12 +344,33 @@ const RegisterPage: FC = () => {
               className={`mb-4 text-sm p-3 rounded-xl border ${
                 messageType === "error"
                   ? "bg-red-500/10 text-red-300 border-red-500/40"
+                  : messageType === "warning"
+                  ? "bg-amber-500/10 text-amber-200 border-amber-500/40"
                   : "bg-emerald-500/10 text-emerald-300 border-emerald-500/40"
               }`}
             >
               {message}
             </div>
           )}
+
+          <div className="mt-6 space-y-3">
+            <button
+              type="button"
+              onClick={handleResend}
+              disabled={resending || cooldown > 0}
+              className="w-full bg-blue-600 hover:bg-blue-700 transition-all py-3 rounded-xl disabled:opacity-60"
+            >
+              {resending
+                ? "Reenviando..."
+                : cooldown > 0
+                ? `Reenviar email en ${cooldown}s`
+                : "Reenviar email de verificación"}
+            </button>
+
+            <p className="text-xs text-neutral-400">
+              Si no lo ves, revisá Spam/Promociones. El enlace puede tardar unos segundos.
+            </p>
+          </div>
 
           <p className="text-neutral-400 text-sm mt-6">
             Ya podés ir a{" "}
