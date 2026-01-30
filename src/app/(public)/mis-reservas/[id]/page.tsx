@@ -2,7 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, Download, CheckCircle2, Clock, XCircle } from "lucide-react";
+import {
+  ArrowLeft,
+  Download,
+  CheckCircle2,
+  Clock,
+  XCircle,
+} from "lucide-react";
 import jsPDF from "jspdf";
 
 type Estado = "pendiente_pago" | "confirmada" | "expirada" | "rechazada";
@@ -40,7 +46,10 @@ type Detalle = {
 function fmtMoney(n: any) {
   const v = Number(n || 0);
   if (!Number.isFinite(v)) return "-";
-  return new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS" }).format(v);
+  return new Intl.NumberFormat("es-AR", {
+    style: "currency",
+    currency: "ARS",
+  }).format(v);
 }
 
 function downloadPdf(r: Detalle) {
@@ -57,7 +66,13 @@ function downloadPdf(r: Detalle) {
   doc.line(margin, y, pageW - margin, y);
   y += 10;
 
-  const labelValue = (xL: number, xV: number, yy: number, label: string, value: string) => {
+  const labelValue = (
+    xL: number,
+    xV: number,
+    yy: number,
+    label: string,
+    value: string,
+  ) => {
     doc.setFontSize(11);
     doc.setTextColor(90);
     doc.text(label, xL, yy);
@@ -93,7 +108,7 @@ function downloadPdf(r: Detalle) {
     rightV,
     rowY,
     "Horario",
-    `${r.inicio ?? "-"} - ${r.fin ?? "-"}${r.fin_dia_offset === 1 ? " (+1)" : ""}`
+    `${r.inicio ?? "-"} - ${r.fin ?? "-"}${r.fin_dia_offset === 1 ? " (+1)" : ""}`,
   );
   rowY += 10;
 
@@ -101,7 +116,13 @@ function downloadPdf(r: Detalle) {
   labelValue(rightL, rightV, rowY, "Anticipo", fmtMoney(r.monto_anticipo));
   rowY += 10;
 
-  labelValue(leftL, leftV, rowY, "Confirmada", r.confirmed_at ? String(r.confirmed_at) : "-");
+  labelValue(
+    leftL,
+    leftV,
+    rowY,
+    "Confirmada",
+    r.confirmed_at ? String(r.confirmed_at) : "-",
+  );
 
   y += boxH + 10;
 
@@ -162,7 +183,7 @@ function downloadPdf(r: Detalle) {
     "Este comprobante es una constancia de la reserva registrada en el sistema.",
     pageW / 2,
     285,
-    { align: "center" }
+    { align: "center" },
   );
 
   doc.save(`comprobante-reserva-${r.id_reserva}.pdf`);
@@ -187,7 +208,9 @@ export default function ReservaDetallePage() {
       setLoading(true);
       setErr(null);
       try {
-        const res = await fetch(`/api/reservas/${id_reserva}/detalle`, { cache: "no-store" });
+        const res = await fetch(`/api/reservas/${id_reserva}/detalle`, {
+          cache: "no-store",
+        });
         const json = await res.json().catch(() => null);
 
         if (!alive) return;
@@ -215,7 +238,8 @@ export default function ReservaDetallePage() {
     };
   }, [id_reserva]);
 
-  if (!id_reserva) return <div className="p-10 text-white">Reserva inválida</div>;
+  if (!id_reserva)
+    return <div className="p-10 text-white">Reserva inválida</div>;
 
   return (
     <section className="min-h-screen bg-gradient-to-b from-[#001a33] to-[#002b5b] text-white px-6 py-10">
@@ -245,9 +269,12 @@ export default function ReservaDetallePage() {
           <div className="bg-[#0b2545] border border-[#1b4e89] rounded-3xl p-8">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h1 className="text-2xl font-bold">Reserva #{data.id_reserva}</h1>
+                <h1 className="text-2xl font-bold">
+                  Reserva #{data.id_reserva}
+                </h1>
                 <p className="text-neutral-300 mt-1">
-                  {data.club_nombre ?? "Club"} · {data.cancha_nombre ?? "Cancha"}
+                  {data.club_nombre ?? "Club"} ·{" "}
+                  {data.cancha_nombre ?? "Cancha"}
                 </p>
               </div>
 
@@ -292,7 +319,9 @@ export default function ReservaDetallePage() {
 
                 <div className="flex justify-between gap-4">
                   <span className="text-neutral-400">Confirmada</span>
-                  <span>{data.confirmed_at ? String(data.confirmed_at) : "-"}</span>
+                  <span>
+                    {data.confirmed_at ? String(data.confirmed_at) : "-"}
+                  </span>
                 </div>
               </div>
 

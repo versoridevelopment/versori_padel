@@ -212,14 +212,7 @@ export default function DashboardPage() {
           color="cyan"
           subtext="Ocupación real"
         />
-        <KpiCard
-          title="Lead Time"
-          value={`${kpis.anticipacion} hs`}
-          icon={Hourglass}
-          color="amber"
-          subtext="Antelación promedio"
-          tooltip="Tiempo promedio entre la reserva y el partido."
-        />
+
         <KpiCard
           title="Cancelaciones"
           value={`${kpis.tasaCancelacion.toFixed(1)}%`}

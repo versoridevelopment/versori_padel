@@ -19,7 +19,13 @@ export type ReservaUI = {
   horaFin: string; // HH:MM
   fin_dia_offset: number;
 
-  estado: "confirmada" | "pendiente_pago" | "cancelada" | "expirada" | "finalizada" | string;
+  estado:
+    | "confirmada"
+    | "pendiente_pago"
+    | "cancelada"
+    | "expirada"
+    | "finalizada"
+    | string;
 
   precio_total: number;
   monto_anticipo: number;
@@ -36,6 +42,7 @@ export type ReservaUI = {
 
   inicio_ts: string;
   fin_ts: string;
+  origen?: string;
 };
 
 export type AgendaApiResponse = {
@@ -48,10 +55,33 @@ export type AgendaApiResponse = {
   reservas: ReservaUI[];
 };
 
-export const THEME_COLORS: Record<CourtTheme, { header: string; bg: string; border: string }> = {
-  blue: { header: "bg-blue-600 text-white", bg: "bg-blue-50", border: "border-blue-200" },
-  green: { header: "bg-emerald-600 text-white", bg: "bg-emerald-50", border: "border-emerald-200" },
-  purple: { header: "bg-purple-600 text-white", bg: "bg-purple-50", border: "border-purple-200" },
-  orange: { header: "bg-orange-600 text-white", bg: "bg-orange-50", border: "border-orange-200" },
-  rose: { header: "bg-rose-600 text-white", bg: "bg-rose-50", border: "border-rose-200" },
+export const THEME_COLORS: Record<
+  CourtTheme,
+  { header: string; bg: string; border: string }
+> = {
+  blue: {
+    header: "bg-blue-600 text-white",
+    bg: "bg-blue-50",
+    border: "border-blue-200",
+  },
+  green: {
+    header: "bg-emerald-600 text-white",
+    bg: "bg-emerald-50",
+    border: "border-emerald-200",
+  },
+  purple: {
+    header: "bg-purple-600 text-white",
+    bg: "bg-purple-50",
+    border: "border-purple-200",
+  },
+  orange: {
+    header: "bg-orange-600 text-white",
+    bg: "bg-orange-50",
+    border: "border-orange-200",
+  },
+  rose: {
+    header: "bg-rose-600 text-white",
+    bg: "bg-rose-50",
+    border: "border-rose-200",
+  },
 };

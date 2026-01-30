@@ -1,6 +1,15 @@
-import { X, Loader2 } from "lucide-react";
+import {
+  X,
+  DollarSign,
+  CreditCard,
+  StickyNote,
+  AlertCircle,
+  Loader2,
+} from "lucide-react";
+// AJUSTA ESTOS IMPORTS SEGÚN TU ESTRUCTURA REAL
+// Si CobroModal está en sidebar/, entonces types está dos niveles arriba
+import type { ReservaUI } from "../../types";
 import { formatMoney } from "../hooks/useReservaSidebar";
-import type { ReservaUI } from "../types";
 
 interface Props {
   isOpen: boolean;
@@ -8,8 +17,10 @@ interface Props {
   reserva: ReservaUI | null;
   monto: number;
   setMonto: (v: number) => void;
-  metodo: "efectivo" | "transferencia";
-  setMetodo: (v: "efectivo" | "transferencia") => void;
+  metodo: string;
+  // Cambiamos el tipo para que acepte string o el tipo específico que venga del hook
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  setMetodo: (v: any) => void;
   nota: string;
   setNota: (v: string) => void;
   loading: boolean;
@@ -31,85 +42,118 @@ export default function CobroModal({
   error,
   onConfirm,
 }: Props) {
-  if (!isOpen) return null;
+  if (!isOpen || !reserva) return null;
 
   return (
-    <div className="fixed inset-0 z-[60] grid place-items-center bg-black/40 p-4">
-      <div className="w-full max-w-md rounded-2xl bg-white shadow-xl border border-gray-100">
-        <div className="p-4 border-b flex items-center justify-between">
-          <div className="font-black text-slate-800">Cobrar</div>
-          <button className="p-2 rounded-lg hover:bg-gray-100" onClick={onClose}>
-            <X className="w-5 h-5 text-gray-500" />
-          </button>
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+      <div
+        className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+        onClick={onClose}
+      />
+
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 transform transition-all scale-100">
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full"
+          title="Cerrar"
+          aria-label="Cerrar modal de cobro"
+        >
+          <X className="w-5 h-5" />
+        </button>
+
+        <div className="text-center mb-6">
+          <div className="w-12 h-12 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-3">
+            <DollarSign className="w-6 h-6" />
+          </div>
+          <h3 className="text-lg font-bold text-gray-800">Registrar Cobro</h3>
+          <p className="text-sm text-gray-500">
+            Reserva #{reserva.id_reserva} • Saldo:{" "}
+            {formatMoney(reserva.saldo_pendiente)}
+          </p>
         </div>
 
-        <div className="p-4 space-y-3">
-          <div className="text-sm text-slate-600">
-            {reserva ? (
-              <>
-                Reserva #{reserva.id_reserva} — Saldo: <strong>{formatMoney(reserva.saldo_pendiente)}</strong>
-              </>
-            ) : (
-              <>Seleccioná una reserva</>
-            )}
+        <div className="space-y-4">
+          {/* Input Monto */}
+          <div>
+            <label
+              htmlFor="cobro-monto"
+              className="block text-xs font-bold text-gray-500 uppercase mb-1"
+            >
+              Monto a cobrar
+            </label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+                $
+              </span>
+              <input
+                id="cobro-monto"
+                type="number"
+                value={monto}
+                onChange={(e) => setMonto(Number(e.target.value))}
+                className="w-full pl-7 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 outline-none font-medium"
+                placeholder="0.00"
+              />
+            </div>
           </div>
 
+          {/* Select Método */}
           <div>
-            <label className="block text-xs font-bold text-gray-600 mb-1">Monto</label>
-            <input
-              type="number"
-              className="w-full p-2 bg-gray-50 border border-gray-300 rounded-lg text-sm outline-none"
-              value={monto}
-              onChange={(e) => setMonto(Number(e.target.value))}
-              min={0}
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold text-gray-600 mb-1">Método</label>
+            {/* CORRECCIÓN CSS: Quitamos 'block' porque ya usamos 'flex' */}
+            <label
+              htmlFor="cobro-metodo"
+              className="flex items-center gap-2 text-xs font-bold text-gray-500 uppercase mb-1"
+            >
+              <CreditCard className="w-3 h-3" /> Método de Pago
+            </label>
             <select
-              className="w-full p-2 bg-gray-50 border border-gray-300 rounded-lg text-sm outline-none"
+              id="cobro-metodo"
               value={metodo}
-              onChange={(e) => setMetodo(e.target.value as any)}
+              onChange={(e) => setMetodo(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none bg-white"
             >
               <option value="efectivo">Efectivo</option>
               <option value="transferencia">Transferencia</option>
+              <option value="debito">Débito</option>
+              <option value="credito">Crédito</option>
+              <option value="mercadopago">MercadoPago (QR/Link)</option>
             </select>
           </div>
 
+          {/* Input Notas */}
           <div>
-            <label className="block text-xs font-bold text-gray-600 mb-1">Nota (opcional)</label>
-            <input
-              type="text"
-              className="w-full p-2 bg-gray-50 border border-gray-300 rounded-lg text-sm outline-none"
+            {/* CORRECCIÓN CSS: Quitamos 'block' */}
+            <label
+              htmlFor="cobro-nota"
+              className="flex items-center gap-2 text-xs font-bold text-gray-500 uppercase mb-1"
+            >
+              <StickyNote className="w-3 h-3" /> Nota (Opcional)
+            </label>
+            <textarea
+              id="cobro-nota"
               value={nota}
               onChange={(e) => setNota(e.target.value)}
-              placeholder="Ej: Pagó en caja"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none text-sm resize-none h-20"
+              placeholder="Detalles adicionales..."
             />
           </div>
 
           {error && (
-            <div className="p-3 rounded-lg border border-red-200 bg-red-50 text-sm text-red-700">
-              {error}
+            <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>{error}</span>
             </div>
           )}
-        </div>
 
-        <div className="p-4 border-t flex gap-3">
           <button
-            className="flex-1 py-2.5 border border-gray-300 text-gray-700 rounded-full text-sm font-bold hover:bg-gray-50"
-            onClick={onClose}
-            disabled={loading}
-          >
-            Cerrar
-          </button>
-          <button
-            className="flex-1 py-2.5 bg-green-500 text-white rounded-full text-sm font-bold hover:bg-green-600 shadow-md flex items-center justify-center gap-2 disabled:opacity-60"
             onClick={onConfirm}
-            disabled={loading || !reserva}
+            disabled={loading || monto <= 0}
+            className="w-full py-3 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 shadow-lg shadow-green-900/20 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
           >
-            {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-            Confirmar cobro
+            {loading ? (
+              <Loader2 className="w-5 h-5 animate-spin" />
+            ) : (
+              "Confirmar Cobro"
+            )}
           </button>
         </div>
       </div>
