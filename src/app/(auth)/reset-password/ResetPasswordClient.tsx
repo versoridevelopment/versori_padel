@@ -6,6 +6,10 @@ import Image from "next/image";
 import { motion } from "framer-motion";
 import { supabase } from "../../../lib/supabase/supabaseClient";
 
+// ✅ Multi-tenant helpers (mismos que usás en login/forgot)
+import { getSubdomainFromHost } from "@/lib/ObetenerClubUtils/tenantUtils";
+import { getClubBySubdomain } from "@/lib/ObetenerClubUtils/getClubBySubdomain";
+
 type MessageType = "success" | "error" | "info" | null;
 
 function isSamePasswordError(err: any) {
@@ -20,7 +24,6 @@ function isSamePasswordError(err: any) {
 
   const m = raw.toLowerCase();
 
-  // Variantes típicas (GoTrue/Supabase)
   return (
     m.includes("different from the old") ||
     m.includes("should be different") ||
@@ -34,6 +37,10 @@ export default function ResetPasswordClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
+  // ✅ Multi-tenant UI states
+  const [clubLogo, setClubLogo] = useState<string | null>(null);
+  const [loadingClub, setLoadingClub] = useState(true);
+
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -45,20 +52,40 @@ export default function ResetPasswordClient() {
   const [isSessionValid, setIsSessionValid] = useState(true);
   const [isCompleted, setIsCompleted] = useState(false);
 
+  // ✅ 0) Cargar logo por subdominio (igual que login)
+  useEffect(() => {
+    const fetchClub = async () => {
+      try {
+        const host = window.location.host; // ej: "ferpadel.versorisports.com"
+        const hostname = host.split(":")[0];
+
+        const sub = getSubdomainFromHost(hostname);
+
+        if (sub) {
+          const club = await getClubBySubdomain(sub);
+          if (club?.logo_url) setClubLogo(club.logo_url);
+        }
+      } catch (e) {
+        console.error("[ResetPassword] fetchClub error:", e);
+      } finally {
+        setLoadingClub(false);
+      }
+    };
+
+    fetchClub();
+  }, []);
+
   // 1) AL CARGAR: si viene ?code=... (PKCE) -> exchange -> sesión -> cookie
   useEffect(() => {
     const init = async () => {
       try {
         const code = searchParams.get("code");
 
-        // ✅ PKCE: convertir "code" en sesión
         if (code) {
           const { error } = await supabase.auth.exchangeCodeForSession(code);
           if (error) {
             console.error("[ResetPassword] exchangeCodeForSession error:", error);
           }
-
-          // ✅ limpiar URL para que no quede ?code=... y no se re-ejecute
           router.replace("/reset-password");
         }
 
@@ -85,17 +112,11 @@ export default function ResetPasswordClient() {
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
 
-    if (!password) {
-      newErrors.password = "La contraseña es obligatoria.";
-    } else if (password.length < 6) {
-      newErrors.password = "La contraseña debe tener al menos 6 caracteres.";
-    }
+    if (!password) newErrors.password = "La contraseña es obligatoria.";
+    else if (password.length < 6) newErrors.password = "La contraseña debe tener al menos 6 caracteres.";
 
-    if (!confirmPassword) {
-      newErrors.confirmPassword = "Debés confirmar la contraseña.";
-    } else if (password !== confirmPassword) {
-      newErrors.confirmPassword = "Las contraseñas no coinciden.";
-    }
+    if (!confirmPassword) newErrors.confirmPassword = "Debés confirmar la contraseña.";
+    else if (password !== confirmPassword) newErrors.confirmPassword = "Las contraseñas no coinciden.";
 
     setErrors(newErrors);
 
@@ -149,7 +170,6 @@ export default function ResetPasswordClient() {
 
       await finishAsSuccess();
     } catch (err: any) {
-      // ✅ Si es "misma contraseña" (o variante), lo tratamos como éxito UX
       if (isSamePasswordError(err)) {
         console.warn("[ResetPassword] same-password treated as success:", err);
         await finishAsSuccess();
@@ -172,11 +192,38 @@ export default function ResetPasswordClient() {
     }
   };
 
+  // ✅ UI helper: logo
+  const LogoBlock = () => {
+    if (clubLogo) {
+      return (
+        <div className="relative w-24 h-24 mx-auto mb-6">
+          <Image src={clubLogo} alt="Logo del Club" fill className="object-contain" priority />
+        </div>
+      );
+    }
+
+    return (
+      <Image
+        src="/sponsors/versori/VERSORI_TRANSPARENTE.PNG"
+        alt="Versori Logo"
+        width={90}
+        height={90}
+        className="mx-auto mb-6 opacity-90"
+        priority
+      />
+    );
+  };
+
+  // (opcional) mientras carga el club, no bloqueamos toda la página;
+  // si preferís bloquear, devolvé un skeleton acá.
+  // if (loadingClub) return null;
+
   // Vista cuando la sesión del enlace es inválida
   if (!isSessionValid && !isCompleted) {
     return (
       <section className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-b from-[#001a33] to-[#002b5b] text-white px-6">
         <div className="bg-[#0b2545] p-10 rounded-3xl text-center border border-red-900/50 max-w-md w-full">
+          <LogoBlock />
           <h2 className="text-xl text-red-400 font-bold mb-2">Enlace Expirado</h2>
           <p className="text-gray-300 mb-4">Este enlace de recuperación ya no es válido.</p>
           <button
@@ -200,13 +247,7 @@ export default function ResetPasswordClient() {
           transition={{ duration: 0.8 }}
           className="bg-[#0b2545] border border-[#1b4e89] rounded-3xl p-10 w-full max-w-md shadow-2xl text-center"
         >
-          <Image
-            src="/sponsors/versori/VERSORI_TRANSPARENTE.PNG"
-            alt="Versori Logo"
-            width={90}
-            height={90}
-            className="mx-auto mb-6 opacity-90"
-          />
+          <LogoBlock />
 
           <h1 className="text-3xl font-bold mb-4">Contraseña actualizada</h1>
 
@@ -234,13 +275,7 @@ export default function ResetPasswordClient() {
         transition={{ duration: 0.8 }}
         className="bg-[#0b2545] border border-[#1b4e89] rounded-3xl p-10 w-full max-w-md shadow-2xl text-center"
       >
-        <Image
-          src="/sponsors/versori/VERSORI_TRANSPARENTE.PNG"
-          alt="Versori Logo"
-          width={90}
-          height={90}
-          className="mx-auto mb-6 opacity-90"
-        />
+        <LogoBlock />
 
         <h1 className="text-3xl font-bold mb-2">Restablecer contraseña</h1>
         <p className="text-neutral-400 text-sm mb-4">Ingresá tu nueva contraseña para tu cuenta.</p>
