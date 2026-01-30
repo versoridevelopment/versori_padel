@@ -8,6 +8,28 @@ import { supabase } from "../../../lib/supabase/supabaseClient";
 
 type MessageType = "success" | "error" | "info" | null;
 
+function isSamePasswordError(err: any) {
+  const raw =
+    (typeof err?.message === "string" ? err.message : "") +
+    " " +
+    (typeof err?.error_description === "string" ? err.error_description : "") +
+    " " +
+    (typeof err?.msg === "string" ? err.msg : "") +
+    " " +
+    (typeof err?.error === "string" ? err.error : "");
+
+  const m = raw.toLowerCase();
+
+  // Variantes típicas (GoTrue/Supabase)
+  return (
+    m.includes("different from the old") ||
+    m.includes("should be different") ||
+    m.includes("same password") ||
+    m.includes("new password") ||
+    m.includes("already used")
+  );
+}
+
 export default function ResetPasswordClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -86,6 +108,15 @@ export default function ResetPasswordClient() {
     return true;
   };
 
+  const finishAsSuccess = async () => {
+    document.cookie = "recovery_pending=; path=/; max-age=0";
+    await supabase.auth.signOut();
+
+    setMessage("Tu contraseña se actualizó correctamente. Iniciá sesión nuevamente.");
+    setMessageType("success");
+    setIsCompleted(true);
+  };
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
 
@@ -116,23 +147,15 @@ export default function ResetPasswordClient() {
 
       await Promise.race([updatePasswordPromise(), timeoutPromise]);
 
-      // ÉXITO: borrar cookie y cerrar sesión
-      document.cookie = "recovery_pending=; path=/; max-age=0";
-      await supabase.auth.signOut();
-
-      setMessage("Tu contraseña se actualizó correctamente. Iniciá sesión nuevamente.");
-      setMessageType("success");
-      setIsCompleted(true);
+      await finishAsSuccess();
     } catch (err: any) {
-      if (err?.message === "TIMEOUT_FORCE_SUCCESS") {
+      // ✅ Si es "misma contraseña" (o variante), lo tratamos como éxito UX
+      if (isSamePasswordError(err)) {
+        console.warn("[ResetPassword] same-password treated as success:", err);
+        await finishAsSuccess();
+      } else if (err?.message === "TIMEOUT_FORCE_SUCCESS") {
         console.warn("Forzando éxito por timeout.");
-
-        document.cookie = "recovery_pending=; path=/; max-age=0";
-        await supabase.auth.signOut();
-
-        setMessage("Tu contraseña se actualizó correctamente. Iniciá sesión nuevamente.");
-        setMessageType("success");
-        setIsCompleted(true);
+        await finishAsSuccess();
       } else {
         console.error("[ResetPassword] error:", err);
         const msg =
