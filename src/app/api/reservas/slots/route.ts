@@ -14,8 +14,8 @@ type SlotPoint = {
   dayOffset: 0 | 1; // 0 fecha base, 1 fecha+1 si absMin>=1440
   canStart: boolean; // puedo arrancar en este punto
   canEnd: boolean; // puedo terminar en este punto
-  reason: null | "reservado" | "bloqueado"; // 👈 mantenemos compatibilidad UI
-  block_kind?: "cierre" | "reserva" | "hold"; // 👈 opcional (no rompe)
+  reason: null | "reservado" | "bloqueado";
+  block_kind?: "cierre" | "reserva" | "hold" | "past"; // ✅ agregado
 };
 
 type DaySlots = {
@@ -62,13 +62,36 @@ type CierreDb = {
 };
 
 // ---------- Helpers AR ----------
+const TZ_AR = "America/Argentina/Buenos_Aires";
+
 function todayISOAR() {
   return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/Argentina/Buenos_Aires",
+    timeZone: TZ_AR,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
   }).format(new Date());
+}
+
+function nowMinutesAR() {
+  // devuelve minutos desde 00:00 en horario AR
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: TZ_AR,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date());
+
+  const hh = Number(parts.find((p) => p.type === "hour")?.value ?? "0");
+  const mm = Number(parts.find((p) => p.type === "minute")?.value ?? "0");
+  return hh * 60 + mm;
+}
+
+// ✅ cutoff “ATC”: siempre el PRÓXIMO cambio de hora
+// 12:59 -> 13:00 (todavía permite 13-14)
+// 13:00 -> 14:00 (bloquea 13-14 completo)
+function cutoffNextHourFromNow(nowMin: number) {
+  return (Math.floor(nowMin / 60) + 1) * 60;
 }
 
 function arMidnightISO(dateISO: string) {
@@ -193,26 +216,28 @@ function mergeIntervals(intervals: Interval[]) {
 }
 
 function intervalCovers(intervals: Interval[], a: number, b: number) {
-  // existe algún intervalo que cubra completamente [a,b)
   return intervals.some((it) => it.start <= a && b <= it.end);
 }
 
-type Busy = { startMs: number; endMs: number; reason: "reservado" | "bloqueado"; block_kind: "reserva" | "hold" | "cierre" };
+type Busy = {
+  startMs: number;
+  endMs: number;
+  reason: "reservado" | "bloqueado";
+  block_kind: "reserva" | "hold" | "cierre" | "past";
+};
 
 function overlapsInterval(busy: Busy[], aMs: number, bMs: number) {
-  // solapa si a < end && start < b
   return busy.some((bi) => aMs < bi.endMs && bi.startMs < bMs);
 }
 
 function pointInsideBusyStrict(busy: Busy[], tMs: number) {
-  // estricto => si t == startMs NO bloquea el "fin"
   for (const bi of busy) {
     if (bi.startMs < tMs && tMs < bi.endMs) return { reason: bi.reason, block_kind: bi.block_kind };
   }
   return null;
 }
 
-// ---------- Helpers cierres (minutos relativos a fecha base) ----------
+// ---------- Helpers cierres ----------
 function dayNumberUTC(iso: string) {
   const [y, m, d] = iso.split("-").map(Number);
   return Math.floor(Date.UTC(y, m - 1, d) / 86_400_000);
@@ -223,21 +248,18 @@ function cierreToIntervalRel(c: CierreDb, baseFechaISO: string): Interval[] {
 
   const dayDiff = dayNumberUTC(c.fecha) - dayNumberUTC(baseFechaISO);
 
-  // cierre total: bloquea 00:00..24:00 de ese día
   if (!c.inicio && !c.fin) {
     const start = dayDiff * 1440;
     const end = start + 1440;
     return [{ start, end }];
   }
 
-  // si está inconsistente, ignoramos (o podrías tirar error, pero acá mejor robusto)
   if (!c.inicio || !c.fin) return [];
 
   const startAbs = toMin(c.inicio);
   const endAbsBase = toMin(c.fin);
   const endAbs = endAbsBase + (c.fin_dia_offset ? 1440 : 0);
 
-  // si por error end == start, interpretamos como todo el día
   if (endAbs === startAbs) {
     const start = dayDiff * 1440;
     const end = start + 1440;
@@ -250,7 +272,6 @@ function cierreToIntervalRel(c: CierreDb, baseFechaISO: string): Interval[] {
 }
 
 function inIntervals(intervals: Interval[], m: number) {
-  // m punto en minutos relativos a baseFecha
   for (const it of intervals) {
     if (it.start <= m && m < it.end) return true;
   }
@@ -311,7 +332,6 @@ export async function GET(req: Request) {
           return { startMs, endMs, reason: "reservado" as const, block_kind: "reserva" as const };
         }
 
-        // pendiente_pago: bloquea solo si expires_at futura
         const expMs = r.expires_at ? new Date(r.expires_at).getTime() : NaN;
         const vigente = Number.isFinite(expMs) ? expMs > nowMs : false;
         if (!vigente) return null;
@@ -320,8 +340,7 @@ export async function GET(req: Request) {
       })
       .filter(Boolean) as Busy[];
 
-    // --- cierres (D-1 .. D+dias+1 para cubrir cruces) ---
-    // Traemos cierres por club (id_cancha null) + por cancha (id_cancha = cancha)
+    // --- cierres ---
     const fechaMenos = addDaysISO(fecha_desde, -1);
     const fechaHasta = addDaysISO(fecha_desde, dias + 1);
 
@@ -338,13 +357,8 @@ export async function GET(req: Request) {
 
     const cierres = (cierresRaw || []) as CierreDb[];
 
-    // Convertimos cierres a intervals relativos a fecha_desde (minutos)
-    const cierreIntervalsRel = mergeIntervals(
-      cierres.flatMap((c) => cierreToIntervalRel(c, fecha_desde)),
-    );
+    const cierreIntervalsRel = mergeIntervals(cierres.flatMap((c) => cierreToIntervalRel(c, fecha_desde)));
 
-    // Convertimos cierres a Busy en ms (para overlapsInterval por tramos de 30m)
-    // Nota: como tu overlapsInterval trabaja en ms absolutas, acá generamos busy ms por cada cierre
     const busyFromCierres: Busy[] = [];
     for (const c of cierres) {
       const intervalsRel = cierreToIntervalRel(c, fecha_desde);
@@ -355,27 +369,29 @@ export async function GET(req: Request) {
           busyFromCierres.push({
             startMs,
             endMs,
-            reason: "bloqueado", // mantenemos "bloqueado" para UI
+            reason: "bloqueado",
             block_kind: "cierre",
           });
         }
       }
     }
 
-    // Busy total: cierres ganan a todo (si querés prioridad, no hace falta acá; con overlaps alcanza)
-    // Igual, para "reason" del punto, más abajo forzamos cierre si cae en cierre.
-    const busyIntervals: Busy[] = [...busyFromReservas, ...busyFromCierres];
-
     const outDays: DaySlots[] = [];
+
+    // ✅ para “bloquear horas corridas”
+    const today = todayISOAR();
+    const nowMinAR = nowMinutesAR();
+    const cutoffTodayMin = cutoffNextHourFromNow(nowMinAR); // ej 13:00=>840? NO, 13:00=>840? (13*60=780) => (13+1)*60=840
 
     for (let i = 0; i < dias; i++) {
       const fecha = addDaysISO(fecha_desde, i);
       const dow = dowFromISO(fecha);
 
+      // --- reglas ---
       const { data: reglas, error: rErr } = await supabaseAdmin
         .from("canchas_tarifas_reglas")
         .select(
-          "id_regla,id_tarifario,segmento,dow,hora_desde,hora_hasta,cruza_medianoche,duracion_min,activo,vigente_desde,vigente_hasta",
+          "id_regla,id_tarifario,segmento,dow,hora_desde,hora_hasta,cruza_medianoche,duracion_min,activo,vigente_desde,vigente_hasta"
         )
         .eq("id_tarifario", id_tarifario)
         .eq("activo", true)
@@ -392,7 +408,6 @@ export async function GET(req: Request) {
         .filter((n) => Number.isFinite(n) && n > 0)
         .sort((a, b) => a - b);
 
-      // Intervalos permitidos por reglas (minutos absolutos)
       const allowedRaw: Interval[] = [];
       let minStart = Infinity;
       let maxEnd = 0;
@@ -430,12 +445,28 @@ export async function GET(req: Request) {
       const allowed = mergeIntervals(allowedRaw);
 
       const dayStartMs = new Date(arMidnightISO(fecha)).getTime();
-
-      // Para chequear cierres relativos al día actual:
-      // mRel = i*1440 + m
       const dayOffsetRel = i * 1440;
 
-      // Generamos PUNTOS cada 30 min (incluye el end)
+      // ✅ busy base (reservas + cierres)
+      const busyIntervals: Busy[] = [...busyFromReservas, ...busyFromCierres];
+
+      // ✅ Agregamos “past” SOLO para el día de HOY
+      // Bloquea [00:00 .. cutoffNextHour)
+      const isToday = fecha === today;
+      if (isToday) {
+        const startMs = dayStartMs + 0 * 60_000;
+        const endMs = dayStartMs + cutoffTodayMin * 60_000;
+
+        if (endMs > startMs) {
+          busyIntervals.push({
+            startMs,
+            endMs,
+            reason: "bloqueado",
+            block_kind: "past",
+          });
+        }
+      }
+
       const points: SlotPoint[] = [];
 
       for (let m = minStart; m <= maxEnd; m += 30) {
@@ -450,33 +481,32 @@ export async function GET(req: Request) {
         const nextSegAllowed = intervalCovers(allowed, nextA, nextB);
         const prevSegAllowed = intervalCovers(allowed, prevA, prevB);
 
-        const nextSegFreeRules = nextSegAllowed;
-        const prevSegFreeRules = prevSegAllowed;
-
-        // solape con reservas/holds/cierres (ms)
         const nextSegFreeBusy =
-          nextSegFreeRules &&
+          nextSegAllowed &&
           !overlapsInterval(busyIntervals, dayStartMs + nextA * 60_000, dayStartMs + nextB * 60_000);
 
         const prevSegFreeBusy =
-          prevSegFreeRules &&
+          prevSegAllowed &&
           !overlapsInterval(busyIntervals, dayStartMs + prevA * 60_000, dayStartMs + prevB * 60_000);
 
-        // ✅ check cierre por punto (prioridad máxima)
+        // cierres por punto (prioridad alta)
         const mRel = dayOffsetRel + m;
         const isClosedPoint = inIntervals(cierreIntervalsRel, mRel);
 
-        // Si el siguiente segmento cae en cierre, no se puede iniciar
-        // Si el anterior segmento cae en cierre, no se puede terminar
-        const nextSegClosed = inIntervals(cierreIntervalsRel, dayOffsetRel + nextA) || inIntervals(cierreIntervalsRel, dayOffsetRel + (nextB - 1e-6));
-        const prevSegClosed = inIntervals(cierreIntervalsRel, dayOffsetRel + (prevA + 1e-6)) || inIntervals(cierreIntervalsRel, dayOffsetRel + (prevB - 1e-6));
+        const nextSegClosed =
+          inIntervals(cierreIntervalsRel, dayOffsetRel + nextA) ||
+          inIntervals(cierreIntervalsRel, dayOffsetRel + (nextB - 1e-6));
+
+        const prevSegClosed =
+          inIntervals(cierreIntervalsRel, dayOffsetRel + (prevA + 1e-6)) ||
+          inIntervals(cierreIntervalsRel, dayOffsetRel + (prevB - 1e-6));
 
         const canStart = !!nextSegFreeBusy && !nextSegClosed;
         const canEnd = !!prevSegFreeBusy && !prevSegClosed;
 
-        // reason (solo para UI):
-        // - si el punto cae en cierre => bloqueado/cierre
-        // - sino si cae dentro de reserva/hold => su reason
+        // reason (UI):
+        // - cierre => bloqueado/cierre
+        // - sino busy strict (reserva/hold/past)
         let reason: SlotPoint["reason"] = null;
         let block_kind: SlotPoint["block_kind"] = undefined;
 
