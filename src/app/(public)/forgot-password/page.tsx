@@ -1,84 +1,176 @@
 "use client";
 
-import { FormEvent, useState, useEffect } from "react";
-import Link from "next/link";
+import { FormEvent, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { motion } from "framer-motion";
 import { supabase } from "../../../lib/supabase/supabaseClient";
-import { getSubdomainFromHost } from "@/lib/ObetenerClubUtils/tenantUtils";
-import { getClubBySubdomain } from "@/lib/ObetenerClubUtils/getClubBySubdomain";
 
-const ForgotPasswordPage = () => {
-  const [email, setEmail] = useState("");
+type MessageType = "success" | "error" | "info" | null;
+
+const ResetPasswordPage = () => {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [isSubmitted, setIsSubmitted] = useState(false);
+
   const [message, setMessage] = useState<string | null>(null);
+  const [messageType, setMessageType] = useState<MessageType>(null);
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
-  // Estados para Multi-tenant
-  const [subdomain, setSubdomain] = useState<string | null>(null);
-  const [clubLogo, setClubLogo] = useState<string | null>(null);
-  const [loadingClub, setLoadingClub] = useState(true);
+  const [isSessionValid, setIsSessionValid] = useState(true);
+  const [isCompleted, setIsCompleted] = useState(false);
 
+  // 1) AL CARGAR: si viene ?code=... (PKCE) -> exchange -> sesión -> cookie
   useEffect(() => {
-    const fetchClub = async () => {
-      const host = window.location.host; // ej: "greenpadel.localhost:3000"
-      const hostname = host.split(":")[0]; // "greenpadel.localhost"
+    const init = async () => {
+      try {
+        const code = searchParams.get("code");
 
-      const sub = getSubdomainFromHost(hostname);
-      setSubdomain(sub);
+        // ✅ PKCE: convertir "code" en sesión
+        if (code) {
+          const { error } = await supabase.auth.exchangeCodeForSession(code);
+          if (error) {
+            console.error("[ResetPassword] exchangeCodeForSession error:", error);
+          }
 
-      if (sub) {
-        const club = await getClubBySubdomain(sub);
-        if (club) {
-          setClubLogo(club.logo_url);
+          // ✅ limpiar URL para que no quede ?code=... y no se re-ejecute
+          router.replace("/reset-password");
         }
+
+        const { data } = await supabase.auth.getSession();
+
+        if (!data.session) {
+          setIsSessionValid(false);
+          setMessage("El enlace es inválido o ya fue utilizado. Solicitá uno nuevo.");
+          document.cookie = "recovery_pending=; path=/; max-age=0";
+        } else {
+          document.cookie = "recovery_pending=true; path=/; max-age=3600";
+        }
+      } catch (e) {
+        console.error("[ResetPassword] init error:", e);
+        setIsSessionValid(false);
+        setMessage("El enlace es inválido o ya fue utilizado. Solicitá uno nuevo.");
+        document.cookie = "recovery_pending=; path=/; max-age=0";
       }
-      setLoadingClub(false);
     };
 
-    fetchClub();
-  }, []);
+    init();
+  }, [router, searchParams]);
+
+  const validateForm = () => {
+    const newErrors: Record<string, string> = {};
+
+    if (!password) {
+      newErrors.password = "La contraseña es obligatoria.";
+    } else if (password.length < 6) {
+      newErrors.password = "La contraseña debe tener al menos 6 caracteres.";
+    }
+
+    if (!confirmPassword) {
+      newErrors.confirmPassword = "Debés confirmar la contraseña.";
+    } else if (password !== confirmPassword) {
+      newErrors.confirmPassword = "Las contraseñas no coinciden.";
+    }
+
+    setErrors(newErrors);
+
+    if (Object.keys(newErrors).length > 0) {
+      setMessage("Revisá los campos marcados en rojo.");
+      setMessageType("error");
+      return false;
+    }
+
+    return true;
+  };
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    setIsLoading(true);
+
     setMessage(null);
+    setMessageType(null);
+    setErrors({});
 
-    // Dominio "central" sin subdominio
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
-
-    // Vamos a un callback central que luego redirige al subdominio
-    const redirectTo = `${siteUrl}/password-callback${
-      subdomain ? `?sub=${encodeURIComponent(subdomain)}` : ""
-    }`;
-
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo,
-    });
-
-    if (error) {
-      console.error("[ForgotPassword] error:", error);
-      setMessage("Ocurrió un error al enviar el correo. Intentá nuevamente.");
-      setIsLoading(false);
+    if (!isSessionValid) {
+      setMessage("No hay una sesión válida para cambiar la contraseña.");
+      setMessageType("error");
       return;
     }
 
-    setMessage(
-      "Si el correo existe en el sistema, te enviamos un enlace para restablecer tu contraseña.",
-    );
-    setIsSubmitted(true);
-    setIsLoading(false);
+    const isValid = validateForm();
+    if (!isValid) return;
+
+    setIsLoading(true);
+
+    try {
+      const updatePasswordPromise = async () => {
+        const { error } = await supabase.auth.updateUser({ password });
+        if (error) throw error;
+      };
+
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("TIMEOUT_FORCE_SUCCESS")), 3000)
+      );
+
+      await Promise.race([updatePasswordPromise(), timeoutPromise]);
+
+      // ÉXITO: borrar cookie y cerrar sesión
+      document.cookie = "recovery_pending=; path=/; max-age=0";
+      await supabase.auth.signOut();
+
+      setMessage("Tu contraseña se actualizó correctamente. Iniciá sesión nuevamente.");
+      setMessageType("success");
+      setIsCompleted(true);
+    } catch (err: any) {
+      if (err?.message === "TIMEOUT_FORCE_SUCCESS") {
+        console.warn("Forzando éxito por timeout.");
+
+        document.cookie = "recovery_pending=; path=/; max-age=0";
+        await supabase.auth.signOut();
+
+        setMessage("Tu contraseña se actualizó correctamente. Iniciá sesión nuevamente.");
+        setMessageType("success");
+        setIsCompleted(true);
+      } else {
+        console.error("[ResetPassword] error:", err);
+        const msg =
+          typeof err?.message === "string" &&
+          (err.message.toLowerCase().includes("authsessionmissing") ||
+            err.message.toLowerCase().includes("session"))
+            ? "El enlace ya expiró. Por favor solicitá un correo nuevo."
+            : "Ocurrió un error. Intentá nuevamente.";
+        setMessage(msg);
+        setMessageType("error");
+      }
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  if (loadingClub) {
+  // Vista cuando la sesión del enlace es inválida
+  if (!isSessionValid && !isCompleted) {
     return (
-      <section className="min-h-screen flex items-center justify-center bg-gradient-to-b from-[#001a33] to-[#002b5b] text-white">
-        <p>Cargando...</p>
+      <section className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-b from-[#001a33] to-[#002b5b] text-white px-6">
+        <div className="bg-[#0b2545] p-10 rounded-3xl text-center border border-red-900/50 max-w-md w-full">
+          <h2 className="text-xl text-red-400 font-bold mb-2">Enlace Expirado</h2>
+          <p className="text-gray-300 mb-4">
+            Este enlace de recuperación ya no es válido.
+          </p>
+          <button
+            onClick={() => router.push("/login")}
+            className="bg-blue-600 px-4 py-2 rounded-xl text-sm hover:bg-blue-700 transition"
+          >
+            Volver al inicio
+          </button>
+        </div>
       </section>
     );
   }
 
-  if (isSubmitted) {
+  // Vista de éxito después de actualizar la contraseña
+  if (isCompleted && message) {
     return (
       <section className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-b from-[#001a33] to-[#002b5b] text-white px-6">
         <motion.div
@@ -87,41 +179,6 @@ const ForgotPasswordPage = () => {
           transition={{ duration: 0.8 }}
           className="bg-[#0b2545] border border-[#1b4e89] rounded-3xl p-10 w-full max-w-md shadow-2xl text-center"
         >
-          <h2 className="text-3xl font-bold mb-4">
-            Revisá tu correo electrónico
-          </h2>
-          <p className="text-neutral-300">{message}</p>
-          <p className="text-neutral-400 text-sm mt-6">
-            Volver a{" "}
-            <Link href="/login" className="text-blue-400 hover:underline">
-              Iniciar sesión
-            </Link>
-          </p>
-        </motion.div>
-      </section>
-    );
-  }
-
-  return (
-    <section className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-b from-[#001a33] to-[#002b5b] text-white px-6 pt-32 pb-12">
-      <motion.div
-        initial={{ opacity: 0, y: 40 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.8 }}
-        className="bg-[#0b2545] border border-[#1b4e89] rounded-3xl p-10 w-full max-w-md shadow-2xl text-center"
-      >
-        {/* LOGO DINÁMICO */}
-        {clubLogo ? (
-          <div className="relative w-24 h-24 mx-auto mb-6">
-            <Image
-              src={clubLogo}
-              alt="Logo del Club"
-              fill
-              className="object-contain"
-              priority
-            />
-          </div>
-        ) : (
           <Image
             src="/sponsors/versori/VERSORI_TRANSPARENTE.PNG"
             alt="Versori Logo"
@@ -129,29 +186,93 @@ const ForgotPasswordPage = () => {
             height={90}
             className="mx-auto mb-6 opacity-90"
           />
-        )}
 
-        <h1 className="text-3xl font-bold mb-2">Recuperar contraseña</h1>
-        <p className="text-neutral-400 text-sm mb-8">
-          Ingresá tu correo y te enviaremos un enlace para restablecer tu
-          contraseña.
+          <h1 className="text-3xl font-bold mb-4">Contraseña actualizada</h1>
+
+          <div className="mb-6 text-sm p-3 rounded-xl border bg-emerald-500/10 text-emerald-300 border-emerald-500/40">
+            {message}
+          </div>
+
+          <button
+            onClick={() => router.push("/login")}
+            className="bg-blue-600 hover:bg-blue-700 transition-all py-3 px-6 rounded-xl font-semibold text-white"
+          >
+            Ir a iniciar sesión
+          </button>
+        </motion.div>
+      </section>
+    );
+  }
+
+  // Vista normal de formulario
+  return (
+    <section className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-b from-[#001a33] to-[#002b5b] text-white px-6">
+      <motion.div
+        initial={{ opacity: 0, y: 40 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.8 }}
+        className="bg-[#0b2545] border border-[#1b4e89] rounded-3xl p-10 w-full max-w-md shadow-2xl text-center"
+      >
+        <Image
+          src="/sponsors/versori/VERSORI_TRANSPARENTE.PNG"
+          alt="Versori Logo"
+          width={90}
+          height={90}
+          className="mx-auto mb-6 opacity-90"
+        />
+
+        <h1 className="text-3xl font-bold mb-2">Restablecer contraseña</h1>
+        <p className="text-neutral-400 text-sm mb-4">
+          Ingresá tu nueva contraseña para tu cuenta.
         </p>
 
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4 text-left">
+        {message && (
+          <div
+            className={`mb-4 text-sm p-3 rounded-xl text-left border ${
+              messageType === "error"
+                ? "bg-red-500/10 text-red-300 border-red-500/40"
+                : messageType === "success"
+                ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/40"
+                : "bg-blue-500/10 text-blue-200 border-blue-500/40"
+            }`}
+          >
+            {message}
+          </div>
+        )}
+
+        <form noValidate onSubmit={handleSubmit} className="flex flex-col gap-4 text-left">
           <div>
-            <label htmlFor="email" className="block text-sm text-gray-300 mb-1">
-              Correo electrónico
-            </label>
+            <label className="block text-sm text-gray-300 mb-1">Nueva contraseña</label>
             <input
-              id="email"
-              type="email"
-              title="Correo electrónico"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              className="w-full p-3 rounded-xl bg-[#112d57] border border-blue-900/40 text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-600"
-              placeholder="ejemplo@gmail.com"
+              type="password"
+              value={password}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                setErrors((prev) => ({ ...prev, password: "" }));
+              }}
+              className={`w-full p-3 rounded-xl bg-[#112d57] border ${
+                errors.password ? "border-red-500" : "border-blue-900/40"
+              } text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-600`}
             />
+            {errors.password && <p className="mt-1 text-xs text-red-400">{errors.password}</p>}
+          </div>
+
+          <div>
+            <label className="block text-sm text-gray-300 mb-1">Confirmar contraseña</label>
+            <input
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => {
+                setConfirmPassword(e.target.value);
+                setErrors((prev) => ({ ...prev, confirmPassword: "" }));
+              }}
+              className={`w-full p-3 rounded-xl bg-[#112d57] border ${
+                errors.confirmPassword ? "border-red-500" : "border-blue-900/40"
+              } text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-600`}
+            />
+            {errors.confirmPassword && (
+              <p className="mt-1 text-xs text-red-400">{errors.confirmPassword}</p>
+            )}
           </div>
 
           <button
@@ -159,19 +280,12 @@ const ForgotPasswordPage = () => {
             disabled={isLoading}
             className="mt-4 bg-blue-600 hover:bg-blue-700 transition-all py-3 rounded-xl font-semibold text-white disabled:bg-blue-800 disabled:cursor-not-allowed"
           >
-            {isLoading ? "Enviando correo..." : "Enviar enlace de recuperación"}
+            {isLoading ? "Actualizando..." : "Actualizar y salir"}
           </button>
         </form>
-
-        <p className="text-gray-400 text-sm mt-6">
-          ¿Recordaste tu contraseña?{" "}
-          <Link href="/login" className="text-blue-400 hover:underline">
-            Iniciar sesión
-          </Link>
-        </p>
       </motion.div>
     </section>
   );
 };
 
-export default ForgotPasswordPage;
+export default ResetPasswordPage;

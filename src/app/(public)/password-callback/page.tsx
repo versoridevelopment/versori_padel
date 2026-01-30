@@ -8,35 +8,40 @@ const PasswordCallbackPage = () => {
 
   useEffect(() => {
     const sub = searchParams.get("sub");
-    const hash = window.location.hash || ""; // incluye #access_token=...
 
     const url = new URL(window.location.href);
-    const protocol = url.protocol;   // http: o https:
-    const hostname = url.hostname;   // localhost o app.versori.com
+    const protocol = url.protocol;   // https:
+    const hostname = url.hostname;   // versorisports.com o localhost
+
+    // ✅ Mantener hash por si viene (flujo implícito)
+    const hash = window.location.hash || "";
+
+    // ✅ Mantener querystring completo, pero SIN el sub (sub solo sirve para rutear)
+    const params = new URLSearchParams(url.search);
+    params.delete("sub");
+    const qs = params.toString() ? `?${params.toString()}` : "";
 
     let target: string;
 
     if (sub) {
       if (hostname === "localhost") {
-        // Entorno local: sub.localhost:3000
-        target = `${protocol}//${sub}.localhost:3000/reset-password${hash}`;
+        // local: http://sub.localhost:3000
+        target = `${protocol}//${sub}.localhost:3000/reset-password${qs}${hash}`;
       } else {
-        // Producción: tomamos el dominio base (ej: app.versori.com -> versori.com)
+        // prod: https://sub.versorisports.com
         const parts = hostname.split(".");
-        const baseDomain =
-          parts.length > 2 ? parts.slice(-2).join(".") : hostname;
+        const baseDomain = parts.length > 2 ? parts.slice(-2).join(".") : hostname;
 
-        target = `${protocol}//${sub}.${baseDomain}/reset-password${hash}`;
+        target = `${protocol}//${sub}.${baseDomain}/reset-password${qs}${hash}`;
       }
     } else {
-      // Fallback: si no vino sub, te quedás en el dominio central
-      target = `${url.origin}/reset-password${hash}`;
+      // fallback si no vino sub
+      target = `${url.origin}/reset-password${qs}${hash}`;
     }
 
     window.location.replace(target);
   }, [searchParams]);
 
-  // No necesitamos UI, es solo redirección
   return null;
 };
 
