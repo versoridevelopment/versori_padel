@@ -59,7 +59,7 @@ type UserProfile = {
 // --- COMPONENTES AUXILIARES ---
 function InfoItem({ icon: Icon, label, value, isLink }: any) {
   return (
-    <div className="flex items-start gap-3 p-3 rounded-xl bg-slate-50 border border-slate-100 hover:bg-slate-100 transition-colors">
+    <div className="flex items-start gap-3 p-3 rounded-xl bg-slate-50 border border-slate-100">
       <div className="p-2 bg-white rounded-lg border border-slate-200 text-slate-500 shadow-sm shrink-0">
         <Icon className="w-4 h-4" />
       </div>
@@ -94,20 +94,19 @@ function InfoItem({ icon: Icon, label, value, isLink }: any) {
 
 function StatCard({ icon: Icon, label, value, subtext, color }: any) {
   return (
-    <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
-      <div className={`p-3 rounded-xl ${color} bg-opacity-10 text-opacity-100`}>
-        <Icon className={`w-6 h-6 ${color.replace("bg-", "text-")}`} />
+    <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-3">
+      <div
+        className={`p-2.5 rounded-xl ${color} bg-opacity-10 text-opacity-100 shrink-0`}
+      >
+        <Icon className={`w-5 h-5 ${color.replace("bg-", "text-")}`} />
       </div>
-      <div>
-        <p className="text-2xl font-bold text-slate-900 leading-none">
+      <div className="min-w-0">
+        <p className="text-lg md:text-2xl font-bold text-slate-900 leading-none truncate">
           {value}
         </p>
-        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-1">
+        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-1 truncate">
           {label}
         </p>
-        {subtext && (
-          <p className="text-[10px] text-slate-500 font-medium">{subtext}</p>
-        )}
       </div>
     </div>
   );
@@ -124,7 +123,7 @@ function StatusBadge({ status }: { status: string }) {
   };
   return (
     <span
-      className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase border ${styles[s] || styles.finalizada}`}
+      className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase border ${styles[s] || styles.finalizada}`}
     >
       {s.replace("_", " ")}
     </span>
@@ -140,7 +139,6 @@ export default function UsuarioDetalleClient({
   clubId: number;
   idUsuario: string;
 }) {
-  // Inicializamos Supabase Client para verificar al usuario actual
   const [supabase] = useState(() =>
     createBrowserClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -152,8 +150,6 @@ export default function UsuarioDetalleClient({
   const [loading, setLoading] = useState(true);
   const [userData, setUserData] = useState<UserProfile | null>(null);
   const [togglingRole, setTogglingRole] = useState<string | null>(null);
-
-  // Estado para saber si el que mira la pantalla es ADMIN
   const [viewerIsAdmin, setViewerIsAdmin] = useState(false);
 
   async function load() {
@@ -171,7 +167,6 @@ export default function UsuarioDetalleClient({
     }
   }
 
-  // Verificar los permisos de QUIEN ESTÁ VIENDO la página
   useEffect(() => {
     const checkViewerPermissions = async () => {
       const {
@@ -179,11 +174,10 @@ export default function UsuarioDetalleClient({
       } = await supabase.auth.getUser();
       if (!user) return;
 
-      // Buscamos si el usuario actual tiene rol de admin en este club
       const { data: rolesData } = await supabase
         .from("club_usuarios")
         .select("roles!inner(nombre)")
-        .eq("id_usuario", user.id) // Usuario logueado
+        .eq("id_usuario", user.id)
         .eq("id_club", clubId);
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -213,7 +207,7 @@ export default function UsuarioDetalleClient({
         alert(errData.error || "Error al actualizar permisos");
         return;
       }
-      await load(); // Recargar datos frescos
+      await load();
       router.refresh();
     } catch (error) {
       console.error(error);
@@ -223,7 +217,6 @@ export default function UsuarioDetalleClient({
     }
   };
 
-  // Stats Logic
   const stats = useMemo(() => {
     if (!userData) return null;
     const total = userData.reservas.length;
@@ -264,39 +257,35 @@ export default function UsuarioDetalleClient({
       <div className="p-8 text-center text-red-500">Usuario no encontrado</div>
     );
 
-  // Roles del perfil que estamos CONSULTANDO (el objetivo)
   const targetEsAdmin = userData.roles.includes("admin");
   const targetEsCajero = userData.roles.includes("cajero");
-
   const iniciales =
     `${userData.nombre.charAt(0)}${userData.apellido.charAt(0)}`.toUpperCase();
 
   return (
-    <div className="min-h-screen bg-slate-50/50 p-6 md:p-10 animate-in fade-in duration-500">
-      <div className="max-w-7xl mx-auto space-y-8">
-        {/* HEADER */}
-        <div className="flex items-center gap-4 mb-6">
+    <div className="min-h-screen bg-slate-50/50 p-4 md:p-10 animate-in fade-in duration-500">
+      <div className="max-w-7xl mx-auto space-y-6">
+        {/* HEADER & BACK BUTTON */}
+        <div className="flex items-center gap-4">
           <Link
             href="/admin/usuarios"
-            className="p-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors text-slate-600"
+            className="p-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors text-slate-600 shadow-sm"
           >
             <ChevronLeft size={20} />
           </Link>
           <div>
-            <h1 className="text-2xl font-bold text-slate-900">
+            <h1 className="text-xl md:text-2xl font-bold text-slate-900 leading-tight">
               Perfil de Jugador
             </h1>
-            <p className="text-sm text-slate-500">
-              Gestión de permisos y estadísticas
-            </p>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-8 items-start">
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
           {/* COLUMNA IZQ: PERFIL Y PERMISOS */}
           <div className="space-y-6 xl:col-span-1">
             <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-              <div className="h-32 bg-gradient-to-r from-blue-900 to-slate-900 relative">
+              {/* Banner */}
+              <div className="h-28 md:h-32 bg-gradient-to-r from-blue-900 to-slate-900 relative">
                 {userData.bloqueado && (
                   <div className="absolute inset-0 bg-red-900/50 flex items-center justify-center backdrop-blur-sm">
                     <span className="bg-red-600 text-white px-3 py-1 rounded-full text-xs font-bold flex items-center gap-2">
@@ -305,28 +294,31 @@ export default function UsuarioDetalleClient({
                   </div>
                 )}
               </div>
-              <div className="px-6 pb-6">
-                <div className="relative flex justify-between items-end -mt-12 mb-4">
-                  <div className="w-24 h-24 rounded-full border-4 border-white bg-white text-slate-800 flex items-center justify-center text-3xl font-bold shadow-md z-10">
+
+              <div className="px-5 pb-6">
+                {/* Avatar y Badges */}
+                <div className="relative flex flex-col md:flex-row md:justify-between items-center md:items-end -mt-10 md:-mt-12 mb-4 gap-3">
+                  <div className="w-20 h-20 md:w-24 md:h-24 rounded-full border-4 border-white bg-white text-slate-800 flex items-center justify-center text-2xl md:text-3xl font-bold shadow-md z-10 shrink-0">
                     {iniciales}
                   </div>
-                  {/* Badges de Roles Activos (Estos SÍ se ven siempre para saber qué es el usuario) */}
-                  <div className="mb-1 flex gap-1 flex-wrap justify-end">
+
+                  {/* Badges de Roles */}
+                  <div className="flex gap-1.5 flex-wrap justify-center md:justify-end md:mb-1">
                     {targetEsAdmin && (
-                      <span className="px-2 py-1 rounded text-[10px] font-bold uppercase bg-purple-100 text-purple-700 border border-purple-200">
+                      <span className="px-2 py-1 rounded-lg text-[10px] font-bold uppercase bg-purple-100 text-purple-700 border border-purple-200 shadow-sm">
                         ADMIN
                       </span>
                     )}
                     {targetEsCajero && (
-                      <span className="px-2 py-1 rounded text-[10px] font-bold uppercase bg-emerald-100 text-emerald-700 border border-emerald-200">
+                      <span className="px-2 py-1 rounded-lg text-[10px] font-bold uppercase bg-emerald-100 text-emerald-700 border border-emerald-200 shadow-sm">
                         CAJERO
                       </span>
                     )}
                   </div>
                 </div>
 
-                <div className="space-y-1">
-                  <h2 className="text-2xl font-black text-slate-900 leading-tight">
+                <div className="text-center md:text-left space-y-1">
+                  <h2 className="text-xl md:text-2xl font-black text-slate-900 leading-tight">
                     {userData.nombre} {userData.apellido}
                   </h2>
                   <p className="text-sm text-slate-500 font-medium">
@@ -361,21 +353,21 @@ export default function UsuarioDetalleClient({
                   </div>
                 </div>
 
-                {/* ZONA RESTRINGIDA: Solo visible si viewerIsAdmin es true */}
+                {/* ZONA RESTRINGIDA */}
                 {viewerIsAdmin && (
                   <div className="mt-8 pt-6 border-t border-slate-100">
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-3">
                       <ShieldCheck size={12} className="inline mr-1" />
-                      Permisos de Sistema
+                      Permisos
                     </p>
                     <div className="space-y-3">
                       <button
                         disabled={togglingRole === "cajero"}
                         onClick={() => handleToggleRole("cajero")}
-                        className={`w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-all ${
+                        className={`w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-all active:scale-[0.98] ${
                           targetEsCajero
-                            ? "border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
-                            : "border-slate-200 bg-white hover:border-emerald-300 hover:bg-emerald-50 text-slate-600 hover:text-emerald-700"
+                            ? "border-red-200 bg-red-50 text-red-700"
+                            : "border-slate-200 bg-white text-slate-600"
                         }`}
                       >
                         <span className="flex items-center gap-2 font-semibold text-sm">
@@ -393,14 +385,14 @@ export default function UsuarioDetalleClient({
                       <button
                         disabled={togglingRole === "admin"}
                         onClick={() => handleToggleRole("admin")}
-                        className={`w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-all ${
+                        className={`w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-all active:scale-[0.98] ${
                           targetEsAdmin
-                            ? "border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
-                            : "border-slate-200 bg-white hover:border-purple-300 hover:bg-purple-50 text-slate-600 hover:text-purple-700"
+                            ? "border-red-200 bg-red-50 text-red-700"
+                            : "border-slate-200 bg-white text-slate-600"
                         }`}
                       >
                         <span className="flex items-center gap-2 font-semibold text-sm">
-                          <ShieldCheck size={16} /> Acceso Administrador
+                          <ShieldCheck size={16} /> Acceso Admin
                         </span>
                         {togglingRole === "admin" ? (
                           <Loader2 size={16} className="animate-spin" />
@@ -417,36 +409,39 @@ export default function UsuarioDetalleClient({
             </div>
           </div>
 
-          {/* COLUMNA DERECHA: STATS Y TABLA */}
+          {/* COLUMNA DERECHA: STATS Y LISTA */}
           <div className="xl:col-span-2 space-y-6">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {/* Grilla 2x2 en móvil, 3x1 en escritorio para ahorrar altura */}
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-4">
               <StatCard
                 icon={Trophy}
-                label="Reservas Totales"
+                label="Reservas"
                 value={stats.total}
                 color="bg-blue-500"
               />
               <StatCard
                 icon={DollarSign}
-                label="Inversión Total"
+                label="Inversión"
                 value={`$${stats.gastado.toLocaleString("es-AR")}`}
                 color="bg-emerald-500"
               />
-              <StatCard
-                icon={History}
-                label="Última Visita"
-                value={stats.ultima}
-                color="bg-purple-500"
-              />
+              <div className="col-span-2 md:col-span-1">
+                <StatCard
+                  icon={History}
+                  label="Última Vez"
+                  value={stats.ultima}
+                  color="bg-purple-500"
+                />
+              </div>
             </div>
 
-            {/* TABLA */}
-            <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden flex flex-col h-full min-h-[500px]">
-              <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
-                <h3 className="font-bold text-slate-800 flex items-center gap-2">
+            {/* TABLA / LISTA DE HISTORIAL */}
+            <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden flex flex-col h-full min-h-[400px]">
+              <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center sticky top-0 z-10 backdrop-blur-md">
+                <h3 className="font-bold text-slate-800 flex items-center gap-2 text-sm md:text-base">
                   <Clock className="w-4 h-4 text-slate-400" /> Historial
                 </h3>
-                <span className="text-xs bg-white px-2 py-1 rounded border border-slate-200 text-slate-500 font-medium">
+                <span className="text-[10px] md:text-xs bg-white px-2 py-1 rounded border border-slate-200 text-slate-500 font-medium">
                   {userData.reservas.length} jugados
                 </span>
               </div>
@@ -457,40 +452,75 @@ export default function UsuarioDetalleClient({
                   <p>Sin actividad reciente</p>
                 </div>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm">
-                    <thead className="bg-slate-50 border-b border-slate-100 text-xs uppercase text-slate-500">
-                      <tr>
-                        <th className="px-6 py-3 font-semibold">Fecha</th>
-                        <th className="px-6 py-3 font-semibold">Horario</th>
-                        <th className="px-6 py-3 font-semibold">Cancha</th>
-                        <th className="px-6 py-3 font-semibold text-center">
-                          Estado
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {userData.reservas.map((res) => (
-                        <tr
-                          key={res.id_reserva}
-                          className="hover:bg-slate-50/50 transition-colors"
-                        >
-                          <td className="px-6 py-4 font-medium text-slate-900">
-                            {new Date(res.fecha).toLocaleDateString("es-AR")}
-                          </td>
-                          <td className="px-6 py-4 text-slate-600 font-mono text-xs">
-                            {res.inicio.slice(0, 5)} - {res.fin.slice(0, 5)}
-                          </td>
-                          <td className="px-6 py-4 text-slate-700">
-                            {res.canchas?.nombre}
-                          </td>
-                          <td className="px-6 py-4 text-center">
-                            <StatusBadge status={res.estado} />
-                          </td>
+                <div className="flex-1">
+                  {/* VISTA ESCRITORIO (Tabla) */}
+                  <div className="hidden md:block overflow-x-auto">
+                    <table className="w-full text-left text-sm">
+                      <thead className="bg-slate-50 border-b border-slate-100 text-xs uppercase text-slate-500">
+                        <tr>
+                          <th className="px-6 py-3 font-semibold">Fecha</th>
+                          <th className="px-6 py-3 font-semibold">Horario</th>
+                          <th className="px-6 py-3 font-semibold">Cancha</th>
+                          <th className="px-6 py-3 font-semibold text-center">
+                            Estado
+                          </th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {userData.reservas.map((res) => (
+                          <tr
+                            key={res.id_reserva}
+                            className="hover:bg-slate-50/50 transition-colors"
+                          >
+                            <td className="px-6 py-4 font-medium text-slate-900">
+                              {new Date(res.fecha).toLocaleDateString("es-AR")}
+                            </td>
+                            <td className="px-6 py-4 text-slate-600 font-mono text-xs">
+                              {res.inicio.slice(0, 5)} - {res.fin.slice(0, 5)}
+                            </td>
+                            <td className="px-6 py-4 text-slate-700">
+                              {res.canchas?.nombre}
+                            </td>
+                            <td className="px-6 py-4 text-center">
+                              <StatusBadge status={res.estado} />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* VISTA MÓVIL (Tarjetas) - Se activa en pantallas pequeñas */}
+                  <div className="md:hidden divide-y divide-slate-100">
+                    {userData.reservas.map((res) => (
+                      <div
+                        key={res.id_reserva}
+                        className="p-4 flex flex-col gap-2"
+                      >
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <p className="font-bold text-slate-800 text-sm">
+                              {new Date(res.fecha).toLocaleDateString("es-AR", {
+                                weekday: "long",
+                                day: "numeric",
+                                month: "short",
+                              })}
+                            </p>
+                            <p className="text-xs text-slate-500 font-mono mt-0.5">
+                              {res.inicio.slice(0, 5)} - {res.fin.slice(0, 5)}
+                            </p>
+                          </div>
+                          <StatusBadge status={res.estado} />
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-slate-600 bg-slate-50 p-2 rounded-lg border border-slate-100 mt-1">
+                          <MapPin className="w-3 h-3 text-slate-400" />
+                          <span className="font-medium truncate">
+                            {res.canchas?.nombre}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
