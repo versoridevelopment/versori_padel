@@ -34,7 +34,7 @@ export async function GET(request: Request) {
       .select(
         `
         id_cancha, fecha, inicio, fin, precio_total, monto_anticipo, 
-        estado, id_usuario, created_at,
+        estado, id_usuario, created_at, cliente_nombre,
         canchas (nombre)
       `,
       )
@@ -44,7 +44,7 @@ export async function GET(request: Request) {
 
     if (error) throw error;
 
-    // 2. PERFILES
+    // 2. PERFILES (Solo para usuarios web)
     const userIds = Array.from(
       new Set(reservas?.map((r) => r.id_usuario).filter(Boolean)),
     ) as string[];
@@ -91,6 +91,9 @@ export async function GET(request: Request) {
 
       // Tiempo
       const fechaBase = r.fecha;
+      // Validación básica de fechas para evitar errores
+      if (!r.inicio || !r.fin) return;
+
       const startDateTime = parseISO(`${fechaBase}T${r.inicio}`);
       const endDateTime = parseISO(`${fechaBase}T${r.fin}`);
       const createdDateTime = parseISO(r.created_at);
@@ -103,7 +106,9 @@ export async function GET(request: Request) {
 
       // Por Hora
       const horaInicio = getHours(startDateTime);
-      actividadPorHora[horaInicio] += 1;
+      if (horaInicio >= 0 && horaInicio < 24) {
+        actividadPorHora[horaInicio] += 1;
+      }
 
       // Por Cancha
       const nombreCancha = r.canchas?.nombre || `Cancha ${r.id_cancha}`;
@@ -118,24 +123,32 @@ export async function GET(request: Request) {
       pc.ingresos += ingresoTotal;
       pc.reservas += 1;
 
-      // Por Cliente
-      if (r.id_usuario) {
-        if (!clientesStats.has(r.id_usuario)) {
-          const p = profilesMap.get(r.id_usuario);
-          const nombre = p ? `${p.nombre} ${p.apellido}` : "Usuario Web";
+      // Por Cliente (Web + Manual)
+      let clienteKey = "";
+      let clienteNombre = "Anónimo";
 
-          // --- CAMBIO AQUÍ: Agregamos 'id' al objeto ---
-          clientesStats.set(r.id_usuario, {
-            id: r.id_usuario, // <--- Importante para el link
-            name: nombre,
-            reservas: 0,
-            gastado: 0,
-          });
-        }
-        const cs = clientesStats.get(r.id_usuario);
-        cs.reservas += 1;
-        cs.gastado += ingresoTotal;
+      if (r.id_usuario) {
+        clienteKey = r.id_usuario;
+        const p = profilesMap.get(r.id_usuario);
+        clienteNombre = p ? `${p.nombre} ${p.apellido}` : "Usuario Web";
+      } else {
+        // Cliente Manual
+        const rawName = r.cliente_nombre || "Cliente Manual";
+        clienteKey = `manual-${rawName.toLowerCase().trim()}`;
+        clienteNombre = rawName;
       }
+
+      if (!clientesStats.has(clienteKey)) {
+        clientesStats.set(clienteKey, {
+          id: clienteKey,
+          name: clienteNombre,
+          reservas: 0,
+          gastado: 0,
+        });
+      }
+      const cs = clientesStats.get(clienteKey);
+      cs.reservas += 1;
+      cs.gastado += ingresoTotal;
 
       // Por Fecha
       const fechaStr = format(parseISO(r.fecha), "dd MMM", { locale: es });
@@ -201,7 +214,7 @@ export async function GET(request: Request) {
     const { data: proximasRaw } = await supabaseAdmin
       .from("reservas")
       .select(
-        `id_reserva, inicio, fin, fecha, precio_total, estado, id_usuario, canchas(nombre)`,
+        `id_reserva, inicio, fin, fecha, precio_total, estado, id_usuario, cliente_nombre, canchas(nombre)`,
       )
       .eq("id_club", clubId)
       .neq("estado", "cancelada")
@@ -211,13 +224,21 @@ export async function GET(request: Request) {
       .limit(7);
 
     const proximas = proximasRaw?.map((p: any) => {
-      const profile = profilesMap.get(p.id_usuario);
+      let nombreDisplay = "Cliente";
+      let emailDisplay = "-";
+
+      if (p.id_usuario && profilesMap.has(p.id_usuario)) {
+        const pr = profilesMap.get(p.id_usuario);
+        nombreDisplay = `${pr.nombre} ${pr.apellido}`;
+        emailDisplay = pr.email;
+      } else {
+        nombreDisplay = p.cliente_nombre || "Cliente Manual";
+      }
+
       return {
         ...p,
-        cliente: profile
-          ? `${profile.nombre} ${profile.apellido}`
-          : "Cliente Web",
-        email: profile?.email || "-",
+        cliente: nombreDisplay,
+        email: emailDisplay,
       };
     });
 
