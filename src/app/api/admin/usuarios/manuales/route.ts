@@ -11,7 +11,7 @@ export async function GET(req: Request) {
     if (!id_club)
       return NextResponse.json({ error: "Falta id_club" }, { status: 400 });
 
-    // 1. IMPORTANTE: Seleccionar 'cliente_manual_activo'
+    // 1. Traemos también la columna 'cliente_manual_activo'
     const { data: reservas, error } = await supabaseAdmin
       .from("reservas")
       .select(
@@ -30,11 +30,9 @@ export async function GET(req: Request) {
       const nombre = r.cliente_nombre?.trim() || "Sin Nombre";
       const telefono = r.cliente_telefono?.trim() || "";
       const email = r.cliente_email?.trim() || "";
-      const key = telefono ? telefono : nombre.toLowerCase();
 
-      // Lógica de estado: Si es NULL o UNDEFINED, asumimos TRUE (Activo)
-      // Solo es falso si explícitamente es false en la base de datos.
-      const isActivo = r.cliente_manual_activo !== false;
+      // Clave única
+      const key = telefono ? telefono : nombre.toLowerCase();
 
       if (!clientesMap.has(key)) {
         clientesMap.set(key, {
@@ -45,26 +43,20 @@ export async function GET(req: Request) {
           total_reservas: 0,
           total_gastado: 0,
           ultima_reserva: r.fecha,
-          activo: isActivo, // ✅ Guardamos el estado
+          // Tomamos el estado de la reserva más reciente (como vienen ordenadas, es la actual)
+          activo: r.cliente_manual_activo !== false, // true por defecto
         });
       }
 
       const cliente = clientesMap.get(key);
       cliente.total_reservas += 1;
       cliente.total_gastado += Number(r.precio_total || 0);
-
-      // Si encontramos una reserva más reciente que dice que está desactivado, actualizamos el estado
-      // (Aunque al ordenar por created_at desc, el primero ya debería mandar)
-      if (r.cliente_manual_activo === false) {
-        cliente.activo = false;
-      }
     });
 
     const listaClientes = Array.from(clientesMap.values());
 
     return NextResponse.json({ ok: true, clientes: listaClientes });
   } catch (error: any) {
-    console.error("Error API Usuarios Manuales:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
