@@ -93,7 +93,7 @@ function diffMinutesHHMM(startHHMM: string, endHHMM: string) {
   return e - s;
 }
 
-/** ===== Regla anti “30 colgados” ===== */
+/** ===== Grilla 30' ===== */
 type IntervalU = { startU: number; endU: number };
 type FreeBlockU = { startU: number; endU: number };
 
@@ -141,14 +141,6 @@ function buildFreeBlocks(
   if (cursor < dayEndU) free.push({ startU: cursor, endU: dayEndU });
 
   return free;
-}
-
-function noDangling30(block: FreeBlockU, startU: number, endU: number) {
-  const leftU = startU - block.startU;
-  const rightU = block.endU - endU;
-  if (leftU === 1) return false;
-  if (rightU === 1) return false;
-  return true;
 }
 
 export function useReservaSidebar(props: ReservaSidebarProps) {
@@ -308,10 +300,10 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
     [dayStartU, dayEndU, occupiedU],
   );
 
-  // 2) Available times (AUTO: depende de duracion)
+  // 2) Available times (AUTO: depende de duracion) ✅ SIN regla "30 colgados"
   const availableTimes = useMemo(() => {
     if (!isOpen || !isCreating) return [];
-    if (formData.precioManual) return []; // en manual no usamos este select
+    if (formData.precioManual) return [];
 
     const durMin = Number(formData.duracion);
     if (!Number.isFinite(durMin) || durMin <= 0) return [];
@@ -332,7 +324,6 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
         (b) => startU >= b.startU && endU <= b.endU,
       );
       if (!block) continue;
-      if (!noDangling30(block, startU, endU)) continue;
 
       const inicioHHMM = unitsToHHMM(startU);
       const finHHMM = unitsToHHMM(endU);
@@ -344,58 +335,69 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
         finLabel: finHHMM,
       });
     }
-    return out;
-  }, [isOpen, isCreating, formData.duracion, formData.precioManual, freeBlocks, dayStartU, dayEndU]);
 
-  // 2B) Available times (MANUAL: "desde" y "hasta")
+    // dedupe por wrap medianoche (por si endHour > 24)
+    const seen = new Set<string>();
+    return out.filter((x) =>
+      seen.has(x.value) ? false : (seen.add(x.value), true),
+    );
+  }, [
+    isOpen,
+    isCreating,
+    formData.duracion,
+    formData.precioManual,
+    freeBlocks,
+    dayStartU,
+    dayEndU,
+  ]);
+
+  // 2B) Options MANUAL: "desde" ✅ SIN regla "30 colgados"
   const manualDesdeOptions = useMemo(() => {
     if (!isOpen || !isCreating) return [];
     if (!formData.precioManual) return [];
 
     const out: { value: string; label: string }[] = [];
 
-    // "desde" válido si existe AL MENOS un "hasta" posible dentro del mismo bloque
+    // "desde" válido si existe al menos 1 "hasta" dentro del bloque
     for (const b of freeBlocks) {
       for (let startU = b.startU; startU + 1 <= b.endU; startU += 1) {
-        // ¿hay algún endU que sirva?
-        let ok = false;
-        for (let endU = startU + 1; endU <= b.endU; endU += 1) {
-          if (noDangling30(b, startU, endU)) {
-            ok = true;
-            break;
-          }
-        }
-        if (!ok) continue;
         const hhmm = unitsToHHMM(startU);
         out.push({ value: hhmm, label: hhmm });
       }
     }
-    // dedupe (por wrap de medianoche)
+
     const seen = new Set<string>();
-    return out.filter((x) => (seen.has(x.value) ? false : (seen.add(x.value), true)));
+    return out.filter((x) =>
+      seen.has(x.value) ? false : (seen.add(x.value), true),
+    );
   }, [isOpen, isCreating, formData.precioManual, freeBlocks]);
 
+  // 2C) Options MANUAL: "hasta" depende de "desde" ✅ SIN regla "30 colgados"
   const manualHastaOptions = useMemo(() => {
     if (!isOpen || !isCreating) return [];
     if (!formData.precioManual) return [];
+
     const desde = String(formData.horaInicioManual || "");
     if (!/^\d{2}:\d{2}$/.test(desde)) return [];
 
     const startDec = hhmmToDecimal(desde, startHour);
     const startU = toUnits30(startDec);
 
-    const block = freeBlocks.find((b) => startU >= b.startU && startU < b.endU);
+    const block = freeBlocks.find(
+      (b) => startU >= b.startU && startU < b.endU,
+    );
     if (!block) return [];
 
     const out: { value: string; label: string }[] = [];
     for (let endU = startU + 1; endU <= block.endU; endU += 1) {
-      if (!noDangling30(block, startU, endU)) continue;
       const hhmm = unitsToHHMM(endU);
       out.push({ value: hhmm, label: hhmm });
     }
 
     const seen = new Set<string>();
-    return out.filter((x) => (seen.has(x.value) ? false : (seen.add(x.value), true)));
+    return out.filter((x) =>
+      seen.has(x.value) ? false : (seen.add(x.value), true),
+    );
   }, [
     isOpen,
     isCreating,
@@ -418,13 +420,17 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
     return mins;
   }, [formData.precioManual, formData.horaInicioManual, formData.horaFinManual]);
 
-  // ✅ sincronizar "duracion" interna cuando es manual (para que el resto del UI pueda mostrarlo)
+  // ✅ sincronizar "duracion" interna cuando es manual
   useEffect(() => {
     if (!isOpen || !isCreating) return;
     if (!formData.precioManual) return;
     if (!duracionManualCalculada) return;
 
-    setFormData((p) => (p.duracion === duracionManualCalculada ? p : { ...p, duracion: duracionManualCalculada }));
+    setFormData((p) =>
+      p.duracion === duracionManualCalculada
+        ? p
+        : { ...p, duracion: duracionManualCalculada },
+    );
   }, [isOpen, isCreating, formData.precioManual, duracionManualCalculada]);
 
   // ✅ 3) Sincronización al abrir: cancha + hora (AUTO) y defaults (MANUAL)
@@ -443,16 +449,16 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
     setFormData((prev) => {
       const canchaChanged = prev.canchaId !== defaultCancha;
 
-      // AUTO
-      const horaAutoChanged = defaultHoraAuto && prev.horaInicio !== defaultHoraAuto;
+      const horaAutoChanged =
+        defaultHoraAuto && prev.horaInicio !== defaultHoraAuto;
 
-      // MANUAL defaults: si no están seteados, copiamos desde el auto
       const needsManualDefaults =
         prev.precioManual &&
         (!prev.horaInicioManual || !prev.horaFinManual) &&
         (defaultHoraAuto || prev.horaInicio);
 
-      if (!canchaChanged && !horaAutoChanged && !needsManualDefaults) return prev;
+      if (!canchaChanged && !horaAutoChanged && !needsManualDefaults)
+        return prev;
 
       const baseHora = defaultHoraAuto || prev.horaInicio;
 
@@ -460,7 +466,6 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
         ...prev,
         canchaId: defaultCancha,
         horaInicio: horaAutoChanged ? defaultHoraAuto : prev.horaInicio,
-        // si es manual y no tiene valores, los inicializamos
         ...(needsManualDefaults
           ? {
               horaInicioManual: baseHora,
@@ -526,7 +531,7 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
 
     async function calc() {
       if (!isOpen || !isCreating) return;
-      if (formData.precioManual) return; // ✅ manual => NO calculamos por tarifario
+      if (formData.precioManual) return;
 
       const id_cancha = Number(formData.canchaId);
       const inicio = formData.horaInicio;
@@ -601,8 +606,9 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
     const id_cancha = Number(formData.canchaId);
     const precioManual = !!formData.precioManual;
 
-    // inicio/fin según modo
-    const inicio = precioManual ? formData.horaInicioManual : formData.horaInicio;
+    const inicio = precioManual
+      ? formData.horaInicioManual
+      : formData.horaInicio;
 
     let fin = "";
     let dur = 0;
@@ -646,8 +652,6 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
         fecha: fechaISO,
         inicio,
         fin,
-
-        // ✅ mandamos igual duracion_min para consistencia (y el backend igual puede usar fin)
         duracion_min: dur,
 
         tipo_turno: formData.tipoTurno,
@@ -656,7 +660,6 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
         cliente_email: formData.email.trim() || null,
         notas: formData.notas.trim() || null,
 
-        // ✅ manual override
         precio_manual: precioManual,
         precio_total_manual: precioManual ? Number(formData.precio || 0) : null,
       };
@@ -761,10 +764,10 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
     cobroLoading,
     cobroError,
 
-    availableTimes, // auto
-    manualDesdeOptions, // manual
-    manualHastaOptions, // manual
-    duracionManualCalculada, // manual
+    availableTimes,
+    manualDesdeOptions,
+    manualHastaOptions,
+    duracionManualCalculada,
 
     canchaDisplay,
     fechaDisplay,
