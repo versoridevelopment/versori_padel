@@ -10,52 +10,54 @@ import {
   CalendarDays,
   Check,
   RefreshCw,
+  Clock,
 } from "lucide-react";
 import { formatMoney } from "../hooks/useReservaSidebar";
 import type { CanchaUI } from "../types";
 import ClientSearchInput from "./ClientSearchInput";
 
-// --- FUNCIÓN HELPER (Fuera del componente) ---
+// ✅ Duraciones automáticas visibles cuando NO está manual
+const DURACIONES_AUTO = [30, 60, 90, 120, 150, 180, 210, 240];
+
 const normalizePhone = (input: string) => {
   if (!input) return "";
-
-  // 1. Dejar solo números
   let clean = input.replace(/\D/g, "");
-
-  // 2. Quitar prefijos internacionales comunes de Argentina
-  if (clean.startsWith("549")) {
-    clean = clean.slice(3);
-  } else if (clean.startsWith("54")) {
-    clean = clean.slice(2);
-  }
-
-  // 3. Quitar el 0 del código de área (ej: 0379 -> 379)
-  if (clean.startsWith("0")) {
-    clean = clean.slice(1);
-  }
-
+  if (clean.startsWith("549")) clean = clean.slice(3);
+  else if (clean.startsWith("54")) clean = clean.slice(2);
+  if (clean.startsWith("0")) clean = clean.slice(1);
   return clean;
 };
 
-// --- INTERFAZ PROPS ---
 interface Props {
   formData: any;
   setFormData: (d: any) => void;
   canchas: CanchaUI[];
+
+  // AUTO
   availableTimes: { value: string; label: string; finLabel: string }[];
+
+  // MANUAL
+  manualDesdeOptions: { value: string; label: string }[];
+  manualHastaOptions: { value: string; label: string }[];
+  duracionManualCalculada: number;
+
+  // display
   horaFinCalculada: string;
+
   priceLoading: boolean;
   priceError: string | null;
   createError: string | null;
   idClub: number;
 }
 
-// --- COMPONENTE ---
 export default function CreateReservaForm({
   formData,
   setFormData,
   canchas,
   availableTimes,
+  manualDesdeOptions,
+  manualHastaOptions,
+  duracionManualCalculada,
   horaFinCalculada,
   priceLoading,
   priceError,
@@ -84,7 +86,6 @@ export default function CreateReservaForm({
     telefono: string;
     email: string;
   }) => {
-    // Al seleccionar del autocompletado, guardamos el teléfono limpio
     setFormData((prev: any) => ({
       ...prev,
       nombre: cliente.nombre,
@@ -94,14 +95,12 @@ export default function CreateReservaForm({
     setMatchFound(null);
   };
 
-  // Validación inteligente al salir del campo
   const checkExistingUser = async (
     field: "nombre" | "telefono",
     value: string,
   ) => {
     if (!value || value.length < 3) return;
 
-    // Normalizamos siempre antes de buscar
     const queryValue =
       field === "telefono" ? normalizePhone(value) : value.toLowerCase();
 
@@ -109,37 +108,34 @@ export default function CreateReservaForm({
 
     setChecking(true);
     try {
-      // Buscamos en la BD usando el valor limpio
       const res = await fetch(
-        `/api/admin/clientes/search?q=${encodeURIComponent(queryValue)}&id_club=${idClub}&type=manual`,
+        `/api/admin/clientes/search?q=${encodeURIComponent(
+          queryValue,
+        )}&id_club=${idClub}&type=manual`,
       );
       const json = await res.json();
 
       const results = json.results || [];
-
       if (results.length > 0) {
         const match =
           results.find((r: any) => {
             if (field === "telefono") {
-              // Comparamos peras con peras (ambos normalizados)
               return normalizePhone(r.telefono) === queryValue;
             }
             return r.nombre.toLowerCase().includes(queryValue);
           }) || results[0];
 
         if (match) {
-          // Autocompletar NOMBRE si buscó por teléfono
           if (field === "telefono" && match.nombre) {
             setFormData((prev: any) => ({
               ...prev,
               nombre: match.nombre,
               email: match.email || prev.email,
-              telefono: normalizePhone(match.telefono), // Aseguramos formato limpio
+              telefono: normalizePhone(match.telefono),
             }));
             setMatchFound(`Cliente encontrado: ${match.nombre}`);
           }
 
-          // Autocompletar TELÉFONO si buscó por nombre
           if (field === "nombre" && match.telefono && !formData.telefono) {
             setFormData((prev: any) => ({
               ...prev,
@@ -173,7 +169,6 @@ export default function CreateReservaForm({
         </h3>
 
         <div className="space-y-3">
-          {/* Buscador */}
           <ClientSearchInput
             idClub={idClub}
             initialValue={formData.nombre}
@@ -190,12 +185,10 @@ export default function CreateReservaForm({
                 type="tel"
                 value={formData.telefono}
                 onChange={(e) => {
-                  // Permitimos escribir caracteres pero limpiamos símbolos básicos
                   const val = e.target.value.replace(/[^0-9+\-\s]/g, "");
                   setFormData({ ...formData, telefono: val });
                 }}
                 onBlur={(e) => {
-                  // AL SALIR DEL INPUT: Se limpia agresivamente y se valida
                   const finalClean = normalizePhone(e.target.value);
                   setFormData((prev: any) => ({
                     ...prev,
@@ -237,7 +230,6 @@ export default function CreateReservaForm({
           </div>
         </div>
 
-        {/* Alerta de Coincidencia */}
         {matchFound && (
           <div className="flex items-center gap-2 p-3 bg-green-100 border border-green-200 rounded-lg text-xs font-bold text-green-800 animate-in fade-in slide-in-from-top-1 shadow-sm">
             <div className="bg-white p-1 rounded-full">
@@ -275,40 +267,6 @@ export default function CreateReservaForm({
               </option>
             ))}
           </select>
-        </div>
-
-        {/* Horarios */}
-        <div>
-          <label className="block text-xs font-bold text-gray-600 mb-1">
-            Hora inicio
-          </label>
-          <select
-            className="w-full p-2.5 bg-white border border-gray-200 rounded-xl text-sm outline-none disabled:opacity-60 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-            value={formData.horaInicio}
-            onChange={(e) =>
-              setFormData({ ...formData, horaInicio: e.target.value })
-            }
-            disabled={!formData.canchaId || availableTimes.length === 0}
-          >
-            {!formData.canchaId && <option value="">Elegí una cancha</option>}
-            {formData.canchaId && availableTimes.length === 0 && (
-              <option value="">No hay horarios disponibles</option>
-            )}
-            {availableTimes.map((t) => (
-              <option key={t.value} value={t.value}>
-                {t.label} (fin {t.finLabel})
-              </option>
-            ))}
-          </select>
-
-          {horaFinCalculada && (
-            <p className="text-xs text-slate-500 mt-1 pl-1">
-              Fin estimado:{" "}
-              <span className="font-bold text-slate-700">
-                {horaFinCalculada}
-              </span>
-            </p>
-          )}
         </div>
 
         {/* Turno fijo */}
@@ -411,45 +369,254 @@ export default function CreateReservaForm({
           </div>
         </div>
 
-        {/* Duración */}
-        <div>
-          <label className="block text-xs font-bold text-gray-600 mb-1 ml-1">
-            Duración
+        {/* ✅ Toggle Manual */}
+        <div className="space-y-2">
+          <label className="flex items-center gap-2 text-sm font-semibold text-gray-700 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={!!formData.precioManual}
+              onChange={(e) =>
+                setFormData((p: any) => {
+                  const checked = e.target.checked;
+
+                  // Al activar manual, inicializamos desde/hasta con lo que ya había en auto
+                  const baseDesde = p.horaInicio || p.horaInicioManual || "";
+                  const baseDur = Number(p.duracion || 90);
+                  const baseHasta =
+                    baseDesde && baseDur
+                      ? // si ya tenías un inicio, sugerimos fin = inicio + dur
+                        // (el hook luego valida opciones reales)
+                        (() => {
+                          const [h, m] = String(baseDesde)
+                            .slice(0, 5)
+                            .split(":")
+                            .map(Number);
+                          const total = (h || 0) * 60 + (m || 0) + baseDur;
+                          const hh = String(Math.floor((total % 1440) / 60)).padStart(2, "0");
+                          const mm = String((total % 1440) % 60).padStart(2, "0");
+                          return `${hh}:${mm}`;
+                        })()
+                      : "";
+
+                  return {
+                    ...p,
+                    precioManual: checked,
+                    precio: Number(p.precio || 0),
+                    horaInicioManual: checked ? baseDesde : p.horaInicioManual,
+                    horaFinManual: checked ? baseHasta : p.horaFinManual,
+                  };
+                })
+              }
+              className="w-4 h-4 text-green-600 rounded focus:ring-green-500 cursor-pointer"
+            />
+            Precio manual (admin)
           </label>
-          <select
-            className="w-full p-2.5 bg-white border border-gray-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-            value={formData.duracion}
-            onChange={(e) =>
-              setFormData({
-                ...formData,
-                duracion: Number(e.target.value) as any,
-              })
-            }
-          >
-            <option value={60}>60 minutos</option>
-            <option value={90}>90 minutos</option>
-            <option value={120}>120 minutos</option>
-          </select>
+
+          <p className="text-[11px] text-slate-500">
+            Si está activo, elegís <b>Desde/Hasta</b> y el sistema calcula la{" "}
+            <b>duración</b> (múltiplos de 30). No usa tarifarios.
+          </p>
         </div>
 
-        {/* Precio */}
+        {/* ===========================
+            AUTO: Hora inicio + Duración
+           =========================== */}
+        {!formData.precioManual && (
+          <>
+            {/* Hora inicio (AUTO) */}
+            <div>
+              <label className="block text-xs font-bold text-gray-600 mb-1">
+                Hora inicio
+              </label>
+              <select
+                className="w-full p-2.5 bg-white border border-gray-200 rounded-xl text-sm outline-none disabled:opacity-60 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                value={formData.horaInicio}
+                onChange={(e) =>
+                  setFormData({ ...formData, horaInicio: e.target.value })
+                }
+                disabled={!formData.canchaId || availableTimes.length === 0}
+              >
+                {!formData.canchaId && (
+                  <option value="">Elegí una cancha</option>
+                )}
+                {formData.canchaId && availableTimes.length === 0 && (
+                  <option value="">No hay horarios disponibles</option>
+                )}
+                {availableTimes.map((t) => (
+                  <option key={t.value} value={t.value}>
+                    {t.label} (fin {t.finLabel})
+                  </option>
+                ))}
+              </select>
+
+              {horaFinCalculada && (
+                <p className="text-xs text-slate-500 mt-1 pl-1">
+                  Fin estimado:{" "}
+                  <span className="font-bold text-slate-700">
+                    {horaFinCalculada}
+                  </span>
+                </p>
+              )}
+            </div>
+
+            {/* Duración (AUTO) */}
+            <div>
+              <label className="block text-xs font-bold text-gray-600 mb-1 ml-1">
+                Duración
+              </label>
+              <select
+                className="w-full p-2.5 bg-white border border-gray-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                value={Number(formData.duracion)}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    duracion: Number(e.target.value),
+                  })
+                }
+              >
+                {DURACIONES_AUTO.map((m) => (
+                  <option key={m} value={m}>
+                    {m} minutos
+                  </option>
+                ))}
+              </select>
+              <p className="text-[11px] text-slate-400 mt-1 ml-1">
+                Múltiplos de 30 min (grilla).
+              </p>
+            </div>
+          </>
+        )}
+
+        {/* ===========================
+            MANUAL: Desde/Hasta + duración calculada
+           =========================== */}
+        {formData.precioManual && (
+          <div className="rounded-2xl border border-amber-200 bg-amber-50/50 p-3 space-y-3">
+            <div className="flex items-center gap-2 text-xs font-bold text-amber-800">
+              <Clock className="w-4 h-4" /> Horario manual (Desde / Hasta)
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              {/* Desde */}
+              <div>
+                <label className="block text-xs font-bold text-gray-600 mb-1">
+                  Desde
+                </label>
+                <select
+                  className="w-full p-2.5 bg-white border border-gray-200 rounded-xl text-sm outline-none disabled:opacity-60 focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all"
+                  value={formData.horaInicioManual || ""}
+                  onChange={(e) =>
+                    setFormData((p: any) => ({
+                      ...p,
+                      horaInicioManual: e.target.value,
+                      horaFinManual: "", // reseteamos hasta para forzar re-selección válida
+                    }))
+                  }
+                  disabled={!formData.canchaId || manualDesdeOptions.length === 0}
+                >
+                  {!formData.canchaId && (
+                    <option value="">Elegí una cancha</option>
+                  )}
+                  {formData.canchaId && manualDesdeOptions.length === 0 && (
+                    <option value="">No hay horarios libres</option>
+                  )}
+                  {manualDesdeOptions.map((t) => (
+                    <option key={t.value} value={t.value}>
+                      {t.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Hasta */}
+              <div>
+                <label className="block text-xs font-bold text-gray-600 mb-1">
+                  Hasta
+                </label>
+                <select
+                  className="w-full p-2.5 bg-white border border-gray-200 rounded-xl text-sm outline-none disabled:opacity-60 focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all"
+                  value={formData.horaFinManual || ""}
+                  onChange={(e) =>
+                    setFormData((p: any) => ({
+                      ...p,
+                      horaFinManual: e.target.value,
+                    }))
+                  }
+                  disabled={
+                    !formData.horaInicioManual || manualHastaOptions.length === 0
+                  }
+                >
+                  {!formData.horaInicioManual && (
+                    <option value="">Elegí “Desde”</option>
+                  )}
+                  {formData.horaInicioManual && manualHastaOptions.length === 0 && (
+                    <option value="">No hay “Hasta” válido</option>
+                  )}
+                  {manualHastaOptions.map((t) => (
+                    <option key={t.value} value={t.value}>
+                      {t.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Duración calculada */}
+            <div className="flex items-center justify-between rounded-xl bg-white border border-amber-200 px-3 py-2">
+              <div className="text-xs font-semibold text-slate-600">
+                Duración calculada
+              </div>
+              <div className="text-sm font-black text-slate-800">
+                {duracionManualCalculada ? `${duracionManualCalculada} min` : "—"}
+              </div>
+            </div>
+
+            {/* Precio manual */}
+            <div>
+              <label className="block text-[11px] font-bold text-slate-500 mb-1 uppercase tracking-wider">
+                Precio manual
+              </label>
+              <input
+                type="number"
+                min={0}
+                step={100}
+                value={Number(formData.precio || 0)}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    precio: Number(e.target.value || 0),
+                  })
+                }
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 outline-none"
+                placeholder="Ej: 12000"
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Precio (display general) */}
         <div
-          className={`bg-slate-50 p-3 rounded-xl border border-slate-100 ${esFijo ? "opacity-70 grayscale" : ""}`}
+          className={`bg-slate-50 p-3 rounded-xl border border-slate-100 ${
+            esFijo ? "opacity-70 grayscale" : ""
+          }`}
         >
           <label className="block text-xs font-bold text-slate-500 mb-1 uppercase tracking-wider">
-            Precio {esFijo ? "(Referencia)" : ""}
+            Total {esFijo ? "(Referencia)" : ""}
           </label>
 
           <div className="flex items-center gap-3">
             <div className="text-xl font-black text-slate-800 tracking-tight">
               {formatMoney(formData.precio)}
             </div>
-            {!esFijo && priceLoading && (
+
+            {/* ✅ Loader solo si NO es fijo y NO es manual */}
+            {!esFijo && !formData.precioManual && priceLoading && (
               <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
             )}
           </div>
 
-          {!esFijo && priceError && (
+          {/* ✅ Error solo si NO es fijo y NO es manual */}
+          {!esFijo && !formData.precioManual && priceError && (
             <div className="mt-2 text-xs text-red-600 flex items-center gap-1.5 bg-red-50 p-2 rounded-lg border border-red-100">
               <AlertCircle className="w-3.5 h-3.5" /> {priceError}
             </div>

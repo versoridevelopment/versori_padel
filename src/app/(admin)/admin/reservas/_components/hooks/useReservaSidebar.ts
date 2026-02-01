@@ -27,7 +27,7 @@ export type ReservaSidebarProps = {
   fecha?: string;
 
   preSelectedCanchaId?: number | null;
-  preSelectedTime?: string | null; // ✅ Cambiado a string para mayor precisión (HH:MM)
+  preSelectedTime?: string | null;
 
   idClub: number;
   canchas: CanchaUI[];
@@ -38,6 +38,8 @@ export type ReservaSidebarProps = {
 
   onCreated: () => void;
 };
+
+type Segmento = "publico" | "profe";
 
 // ===== Helpers exportables =====
 export const formatMoney = (val: number) =>
@@ -51,7 +53,6 @@ export const formatMoney = (val: number) =>
 function toISODateLocal(d: Date | string | undefined | null) {
   if (!d) return new Date().toISOString().split("T")[0];
 
-  // Si es string (YYYY-MM-DD), aseguramos que se interprete localmente
   const dateObj =
     typeof d === "string" ? new Date(d.includes("T") ? d : d + "T12:00:00") : d;
 
@@ -81,6 +82,15 @@ function addMinutesHHMM(hhmm: string, addMin: number) {
   const hh = String(Math.floor(total / 60)).padStart(2, "0");
   const mm = String(total % 60).padStart(2, "0");
   return `${hh}:${mm}`;
+}
+
+function diffMinutesHHMM(startHHMM: string, endHHMM: string) {
+  const [sh, sm] = startHHMM.slice(0, 5).split(":").map(Number);
+  const [eh, em] = endHHMM.slice(0, 5).split(":").map(Number);
+  const s = (sh || 0) * 60 + (sm || 0);
+  let e = (eh || 0) * 60 + (em || 0);
+  if (e <= s) e += 1440; // cruza medianoche
+  return e - s;
 }
 
 /** ===== Regla anti “30 colgados” ===== */
@@ -147,7 +157,7 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
     onClose,
     isCreating,
     selectedDate,
-    fecha, // ✅ AQUI RECIBIMOS LA FECHA EXACTA (puede ser mañana)
+    fecha,
     preSelectedCanchaId,
     preSelectedTime,
     idClub,
@@ -160,7 +170,6 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
     initialData,
   } = props;
 
-  // ✅ 1. Definimos la fecha ISO correcta. Si 'fecha' viene (ej: click en 00:00), gana sobre selectedDate.
   const fechaISO = useMemo(
     () => toISODateLocal(fecha || selectedDate),
     [fecha, selectedDate],
@@ -217,17 +226,44 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
   const [cobroLoading, setCobroLoading] = useState(false);
   const [cobroError, setCobroError] = useState<string | null>(null);
 
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<{
+    nombre: string;
+    telefono: string;
+    email: string;
+    esTurnoFijo: boolean;
+    tipoTurno: TipoTurno;
+
+    // auto
+    duracion: number;
+    horaInicio: string;
+
+    // manual
+    precioManual: boolean;
+    horaInicioManual: string; // "desde"
+    horaFinManual: string; // "hasta"
+
+    precio: number;
+    notas: string;
+    canchaId: string;
+    weeksAhead: number;
+    endDate: string;
+  }>({
     nombre: "",
     telefono: "",
     email: "",
     esTurnoFijo: false,
-    tipoTurno: "normal" as TipoTurno,
-    duracion: 90 as 60 | 90 | 120,
+    tipoTurno: "normal",
+
+    duracion: 90,
+    horaInicio: "",
+
+    precioManual: false,
+    horaInicioManual: "",
+    horaFinManual: "",
+
     precio: 0,
     notas: "",
     canchaId: "",
-    horaInicio: "", // Esto debe coincidir con preSelectedTime
     weeksAhead: 8,
     endDate: "",
   });
@@ -237,16 +273,11 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
   const [createLoading, setCreateLoading] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
-  // 1) Ocuppied intervals
+  // 1) Occupied intervals
   const occupiedIntervals = useMemo(() => {
     if (!isCreating) return [];
     const id_cancha = Number(formData.canchaId);
     if (!id_cancha) return [];
-
-    // NOTA: Si estamos creando en fecha "Mañana" pero 'reservas' tiene datos de "Hoy",
-    // esto no filtrará correctamente los ocupados de mañana.
-    // Para UX perfecta, deberías filtrar 'reservas' por fecha, pero asumimos que CompactView
-    // solo permite clicks en huecos vacíos visualmente.
 
     return reservas
       .filter((r) => Number(r.id_cancha) === id_cancha)
@@ -260,22 +291,34 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
       });
   }, [isCreating, reservas, formData.canchaId, startHour]);
 
-  // 2) Available times
+  const dayStartU = useMemo(() => toUnits30(startHour), [startHour]);
+  const dayEndU = useMemo(() => toUnits30(endHour), [endHour]);
+
+  const occupiedU: IntervalU[] = useMemo(
+    () =>
+      occupiedIntervals.map((o) => ({
+        startU: toUnits30(o.start),
+        endU: toUnits30(o.end),
+      })),
+    [occupiedIntervals],
+  );
+
+  const freeBlocks = useMemo(
+    () => buildFreeBlocks(dayStartU, dayEndU, occupiedU),
+    [dayStartU, dayEndU, occupiedU],
+  );
+
+  // 2) Available times (AUTO: depende de duracion)
   const availableTimes = useMemo(() => {
     if (!isOpen || !isCreating) return [];
-    const durMin = Number(formData.duracion);
-    if (![60, 90, 120].includes(durMin)) return [];
+    if (formData.precioManual) return []; // en manual no usamos este select
 
-    const dayStartU = toUnits30(startHour);
-    const dayEndU = toUnits30(endHour);
+    const durMin = Number(formData.duracion);
+    if (!Number.isFinite(durMin) || durMin <= 0) return [];
+    if (durMin % 30 !== 0) return [];
+
     const durU = Math.round(durMin / 30);
 
-    const occupiedU: IntervalU[] = occupiedIntervals.map((o) => ({
-      startU: toUnits30(o.start),
-      endU: toUnits30(o.end),
-    }));
-
-    const freeBlocks = buildFreeBlocks(dayStartU, dayEndU, occupiedU);
     const out: {
       value: string;
       label: string;
@@ -302,43 +345,128 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
       });
     }
     return out;
+  }, [isOpen, isCreating, formData.duracion, formData.precioManual, freeBlocks, dayStartU, dayEndU]);
+
+  // 2B) Available times (MANUAL: "desde" y "hasta")
+  const manualDesdeOptions = useMemo(() => {
+    if (!isOpen || !isCreating) return [];
+    if (!formData.precioManual) return [];
+
+    const out: { value: string; label: string }[] = [];
+
+    // "desde" válido si existe AL MENOS un "hasta" posible dentro del mismo bloque
+    for (const b of freeBlocks) {
+      for (let startU = b.startU; startU + 1 <= b.endU; startU += 1) {
+        // ¿hay algún endU que sirva?
+        let ok = false;
+        for (let endU = startU + 1; endU <= b.endU; endU += 1) {
+          if (noDangling30(b, startU, endU)) {
+            ok = true;
+            break;
+          }
+        }
+        if (!ok) continue;
+        const hhmm = unitsToHHMM(startU);
+        out.push({ value: hhmm, label: hhmm });
+      }
+    }
+    // dedupe (por wrap de medianoche)
+    const seen = new Set<string>();
+    return out.filter((x) => (seen.has(x.value) ? false : (seen.add(x.value), true)));
+  }, [isOpen, isCreating, formData.precioManual, freeBlocks]);
+
+  const manualHastaOptions = useMemo(() => {
+    if (!isOpen || !isCreating) return [];
+    if (!formData.precioManual) return [];
+    const desde = String(formData.horaInicioManual || "");
+    if (!/^\d{2}:\d{2}$/.test(desde)) return [];
+
+    const startDec = hhmmToDecimal(desde, startHour);
+    const startU = toUnits30(startDec);
+
+    const block = freeBlocks.find((b) => startU >= b.startU && startU < b.endU);
+    if (!block) return [];
+
+    const out: { value: string; label: string }[] = [];
+    for (let endU = startU + 1; endU <= block.endU; endU += 1) {
+      if (!noDangling30(block, startU, endU)) continue;
+      const hhmm = unitsToHHMM(endU);
+      out.push({ value: hhmm, label: hhmm });
+    }
+
+    const seen = new Set<string>();
+    return out.filter((x) => (seen.has(x.value) ? false : (seen.add(x.value), true)));
   }, [
     isOpen,
     isCreating,
-    formData.duracion,
+    formData.precioManual,
+    formData.horaInicioManual,
+    freeBlocks,
     startHour,
-    endHour,
-    occupiedIntervals,
   ]);
 
-  // ✅ 3) Sincronización Agresiva: Al abrir, pisar datos con props
+  // ✅ duración calculada en manual (desde/hasta)
+  const duracionManualCalculada = useMemo(() => {
+    if (!formData.precioManual) return 0;
+    const desde = String(formData.horaInicioManual || "");
+    const hasta = String(formData.horaFinManual || "");
+    if (!/^\d{2}:\d{2}$/.test(desde) || !/^\d{2}:\d{2}$/.test(hasta)) return 0;
+
+    const mins = diffMinutesHHMM(desde, hasta);
+    if (!Number.isFinite(mins) || mins <= 0) return 0;
+    if (mins % 30 !== 0) return 0;
+    return mins;
+  }, [formData.precioManual, formData.horaInicioManual, formData.horaFinManual]);
+
+  // ✅ sincronizar "duracion" interna cuando es manual (para que el resto del UI pueda mostrarlo)
+  useEffect(() => {
+    if (!isOpen || !isCreating) return;
+    if (!formData.precioManual) return;
+    if (!duracionManualCalculada) return;
+
+    setFormData((p) => (p.duracion === duracionManualCalculada ? p : { ...p, duracion: duracionManualCalculada }));
+  }, [isOpen, isCreating, formData.precioManual, duracionManualCalculada]);
+
+  // ✅ 3) Sincronización al abrir: cancha + hora (AUTO) y defaults (MANUAL)
   useEffect(() => {
     if (!isOpen || !isCreating) return;
 
-    // Cancha Default
     const defaultCancha =
       preSelectedCanchaId?.toString() ||
       (canchas[0]?.id_cancha?.toString() ?? "");
 
-    // Hora Default (Aquí está la clave)
-    // Si viene preSelectedTime (ej "00:00"), lo usamos directo.
-    // Si no, buscamos el primero disponible.
-    let defaultHora = preSelectedTime || "";
-
-    // Si no vino hora, fallback al primero disponible
-    if (!defaultHora && availableTimes.length > 0) {
-      defaultHora = availableTimes[0].value;
+    let defaultHoraAuto = preSelectedTime || "";
+    if (!defaultHoraAuto && availableTimes.length > 0) {
+      defaultHoraAuto = availableTimes[0].value;
     }
 
     setFormData((prev) => {
-      // Solo actualizamos si cambia algo para evitar loops
-      if (prev.canchaId === defaultCancha && prev.horaInicio === defaultHora)
-        return prev;
+      const canchaChanged = prev.canchaId !== defaultCancha;
+
+      // AUTO
+      const horaAutoChanged = defaultHoraAuto && prev.horaInicio !== defaultHoraAuto;
+
+      // MANUAL defaults: si no están seteados, copiamos desde el auto
+      const needsManualDefaults =
+        prev.precioManual &&
+        (!prev.horaInicioManual || !prev.horaFinManual) &&
+        (defaultHoraAuto || prev.horaInicio);
+
+      if (!canchaChanged && !horaAutoChanged && !needsManualDefaults) return prev;
+
+      const baseHora = defaultHoraAuto || prev.horaInicio;
+
       return {
         ...prev,
         canchaId: defaultCancha,
-        horaInicio: defaultHora,
-        // Resetear precio para obligar recálculo con nueva hora/fecha
+        horaInicio: horaAutoChanged ? defaultHoraAuto : prev.horaInicio,
+        // si es manual y no tiene valores, los inicializamos
+        ...(needsManualDefaults
+          ? {
+              horaInicioManual: baseHora,
+              horaFinManual: addMinutesHHMM(baseHora, Number(prev.duracion || 90)),
+            }
+          : {}),
         precio: 0,
       };
     });
@@ -352,7 +480,7 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
     preSelectedTime,
     canchas,
     availableTimes,
-  ]); // Dependencias clave
+  ]);
 
   // ESC Key
   useEffect(() => {
@@ -370,7 +498,6 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
   }, [isCreating, canchas, formData.canchaId, reservaFull]);
 
   const fechaDisplay = useMemo(() => {
-    // Usamos fechaISO para el display, asegurando que muestre "Sábado" si clicaste 00:00 del sábado
     return new Date(fechaISO + "T12:00:00").toLocaleDateString("es-AR", {
       weekday: "short",
       day: "2-digit",
@@ -379,25 +506,37 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
   }, [fechaISO]);
 
   const horaFinCalculada = useMemo(() => {
+    if (formData.precioManual) {
+      return formData.horaFinManual || "";
+    }
     if (!formData.horaInicio) return "";
     return addMinutesHHMM(formData.horaInicio, Number(formData.duracion || 0));
-  }, [formData.horaInicio, formData.duracion]);
+  }, [
+    formData.precioManual,
+    formData.horaInicio,
+    formData.horaFinManual,
+    formData.duracion,
+  ]);
 
   // =========================================================
-  // Precio Automático (Autocomplementado)
+  // Precio Automático (solo si NO es manual)
   // =========================================================
   useEffect(() => {
     let alive = true;
+
     async function calc() {
       if (!isOpen || !isCreating) return;
+      if (formData.precioManual) return; // ✅ manual => NO calculamos por tarifario
 
       const id_cancha = Number(formData.canchaId);
       const inicio = formData.horaInicio;
       const dur = Number(formData.duracion);
 
-      if (!id_cancha || !inicio || ![60, 90, 120].includes(dur)) return;
+      if (!id_cancha || !inicio) return;
+      if (!Number.isFinite(dur) || dur <= 0 || dur % 30 !== 0) return;
 
       const fin = addMinutesHHMM(inicio, dur);
+
       setPriceLoading(true);
       setPriceError(null);
 
@@ -408,7 +547,7 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
           body: JSON.stringify({
             id_club: idClub,
             id_cancha,
-            fecha: fechaISO, // ✅ Usa la fecha calculada (mañana si corresponde)
+            fecha: fechaISO,
             inicio,
             fin,
           }),
@@ -419,7 +558,6 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
         if (!alive) return;
 
         if (!res.ok || !json?.ok) {
-          // No bloqueamos, solo avisamos o dejamos precio 0
           console.warn("Precio calc warn:", json?.error);
           setFormData((p) => ({ ...p, precio: 0 }));
         } else {
@@ -434,6 +572,7 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
         if (alive) setPriceLoading(false);
       }
     }
+
     const t = setTimeout(calc, 400);
     return () => {
       alive = false;
@@ -447,48 +586,86 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
     formData.canchaId,
     formData.horaInicio,
     formData.duracion,
+    formData.precioManual,
   ]);
 
   // =========================================================
-  // Acciones (Create, Cancel, Cobro...)
+  // Acciones
   // =========================================================
   const getWhatsappLink = (phone: string) =>
     `https://wa.me/${String(phone || "").replace(/\D/g, "")}`;
 
   async function handleCreate() {
     setCreateError(null);
+
     const id_cancha = Number(formData.canchaId);
-    const inicio = formData.horaInicio;
-    const dur = Number(formData.duracion);
-    const fin = addMinutesHHMM(inicio, dur);
+    const precioManual = !!formData.precioManual;
+
+    // inicio/fin según modo
+    const inicio = precioManual ? formData.horaInicioManual : formData.horaInicio;
+
+    let fin = "";
+    let dur = 0;
+
+    if (precioManual) {
+      if (!inicio) return setCreateError("Falta horario desde");
+      if (!formData.horaFinManual) return setCreateError("Falta horario hasta");
+
+      fin = formData.horaFinManual;
+      dur = diffMinutesHHMM(inicio, fin);
+
+      if (!Number.isFinite(dur) || dur <= 0 || dur % 30 !== 0) {
+        return setCreateError("Rango horario inválido (múltiplos de 30)");
+      }
+
+      if (!Number.isFinite(Number(formData.precio)) || Number(formData.precio) <= 0) {
+        return setCreateError("Precio manual inválido");
+      }
+    } else {
+      if (!inicio) return setCreateError("Falta horario");
+      dur = Number(formData.duracion);
+      if (!Number.isFinite(dur) || dur <= 0 || dur % 30 !== 0) {
+        return setCreateError("Duración inválida (múltiplos de 30)");
+      }
+      fin = addMinutesHHMM(inicio, dur);
+    }
 
     if (!formData.nombre.trim()) return setCreateError("Nombre requerido");
     if (!id_cancha) return setCreateError("Falta cancha");
-    if (!inicio) return setCreateError("Falta horario");
 
     setCreateLoading(true);
+
     try {
       const url = formData.esTurnoFijo
         ? "/api/admin/turnos-fijos"
         : "/api/admin/reservas";
-      const payload = {
+
+      const payload: any = {
         id_club: idClub,
         id_cancha,
-        fecha: fechaISO, // ✅ Envía la fecha correcta
+        fecha: fechaISO,
         inicio,
-        duracion_min: dur,
         fin,
+
+        // ✅ mandamos igual duracion_min para consistencia (y el backend igual puede usar fin)
+        duracion_min: dur,
+
         tipo_turno: formData.tipoTurno,
         cliente_nombre: formData.nombre.trim(),
         cliente_telefono: formData.telefono.trim(),
         cliente_email: formData.email.trim() || null,
         notas: formData.notas.trim() || null,
-        ...(formData.esTurnoFijo && {
-          weeks_ahead: Number(formData.weeksAhead || 8),
-          start_date: fechaISO,
-          dow: new Date(fechaISO + "T12:00:00").getDay(),
-        }),
+
+        // ✅ manual override
+        precio_manual: precioManual,
+        precio_total_manual: precioManual ? Number(formData.precio || 0) : null,
       };
+
+      if (formData.esTurnoFijo) {
+        payload.weeks_ahead = Number(formData.weeksAhead || 8);
+        payload.start_date = fechaISO;
+        payload.dow = new Date(fechaISO + "T12:00:00").getDay();
+      }
 
       const res = await fetch(url, {
         method: "POST",
@@ -501,7 +678,7 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
 
       if (onCreated) onCreated();
       onClose();
-      // Reset parcial
+
       setFormData((prev) => ({
         ...prev,
         nombre: "",
@@ -516,7 +693,6 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
     }
   }
 
-  // (Mismo código para handleCancelar, openCobro, handleCobrar que tenías antes...)
   async function handleCancelar() {
     if (!reservaFull || !confirm("¿Cancelar reserva?")) return;
     try {
@@ -584,10 +760,16 @@ export function useReservaSidebar(props: ReservaSidebarProps) {
     createError,
     cobroLoading,
     cobroError,
-    availableTimes,
+
+    availableTimes, // auto
+    manualDesdeOptions, // manual
+    manualHastaOptions, // manual
+    duracionManualCalculada, // manual
+
     canchaDisplay,
     fechaDisplay,
     horaFinCalculada,
+
     handleCreate,
     handleCancelar,
     openCobro,

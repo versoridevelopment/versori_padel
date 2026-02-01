@@ -19,7 +19,10 @@ type Body = {
   id_cancha: number;
   fecha: string; // YYYY-MM-DD
   inicio: string; // HH:MM
-  duracion_min?: 60 | 90 | 120;
+
+  // ✅ ahora cualquier duración
+  duracion_min?: number;
+
   fin?: string; // HH:MM
   tipo_turno?: TipoTurno;
   notas?: string | null;
@@ -27,6 +30,10 @@ type Body = {
   cliente_telefono?: string | null;
   cliente_email?: string | null;
   segmento_override?: Segmento;
+
+  // ✅ manual override
+  precio_manual?: boolean;
+  precio_total_manual?: number | null;
 };
 
 // HELPERS
@@ -38,7 +45,6 @@ function pad2(n: number) {
   return String(n).padStart(2, "0");
 }
 function minToHHMM(minAbs: number) {
-  // Manejo circular del reloj (1440 min = 24h)
   const m = ((minAbs % 1440) + 1440) % 1440;
   const hh = Math.floor(m / 60);
   const mm = m % 60;
@@ -67,7 +73,7 @@ async function assertAdminOrStaff(params: { id_club: number; userId: string }) {
     .select("id_usuario, id_club, roles!inner(nombre)")
     .eq("id_club", id_club)
     .eq("id_usuario", userId)
-    .in("roles.nombre", ["admin", "cajero", "staff"]) // Agregado "staff"
+    .in("roles.nombre", ["admin", "cajero", "staff"])
     .limit(1);
 
   if (error)
@@ -90,7 +96,6 @@ export async function POST(req: Request) {
     const id_cancha = Number(body?.id_cancha);
     const fecha = String(body?.fecha || "");
     const inicio = String(body?.inicio || "");
-    // Si viene fin manual (drag/resize en calendario), lo usamos
     const finFromBody = body?.fin ? String(body.fin) : "";
 
     const tipo_turno = String(body?.tipo_turno || "normal") as TipoTurno;
@@ -115,18 +120,16 @@ export async function POST(req: Request) {
     // 2. Lógica Duración y Fin
     let duracion_min = Number(body?.duracion_min || 0);
 
-    // Si no viene duración explícita (ej. 60/90), intentamos calcularla usando 'fin'
+    // Si no viene duración explícita, intentamos calcular usando 'fin'
     if (!duracion_min && /^\d{2}:\d{2}$/.test(finFromBody)) {
       const startMin = toMin(inicio);
       let endMin = toMin(finFromBody);
-      // Si fin es menor a inicio (ej 23:00 -> 00:30), asumimos día siguiente (+1440)
       if (endMin <= startMin) endMin += 1440;
       duracion_min = endMin - startMin;
     }
 
-    // Validación final de duración (permitimos múltiplos de 30 para flexibilidad)
+    // Validación final de duración
     if (duracion_min <= 0 || duracion_min % 30 !== 0) {
-      // Fallback si falló todo: 90 min por defecto
       if (duracion_min === 0) duracion_min = 90;
       else
         return NextResponse.json(
@@ -139,7 +142,6 @@ export async function POST(req: Request) {
     const startMin = toMin(inicio);
     const endMinAbs = startMin + duracion_min;
 
-    // fin_dia_offset = 1 si termina a las 00:00 o después del día siguiente
     const fin_dia_offset: 0 | 1 = endMinAbs >= 1440 ? 1 : 0;
     const fin = minToHHMM(endMinAbs);
 
@@ -165,61 +167,75 @@ export async function POST(req: Request) {
     const windowStart = new Date(arMidnightISO(fecha)).toISOString();
     const windowEnd = new Date(
       arMidnightISO(addDaysISO(fecha, 2)),
-    ).toISOString(); // Miramos hasta 48hs adelante por seguridad
+    ).toISOString();
 
-    const { error: ovErr } = await supabaseAdmin
+    await supabaseAdmin
       .from("reservas")
       .select("id_reserva")
       .eq("id_club", id_club)
       .eq("id_cancha", id_cancha)
       .in("estado", ["confirmada", "pendiente_pago"])
-      // Logica de overlap: (NewStart < OldEnd) AND (NewEnd > OldStart)
-      // En SQL Supabase range types es mejor, pero aquí usamos timestamps string
       .lt("inicio_ts", windowEnd)
       .gt("fin_ts", windowStart)
-      .limit(100); // Traemos candidatos y filtramos en memoria si es complejo, o confiamos en RPC
+      .limit(100);
 
-    // NOTA: Para solapamiento exacto lo ideal es usar la RPC 'reservas_check_overlap' si la tienes,
-    // o confiar en el constraint de la DB (Postgres EXCLUDE).
-    // Aquí asumimos que si insert falla, es por overlap.
+    // =========================================================
+    // 6) PRECIO (manual o automático)
+    // =========================================================
+    const precio_manual = !!body?.precio_manual;
+    const precio_total_manual = Number(body?.precio_total_manual ?? 0);
 
-    // 6. Calcular Precio
     const segmento_override: Segmento =
       body?.segmento_override ||
       (tipo_turno === "profesor" ? "profe" : "publico");
 
-    const calcRes = await fetch(
-      new URL("/api/reservas/calcular-precio", req.url),
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          cookie: req.headers.get("cookie") || "",
+    let precio_total = 0;
+    let id_tarifario: number | null = null;
+    let id_regla: number | null = null;
+    let segmento: Segmento = segmento_override;
+
+    if (precio_manual) {
+      if (!Number.isFinite(precio_total_manual) || precio_total_manual <= 0) {
+        return NextResponse.json(
+          { error: "Precio manual inválido" },
+          { status: 400 },
+        );
+      }
+      precio_total = precio_total_manual;
+    } else {
+      const calcRes = await fetch(
+        new URL("/api/reservas/calcular-precio", req.url),
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            cookie: req.headers.get("cookie") || "",
+          },
+          body: JSON.stringify({
+            id_club,
+            id_cancha,
+            fecha,
+            inicio,
+            fin,
+            segmento_override,
+          }),
+          cache: "no-store",
         },
-        body: JSON.stringify({
-          id_club,
-          id_cancha,
-          fecha,
-          inicio,
-          fin,
-          segmento_override,
-        }),
-        cache: "no-store",
-      },
-    );
-
-    const calcJson = await calcRes.json().catch(() => null);
-    if (!calcRes.ok || !calcJson?.ok) {
-      return NextResponse.json(
-        { error: calcJson?.error || "Error calculando precio" },
-        { status: 409 },
       );
-    }
 
-    const precio_total = Number(calcJson.precio_total || 0);
-    const id_tarifario = Number(calcJson.id_tarifario) || null;
-    const id_regla = Number(calcJson.id_regla) || null;
-    const segmento = (calcJson.segmento || segmento_override) as Segmento;
+      const calcJson = await calcRes.json().catch(() => null);
+      if (!calcRes.ok || !calcJson?.ok) {
+        return NextResponse.json(
+          { error: calcJson?.error || "Error calculando precio" },
+          { status: 409 },
+        );
+      }
+
+      precio_total = Number(calcJson.precio_total || 0);
+      id_tarifario = Number(calcJson.id_tarifario) || null;
+      id_regla = Number(calcJson.id_regla) || null;
+      segmento = (calcJson.segmento || segmento_override) as Segmento;
+    }
 
     // 7. Calcular Seña/Anticipo
     const { data: clubData } = await supabaseAdmin
@@ -237,12 +253,12 @@ export async function POST(req: Request) {
       .insert({
         id_club,
         id_cancha,
-        id_usuario: null, // Reserva manual admin
+        id_usuario: null,
         fecha,
         inicio,
         fin,
         fin_dia_offset,
-        estado: "confirmada", // Admin crea confirmado directo generalmente
+        estado: "confirmada",
         precio_total,
         anticipo_porcentaje: pct,
         monto_anticipo,
@@ -256,6 +272,10 @@ export async function POST(req: Request) {
         cliente_email: cliente_email.trim() || null,
         origen: "admin",
         creado_por: adminUserId,
+
+        // ✅ opcional: si querés auditarlo en DB (solo si existen columnas)
+        // precio_manual,
+        // precio_total_manual: precio_manual ? precio_total : null,
       })
       .select("id_reserva")
       .single();
@@ -277,6 +297,10 @@ export async function POST(req: Request) {
       fin,
       precio_total,
       cliente_nombre,
+      precio_manual,
+      id_tarifario,
+      id_regla,
+      segmento,
     });
   } catch (e: any) {
     console.error("[POST /api/admin/reservas] Error:", e);

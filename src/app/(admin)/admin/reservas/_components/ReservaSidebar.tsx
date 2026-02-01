@@ -14,33 +14,40 @@ import EditReservaMoveForm from "./sidebar/EditReservaMoveForm";
 
 export default function ReservaSidebar(props: ReservaSidebarProps) {
   const {
-    formData,
-    setFormData,
-    reserva,
-    showCobro,
-    setShowCobro,
-    cobroMonto,
-    setCobroMonto,
-    cobroMetodo,
-    setCobroMetodo,
-    cobroNota,
-    setCobroNota,
-    priceLoading,
-    priceError,
-    createLoading,
-    createError,
-    cobroLoading,
-    cobroError,
-    availableTimes,
-    canchaDisplay,
-    fechaDisplay,
-    horaFinCalculada,
-    handleCreate,
-    handleCancelar,
-    openCobro,
-    handleCobrar,
-    getWhatsappLink,
-  } = useReservaSidebar(props);
+  formData,
+  setFormData,
+  reserva,
+  showCobro,
+  setShowCobro,
+  cobroMonto,
+  setCobroMonto,
+  cobroMetodo,
+  setCobroMetodo,
+  cobroNota,
+  setCobroNota,
+  priceLoading,
+  priceError,
+  createLoading,
+  createError,
+  cobroLoading,
+  cobroError,
+  availableTimes,
+
+  // ✅ AGREGAR ESTO (si no está, no existe la variable)
+  manualDesdeOptions,
+  manualHastaOptions,
+  duracionManualCalculada,
+
+  canchaDisplay,
+  fechaDisplay,
+  horaFinCalculada,
+  handleCreate,
+  handleCancelar,
+  openCobro,
+  handleCobrar,
+  getWhatsappLink,
+} = useReservaSidebar(props);
+
 
   // ✅ Destructuramos idClub de las props principales
   const { isOpen, onClose, isCreating, onCreated, idClub } = props;
@@ -218,12 +225,14 @@ export default function ReservaSidebar(props: ReservaSidebarProps) {
         <div className="flex-1 overflow-y-auto p-6 custom-scrollbar bg-white">
           {isCreating ? (
             <CreateReservaForm
-              // ✅ PASAMOS EL ID CLUB AQUÍ
               idClub={idClub}
               formData={formData}
               setFormData={setFormData}
               canchas={props.canchas}
               availableTimes={availableTimes}
+              manualDesdeOptions={manualDesdeOptions}
+              manualHastaOptions={manualHastaOptions}
+              duracionManualCalculada={duracionManualCalculada}
               horaFinCalculada={horaFinCalculada}
               priceLoading={priceLoading}
               priceError={priceError}
@@ -269,11 +278,14 @@ export default function ReservaSidebar(props: ReservaSidebarProps) {
                 onClick={handleCreate}
                 className="flex-1 py-2.5 bg-green-500 text-white rounded-full text-sm font-bold hover:bg-green-600 shadow-md flex items-center justify-center gap-2 disabled:opacity-60"
                 disabled={
-                  createLoading ||
+                createLoading ||
+                  !formData.horaInicio ||
                   (!formData.esTurnoFijo &&
-                    (priceLoading || !formData.precio)) ||
-                  !formData.horaInicio
+                    (!formData.precioManual
+                      ? (priceLoading || !formData.precio)
+                      : (!formData.precio || Number(formData.precio) <= 0)))
                 }
+
               >
                 {createLoading && <Loader2 className="w-4 h-4 animate-spin" />}{" "}
                 Crear
