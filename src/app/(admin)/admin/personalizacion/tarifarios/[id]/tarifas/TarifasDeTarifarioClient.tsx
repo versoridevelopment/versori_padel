@@ -5,6 +5,10 @@ import { useEffect, useMemo, useState } from "react";
 
 type ApiError = { error: string };
 
+// ✅ Duraciones permitidas: 30 min a 4 hs (240), pasos de 30
+const DURACIONES = [30, 60, 90, 120, 150, 180, 210, 240] as const;
+type DuracionMin = (typeof DURACIONES)[number];
+
 type Regla = {
   id_regla: number;
   id_tarifario: number;
@@ -13,7 +17,7 @@ type Regla = {
   hora_desde: string; // "10:00:00"
   hora_hasta: string; // "14:00:00"
   cruza_medianoche: boolean;
-  duracion_min: 60 | 90 | 120;
+  duracion_min: number; // ✅ antes: 60 | 90 | 120
   precio: number;
   prioridad: number;
   activo: boolean;
@@ -70,14 +74,16 @@ export default function TarifasDeTarifarioClient({
   const [horaDesde, setHoraDesde] = useState("10:00");
   const [horaHasta, setHoraHasta] = useState("14:00");
   const [cruzaMedianoche, setCruzaMedianoche] = useState(false);
-  const [duracion, setDuracion] = useState<60 | 90 | 120>(60);
+
+  const [duracion, setDuracion] = useState<DuracionMin>(60);
+
   const [precio, setPrecio] = useState<number>(12000);
   const [prioridad, setPrioridad] = useState<number>(10);
 
   // opcionales (crear/editar)
   const [activoForm, setActivoForm] = useState<boolean>(true);
-  const [vigenteDesde, setVigenteDesde] = useState<string>(""); // "" => dejar que el server ponga default
-  const [vigenteHasta, setVigenteHasta] = useState<string>(""); // "" => null
+  const [vigenteDesde, setVigenteDesde] = useState<string>("");
+  const [vigenteHasta, setVigenteHasta] = useState<string>("");
 
   function resetFormToCreateDefaults() {
     setEditingId(null);
@@ -104,7 +110,11 @@ export default function TarifasDeTarifarioClient({
     setHoraDesde(fmtTime(r.hora_desde));
     setHoraHasta(fmtTime(r.hora_hasta));
     setCruzaMedianoche(!!r.cruza_medianoche);
-    setDuracion(r.duracion_min);
+
+    // ✅ si viene un valor que no está en el select, caemos en 60
+    const d = Number(r.duracion_min);
+    setDuracion((DURACIONES as readonly number[]).includes(d) ? (d as DuracionMin) : 60);
+
     setPrecio(Number(r.precio) || 0);
     setPrioridad(Number(r.prioridad) || 0);
 
@@ -118,7 +128,6 @@ export default function TarifasDeTarifarioClient({
   }
 
   function duplicateRuleToCreate(r: Regla) {
-    // Clona al formulario pero vuelve a "crear" (no edita)
     setEditingId(null);
 
     setSegmento(r.segmento);
@@ -126,14 +135,15 @@ export default function TarifasDeTarifarioClient({
     setHoraDesde(fmtTime(r.hora_desde));
     setHoraHasta(fmtTime(r.hora_hasta));
     setCruzaMedianoche(!!r.cruza_medianoche);
-    setDuracion(r.duracion_min);
+
+    const d = Number(r.duracion_min);
+    setDuracion((DURACIONES as readonly number[]).includes(d) ? (d as DuracionMin) : 60);
+
     setPrecio(Number(r.precio) || 0);
     setPrioridad(Number(r.prioridad) || 0);
 
-    // En duplicado: normalmente conviene que arranque activa
     setActivoForm(true);
 
-    // Fechas: por defecto copiamos (podés ajustar)
     setVigenteDesde(r.vigente_desde || "");
     setVigenteHasta(r.vigente_hasta || "");
 
@@ -181,10 +191,7 @@ export default function TarifasDeTarifarioClient({
   const canSubmit = useMemo(() => {
     if (!horaDesde.trim() || !horaHasta.trim()) return false;
     if (Number.isNaN(Number(precio)) || Number(precio) < 0) return false;
-
-    // validación opcional de rango de fechas si ambas están
     if (vigenteDesde && vigenteHasta && vigenteHasta < vigenteDesde) return false;
-
     return true;
   }, [horaDesde, horaHasta, precio, vigenteDesde, vigenteHasta]);
 
@@ -203,13 +210,11 @@ export default function TarifasDeTarifarioClient({
         precio,
         prioridad,
         activo: activoForm,
-        // opcionales: si viene "" no mandamos (o mandamos null)
         vigente_desde: vigenteDesde ? vigenteDesde : undefined,
         vigente_hasta: vigenteHasta ? vigenteHasta : null,
       };
 
       if (!isEditing) {
-        // CREATE
         const res = await fetch(`/api/admin/tarifarios/${idTarifario}/tarifas`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -222,12 +227,9 @@ export default function TarifasDeTarifarioClient({
         }
 
         await load();
-        // opcional: resetear a defaults
-        // resetFormToCreateDefaults();
         return;
       }
 
-      // UPDATE
       const res = await fetch(`/api/admin/tarifas/${editingId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -261,7 +263,9 @@ export default function TarifasDeTarifarioClient({
         throw new Error(e?.error || "No se pudo actualizar");
       }
 
-      setReglas((prev) => prev.map((r) => (r.id_regla === id_regla ? { ...r, activo } : r)));
+      setReglas((prev) =>
+        prev.map((r) => (r.id_regla === id_regla ? { ...r, activo } : r))
+      );
 
       if (editingId === id_regla) setActivoForm(activo);
     } catch (err: any) {
@@ -280,7 +284,9 @@ export default function TarifasDeTarifarioClient({
         throw new Error(e?.error || "No se pudo desactivar");
       }
 
-      setReglas((prev) => prev.map((r) => (r.id_regla === id_regla ? { ...r, activo: false } : r)));
+      setReglas((prev) =>
+        prev.map((r) => (r.id_regla === id_regla ? { ...r, activo: false } : r))
+      );
 
       if (editingId === id_regla) setActivoForm(false);
     } catch (err: any) {
@@ -392,14 +398,17 @@ export default function TarifasDeTarifarioClient({
                 onChange={(e) => setHoraHasta(e.target.value)}
               />
 
+              {/* ✅ Duración 30–240 */}
               <select
                 className="rounded-xl border border-gray-200 px-3 py-2 text-sm bg-white"
                 value={String(duracion)}
-                onChange={(e) => setDuracion(Number(e.target.value) as any)}
+                onChange={(e) => setDuracion(Number(e.target.value) as DuracionMin)}
               >
-                <option value="60">60 min</option>
-                <option value="90">90 min</option>
-                <option value="120">120 min</option>
+                {DURACIONES.map((d) => (
+                  <option key={d} value={d}>
+                    {d} min
+                  </option>
+                ))}
               </select>
 
               <input
