@@ -119,7 +119,7 @@ function downloadPdf(r: Detalle) {
   // Info Principal (Grid)
   const drawSection = (
     title: string,
-    data: [string, string][],
+    data: (string | [string, string])[][], // Ajuste de tipo aquí
     startY: number,
   ) => {
     doc.setFontSize(11);
@@ -131,7 +131,10 @@ function downloadPdf(r: Detalle) {
     let currentY = startY + 12;
     doc.setFontSize(10);
 
-    data.forEach(([label, value]) => {
+    data.forEach((item) => {
+      const label = item[0] as string;
+      const value = item[1] as string;
+
       doc.setTextColor(100);
       doc.text(label, margin, currentY);
       doc.setTextColor(0);
@@ -212,7 +215,6 @@ export default function ReservaDetallePage() {
   useEffect(() => {
     if (!id_reserva) return;
 
-    // Simular fetch (Reemplazar con tu fetch real)
     const fetchData = async () => {
       setLoading(true);
       try {
@@ -260,7 +262,7 @@ export default function ReservaDetallePage() {
   if (!data) return null;
 
   return (
-    <div className="min-h-screen bg-[#09090b] text-white p-4 md:p-8 font-sans">
+    <div className="min-h-screen bg-[#09090b] text-white p-4 md:p-8 font-sans pt-24 md:pt-32">
       <div className="max-w-2xl mx-auto space-y-6">
         {/* Header Nav */}
         <button

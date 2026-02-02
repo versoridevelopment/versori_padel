@@ -206,7 +206,8 @@ export default function MisReservasPage() {
   }, [canLoadMore, page]);
 
   return (
-    <section className="min-h-screen bg-[#09090b] text-white px-4 py-8 md:px-8 md:py-12 font-sans">
+    // ✨ CAMBIO AQUÍ: pt-24 (mobile) y md:pt-32 (desktop) para bajar el contenido
+    <section className="min-h-screen bg-[#09090b] text-white px-4 pt-24 pb-12 md:px-8 md:pt-32 font-sans">
       <div className="max-w-5xl mx-auto">
         {/* HEADER */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
