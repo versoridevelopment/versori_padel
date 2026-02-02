@@ -2,7 +2,15 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { CheckCircle2, XCircle, Clock, RotateCw, Download } from "lucide-react";
+import {
+  CheckCircle2,
+  XCircle,
+  Clock,
+  RotateCw,
+  Download,
+  ArrowLeft,
+  MapPin,
+} from "lucide-react";
 import jsPDF from "jspdf";
 
 type Estado = "pendiente_pago" | "confirmada" | "expirada" | "rechazada";
@@ -31,6 +39,7 @@ type ReservaApi = {
 
   club_nombre?: string | null;
   club_subdominio?: string | null;
+  club_direccion?: string | null; // Agregado para el ticket
   cancha_nombre?: string | null;
 
   ultimo_pago?: {
@@ -45,6 +54,7 @@ type ReservaApi = {
   } | null;
 };
 
+// --- HELPERS ---
 function isLocalHostName(hostname: string) {
   return (
     hostname === "localhost" ||
@@ -62,150 +72,158 @@ function buildHostWithSubdomain(baseHost: string, club: string) {
 function fmtMoney(n: any) {
   const v = Number(n || 0);
   if (!Number.isFinite(v)) return "-";
-  return new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS" }).format(v);
+  return new Intl.NumberFormat("es-AR", {
+    style: "currency",
+    currency: "ARS",
+    minimumFractionDigits: 0,
+  }).format(v);
 }
 
+function formatDate(dateStr?: string | null) {
+  if (!dateStr) return "-";
+  const [y, m, d] = dateStr.split("-");
+  return `${d}/${m}/${y}`;
+}
+
+// --- PDF GENERATOR (Profesional) ---
 function downloadPdfFromReserva(r: ReservaApi) {
   const doc = new jsPDF();
-  const pageW = doc.internal.pageSize.getWidth();
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const margin = 20;
+  let y = 20;
 
-  const margin = 14;
-  let y = 18;
+  // Header Background
+  doc.setFillColor(15, 23, 42); // Slate 900
+  doc.rect(0, 0, pageWidth, 50, "F");
 
-  // Header
-  doc.setFontSize(18);
-  doc.text("Comprobante de Reserva", pageW / 2, y, { align: "center" });
-  y += 10;
+  // Title
+  doc.setFontSize(22);
+  doc.setTextColor(255, 255, 255);
+  doc.text("COMPROBANTE DE RESERVA", margin, 25);
 
-  doc.setDrawColor(180);
-  doc.line(margin, y, pageW - margin, y);
-  y += 10;
+  // ID
+  doc.setFontSize(10);
+  doc.setTextColor(200, 200, 200);
+  doc.text(
+    `ID: #${r.id_reserva.toString().padStart(6, "0")}`,
+    pageWidth - margin,
+    25,
+    { align: "right" },
+  );
 
-  // Helper
-  const labelValue = (xL: number, xV: number, yy: number, label: string, value: string) => {
+  // Club Info
+  doc.setFontSize(14);
+  doc.setTextColor(255, 255, 255);
+  doc.text(r.club_nombre || "Club Deportivo", margin, 35);
+
+  doc.setFontSize(9);
+  doc.setTextColor(200, 200, 200);
+  doc.text(r.club_direccion || "Dirección no especificada", margin, 42);
+
+  y = 65;
+
+  // Estado Section
+  doc.setFontSize(12);
+  doc.setTextColor(100);
+  doc.text("ESTADO DE LA RESERVA", margin, y);
+
+  const statusColor = r.estado === "confirmada" ? [22, 163, 74] : [234, 179, 8];
+  doc.setFillColor(statusColor[0], statusColor[1], statusColor[2]);
+  doc.roundedRect(pageWidth - margin - 40, y - 5, 40, 8, 1, 1, "F");
+  doc.setTextColor(255);
+  doc.setFontSize(9);
+  doc.text(
+    (r.estado || "").toUpperCase().replace("_", " "),
+    pageWidth - margin - 20,
+    y,
+    { align: "center" },
+  );
+
+  y += 15;
+
+  // Helper for grid sections
+  const drawSection = (
+    title: string,
+    data: (string | [string, string])[][],
+    startY: number,
+  ) => {
     doc.setFontSize(11);
-    doc.setTextColor(90);
-    doc.text(label, xL, yy);
-    doc.setTextColor(20);
-    doc.text(value || "-", xV, yy);
+    doc.setTextColor(15, 23, 42);
+    doc.text(title, margin, startY);
+    doc.setDrawColor(200);
+    doc.line(margin, startY + 2, pageWidth - margin, startY + 2);
+
+    let currentY = startY + 12;
+    doc.setFontSize(10);
+
+    data.forEach((item) => {
+      const label = item[0] as string;
+      const value = item[1] as string;
+      doc.setTextColor(100);
+      doc.text(label, margin, currentY);
+      doc.setTextColor(0);
+      doc.text(value, margin + 40, currentY);
+      currentY += 8;
+    });
+    return currentY + 10;
   };
 
-  // Box 1: Datos de reserva (2 columnas)
-  const boxX = margin;
-  const boxW = pageW - margin * 2;
-  const boxH = 74;
-
-  doc.setDrawColor(200);
-  doc.roundedRect(boxX, y, boxW, boxH, 3, 3);
-
-  const leftXLabel = boxX + 6;
-  const leftXValue = boxX + 42;
-  const rightXLabel = boxX + boxW / 2 + 6;
-  const rightXValue = boxX + boxW / 2 + 42;
-
-  let rowY = y + 10;
-
-  labelValue(leftXLabel, leftXValue, rowY, "Reserva", `#${String(r.id_reserva)}`);
-  labelValue(rightXLabel, rightXValue, rowY, "Estado", (r.estado ?? "-").toUpperCase());
-  rowY += 10;
-
-  labelValue(leftXLabel, leftXValue, rowY, "Club", r.club_nombre ?? "-");
-  labelValue(rightXLabel, rightXValue, rowY, "Cancha", r.cancha_nombre ?? "-");
-  rowY += 10;
-
-  labelValue(leftXLabel, leftXValue, rowY, "Fecha", r.fecha ?? "-");
-  labelValue(
-    rightXLabel,
-    rightXValue,
-    rowY,
-    "Horario",
-    `${r.inicio ?? "-"} - ${r.fin ?? "-"}${r.fin_dia_offset === 1 ? " (+1)" : ""}`
+  y = drawSection(
+    "DETALLES DEL TURNO",
+    [
+      ["Cancha", r.cancha_nombre || "-"],
+      ["Fecha", formatDate(r.fecha)],
+      [
+        "Horario",
+        `${r.inicio?.slice(0, 5)} - ${r.fin?.slice(0, 5)}${r.fin_dia_offset ? " (+1)" : ""}`,
+      ],
+    ],
+    y,
   );
-  rowY += 10;
 
-  labelValue(leftXLabel, leftXValue, rowY, "Total", fmtMoney(r.precio_total));
-  labelValue(rightXLabel, rightXValue, rowY, "Anticipo", fmtMoney(r.monto_anticipo));
-  rowY += 10;
+  y = drawSection(
+    "DATOS DEL CLIENTE",
+    [
+      ["Nombre", r.cliente_nombre || "-"],
+      ["Teléfono", r.cliente_telefono || "-"],
+      ["Email", r.cliente_email || "-"],
+    ],
+    y,
+  );
 
-  labelValue(leftXLabel, leftXValue, rowY, "Confirmada", r.confirmed_at ? String(r.confirmed_at) : "-");
+  const saldo = (r.precio_total || 0) - (r.monto_anticipo || 0);
 
-  y += boxH + 10;
+  y = drawSection(
+    "RESUMEN DE PAGO",
+    [
+      ["Precio Total", fmtMoney(r.precio_total)],
+      ["Seña / Anticipo", fmtMoney(r.monto_anticipo)],
+      ["Saldo Restante", fmtMoney(saldo)],
+    ],
+    y,
+  );
 
-  // Box 2: Cliente
-  doc.setFontSize(12);
-  doc.setTextColor(20);
-  doc.text("Datos del cliente", margin, y);
-  y += 6;
-
-  const cBoxH = 28;
-  doc.setDrawColor(200);
-  doc.roundedRect(boxX, y, boxW, cBoxH, 3, 3);
-
-  const c1 = r.cliente_nombre ?? "-";
-  const c2 = r.cliente_telefono ?? "-";
-  const c3 = r.cliente_email ?? "-";
-
-  doc.setFontSize(11);
-  doc.setTextColor(90);
-  doc.text("Nombre", leftXLabel, y + 10);
-  doc.setTextColor(20);
-  doc.text(c1, leftXValue, y + 10);
-
-  doc.setTextColor(90);
-  doc.text("Teléfono", rightXLabel, y + 10);
-  doc.setTextColor(20);
-  doc.text(c2, rightXValue, y + 10);
-
-  doc.setTextColor(90);
-  doc.text("Email", leftXLabel, y + 20);
-  doc.setTextColor(20);
-  doc.text(c3, leftXValue, y + 20);
-
-  y += cBoxH + 12;
-
-  // Box 3: Pago
   if (r.ultimo_pago) {
-    doc.setFontSize(12);
-    doc.setTextColor(20);
-    doc.text("Pago", margin, y);
-    y += 6;
-
-    const pBoxH = 28;
-    doc.setDrawColor(200);
-    doc.roundedRect(boxX, y, boxW, pBoxH, 3, 3);
-
-    doc.setFontSize(11);
-    doc.setTextColor(90);
-    doc.text("MP status", leftXLabel, y + 10);
-    doc.setTextColor(20);
-    doc.text(r.ultimo_pago.mp_status ?? "-", leftXValue, y + 10);
-
-    doc.setTextColor(90);
-    doc.text("Monto", rightXLabel, y + 10);
-    doc.setTextColor(20);
-    doc.text(fmtMoney(r.ultimo_pago.amount), rightXValue, y + 10);
-
-    doc.setTextColor(90);
-    doc.text("Payment ID", leftXLabel, y + 20);
-    doc.setTextColor(20);
-    doc.text(String(r.ultimo_pago.mp_payment_id ?? "-"), leftXValue, y + 20);
-
-    y += pBoxH + 12;
+    y = drawSection(
+      "DETALLE TRANSACCIÓN",
+      [
+        ["ID Pago MP", r.ultimo_pago.mp_payment_id?.toString() || "-"],
+        ["Estado MP", r.ultimo_pago.mp_status?.toUpperCase() || "-"],
+      ],
+      y,
+    );
   }
 
   // Footer
-  doc.setFontSize(9);
-  doc.setTextColor(120);
-  doc.text(
-    "Este comprobante es una constancia de la reserva registrada en el sistema.",
-    pageW / 2,
-    285,
-    { align: "center" }
-  );
+  doc.setFontSize(8);
+  doc.setTextColor(150);
+  const footerText =
+    "Este documento sirve como comprobante de la reserva realizada.\nPor políticas de cancelación, consulte directamente con la administración del club.";
+  doc.text(footerText, pageWidth / 2, pageHeight - 20, { align: "center" });
 
-  doc.save(`comprobante-reserva-${r.id_reserva}.pdf`);
+  doc.save(`Reserva_${r.id_reserva}_${r.fecha}.pdf`);
 }
-
 
 export default function PagoResultadoPage() {
   const params = useSearchParams();
@@ -228,31 +246,24 @@ export default function PagoResultadoPage() {
 
     const { protocol, hostname, port } = window.location;
 
-    // Local dev: ferpadel.localhost:3000
     if (isLocalHostName(hostname)) {
       const targetHost = `${club}.localhost`;
       return `${protocol}//${targetHost}${port ? `:${port}` : ""}/`;
     }
 
-    // Ngrok dev
     if (hostname.includes("ngrok-free.dev")) {
       return `${protocol}//${hostname}/?club=${encodeURIComponent(club)}`;
     }
 
-    // Producción: forzar SIEMPRE el dominio raíz oficial
     if (rootDomainEnv) {
       return `${protocolEnv}://${club}.${rootDomainEnv}/`;
     }
 
-    // Fallback
     const targetHost = buildHostWithSubdomain(hostname, club);
     return `${protocol}//${targetHost}${port ? `:${port}` : ""}/`;
   }, [club]);
 
-  /**
-   * ✅ 1) Redirect automático al subdominio del club
-   * Así el resultado se ve con el tenant/layout del club y no el navbar genérico.
-   */
+  // Redirect Logic
   useEffect(() => {
     if (!club) return;
     if (typeof window === "undefined") return;
@@ -263,8 +274,8 @@ export default function PagoResultadoPage() {
 
     const { hostname, search } = window.location;
 
-    // No forzar en local/ngrok
-    if (isLocalHostName(hostname) || hostname.includes("ngrok-free.dev")) return;
+    if (isLocalHostName(hostname) || hostname.includes("ngrok-free.dev"))
+      return;
 
     const expectedHost = `${club}.${rootDomainEnv}`;
     const alreadyOnClubHost = hostname === expectedHost;
@@ -275,10 +286,7 @@ export default function PagoResultadoPage() {
     }
   }, [club]);
 
-  /**
-   * ✅ 2) Polling de estado
-   * Nota: si te redirige al subdominio, el polling ocurre ya en el host del club.
-   */
+  // Polling Logic
   useEffect(() => {
     if (!id_reserva) return;
 
@@ -289,13 +297,17 @@ export default function PagoResultadoPage() {
       try {
         setPollError(null);
 
-        const res = await fetch(`/api/reservas/${id_reserva}`, { cache: "no-store" });
+        const res = await fetch(`/api/reservas/${id_reserva}`, {
+          cache: "no-store",
+        });
         const data = (await res.json().catch(() => null)) as ReservaApi | null;
 
         if (!alive) return;
 
         if (!res.ok || !data) {
-          setPollError((data as any)?.error || "No se pudo verificar el estado.");
+          setPollError(
+            (data as any)?.error || "No se pudo verificar el estado.",
+          );
           setLoading(false);
           timer = setTimeout(poll, 2500);
           return;
@@ -327,235 +339,186 @@ export default function PagoResultadoPage() {
   }, [id_reserva]);
 
   if (!id_reserva) {
-    return <p className="text-white p-10">Reserva inválida</p>;
+    return <p className="text-white p-10 text-center">Reserva inválida</p>;
   }
 
   const showPending = loading && !estado;
 
   return (
-    <section className="min-h-screen flex items-center justify-center bg-gradient-to-b from-[#001a33] to-[#002b5b] text-white px-6">
-      <div className="bg-[#0b2545] border border-[#1b4e89] rounded-3xl p-10 max-w-md w-full text-center">
+    <section className="min-h-screen flex items-center justify-center bg-[#09090b] text-white px-4 py-8">
+      <div className="w-full max-w-md space-y-6">
+        {/* Loading State */}
         {showPending && (
-          <>
-            <Clock className="w-16 h-16 text-yellow-400 mx-auto mb-4" />
-            <h1 className="text-2xl font-bold mb-2">Verificando pago…</h1>
-            <p className="text-neutral-300 mb-6">
-              Estamos consultando el estado de la operación.
+          <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-10 text-center">
+            <Clock className="w-16 h-16 text-yellow-500 mx-auto mb-6 animate-pulse" />
+            <h1 className="text-2xl font-bold mb-2">Verificando pago...</h1>
+            <p className="text-zinc-400">
+              Estamos consultando el estado de la operación con el proveedor.
             </p>
-          </>
+          </div>
         )}
 
+        {/* Error State */}
         {!showPending && pollError && (
-          <>
-            <RotateCw className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+          <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-10 text-center">
+            <RotateCw className="w-16 h-16 text-zinc-500 mx-auto mb-6" />
             <h1 className="text-2xl font-bold mb-2">Estamos verificando</h1>
-            <p className="text-neutral-300 mb-6">{pollError}</p>
+            <p className="text-zinc-400 mb-8">{pollError}</p>
             <button
               onClick={() => window.location.reload()}
-              className="bg-blue-600 hover:bg-blue-700 px-6 py-3 rounded-xl font-semibold"
+              className="bg-blue-600 hover:bg-blue-700 w-full py-3 rounded-xl font-bold transition-colors"
             >
               Reintentar
             </button>
-          </>
+          </div>
         )}
 
+        {/* Success State */}
         {!showPending && !pollError && estado === "confirmada" && (
-          <>
-            <CheckCircle2 className="w-16 h-16 text-emerald-400 mx-auto mb-4" />
-            <h1 className="text-2xl font-bold mb-2">Reserva confirmada</h1>
-            <p className="text-neutral-300 mb-6">El pago fue aprobado correctamente.</p>
+          <div className="space-y-6">
+            <div className="text-center">
+              <div className="inline-flex bg-emerald-500/10 p-4 rounded-full mb-4 ring-1 ring-emerald-500/20">
+                <CheckCircle2 className="w-12 h-12 text-emerald-500" />
+              </div>
+              <h1 className="text-3xl font-bold text-white mb-2">
+                ¡Reserva Exitosa!
+              </h1>
+              <p className="text-zinc-400">
+                Tu turno ha sido confirmado correctamente.
+              </p>
+            </div>
 
-            {/* Comprobante visible */}
-            <div className="text-left bg-[#071b33] border border-[#1b4e89] rounded-2xl p-5 mb-6">
-              <div className="flex items-center justify-between mb-3">
-                <p className="font-semibold">Comprobante</p>
-                <span className="text-xs px-2 py-1 rounded-full bg-emerald-600/20 text-emerald-200">
-                  Confirmada
+            {/* Comprobante Card */}
+            <div className="bg-zinc-900 border border-zinc-800 rounded-3xl overflow-hidden shadow-2xl">
+              {/* Header Card */}
+              <div className="bg-emerald-500/10 px-6 py-4 border-b border-emerald-500/20 flex justify-between items-center">
+                <span className="text-emerald-400 font-bold text-sm uppercase tracking-wider flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4" /> Confirmada
+                </span>
+                <span className="text-zinc-500 font-mono text-xs">
+                  #{id_reserva.toString().padStart(6, "0")}
                 </span>
               </div>
 
-              <div className="space-y-2 text-sm text-neutral-200">
-                <div className="flex justify-between gap-4">
-                  <span className="text-neutral-400">Reserva</span>
-                  <span>#{id_reserva}</span>
+              <div className="p-6 space-y-6">
+                {/* Info Principal */}
+                <div className="text-center">
+                  <h2 className="text-xl font-bold text-white">
+                    {reserva?.club_nombre}
+                  </h2>
+                  <p className="text-zinc-400 text-sm flex items-center justify-center gap-1 mt-1">
+                    <MapPin className="w-3 h-3" /> {reserva?.cancha_nombre}
+                  </p>
                 </div>
 
-                <div className="flex justify-between gap-4">
-                  <span className="text-neutral-400">Club</span>
-                  <span className="text-right">{reserva?.club_nombre ?? "-"}</span>
+                {/* Detalles Grid */}
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div className="bg-zinc-950 p-3 rounded-xl border border-zinc-800">
+                    <p className="text-zinc-500 text-xs uppercase font-bold mb-1">
+                      Fecha
+                    </p>
+                    <p className="font-semibold text-zinc-200">
+                      {formatDate(reserva?.fecha)}
+                    </p>
+                  </div>
+                  <div className="bg-zinc-950 p-3 rounded-xl border border-zinc-800">
+                    <p className="text-zinc-500 text-xs uppercase font-bold mb-1">
+                      Horario
+                    </p>
+                    <p className="font-semibold text-zinc-200">
+                      {reserva?.inicio?.slice(0, 5)} -{" "}
+                      {reserva?.fin?.slice(0, 5)}
+                    </p>
+                  </div>
                 </div>
 
-                <div className="flex justify-between gap-4">
-                  <span className="text-neutral-400">Cancha</span>
-                  <span className="text-right">{reserva?.cancha_nombre ?? "-"}</span>
+                {/* Desglose Pago */}
+                <div className="space-y-2 pt-2 border-t border-zinc-800">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-zinc-400">Total</span>
+                    <span className="font-medium text-white">
+                      {fmtMoney(reserva?.precio_total)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-zinc-400">Pagado (Seña)</span>
+                    <span className="font-medium text-emerald-400">
+                      {fmtMoney(reserva?.monto_anticipo)}
+                    </span>
+                  </div>
                 </div>
+              </div>
 
-                <div className="flex justify-between gap-4">
-                  <span className="text-neutral-400">Fecha</span>
-                  <span>{reserva?.fecha ?? "-"}</span>
+              {/* Botones */}
+              <div className="bg-zinc-950 p-4 flex flex-col gap-3">
+                <button
+                  onClick={() => reserva && downloadPdfFromReserva(reserva)}
+                  className="w-full bg-white text-black font-bold py-3 rounded-xl hover:bg-zinc-200 transition-colors flex items-center justify-center gap-2"
+                >
+                  <Download className="w-4 h-4" /> Descargar Comprobante
+                </button>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={() => router.push("/mis-reservas")}
+                    className="bg-zinc-800 hover:bg-zinc-700 text-white py-3 rounded-xl font-semibold transition-colors text-sm"
+                  >
+                    Mis Reservas
+                  </button>
+                  {clubHomeUrl && (
+                    <button
+                      onClick={() => (window.location.href = clubHomeUrl)}
+                      className="bg-zinc-800 hover:bg-zinc-700 text-white py-3 rounded-xl font-semibold transition-colors text-sm"
+                    >
+                      Volver al Club
+                    </button>
+                  )}
                 </div>
-
-                <div className="flex justify-between gap-4">
-                  <span className="text-neutral-400">Horario</span>
-                  <span>
-                    {(reserva?.inicio ?? "-")} - {(reserva?.fin ?? "-")}
-                    {reserva?.fin_dia_offset === 1 ? " (+1)" : ""}
-                  </span>
-                </div>
-
-                <div className="flex justify-between gap-4">
-                  <span className="text-neutral-400">Total</span>
-                  <span>{fmtMoney(reserva?.precio_total)}</span>
-                </div>
-
-                <div className="flex justify-between gap-4">
-                  <span className="text-neutral-400">Anticipo</span>
-                  <span>{fmtMoney(reserva?.monto_anticipo)}</span>
-                </div>
-
-                <div className="flex justify-between gap-4">
-                  <span className="text-neutral-400">Confirmada</span>
-                  <span className="text-right">
-                    {reserva?.confirmed_at ? String(reserva.confirmed_at) : "-"}
-                  </span>
-                </div>
-
-                {(reserva?.cliente_nombre ||
-                  reserva?.cliente_telefono ||
-                  reserva?.cliente_email) && (
-                  <>
-                    <div className="pt-3 mt-3 border-t border-white/10 text-neutral-300 font-semibold">
-                      Cliente
-                    </div>
-                    <div className="text-sm text-neutral-200 space-y-1">
-                      <div>{reserva?.cliente_nombre ?? "-"}</div>
-                      <div>{reserva?.cliente_telefono ?? "-"}</div>
-                      <div>{reserva?.cliente_email ?? "-"}</div>
-                    </div>
-                  </>
-                )}
-
-                {reserva?.ultimo_pago && (
-                  <>
-                    <div className="pt-3 mt-3 border-t border-white/10 text-neutral-300 font-semibold">
-                      Pago
-                    </div>
-                    <div className="text-sm text-neutral-200 space-y-1">
-                      <div>
-                        <span className="text-neutral-400">MP status:</span>{" "}
-                        {reserva.ultimo_pago.mp_status ?? "-"}
-                      </div>
-                      <div>
-                        <span className="text-neutral-400">Monto:</span>{" "}
-                        {fmtMoney(reserva.ultimo_pago.amount)}
-                      </div>
-                      <div>
-                        <span className="text-neutral-400">Payment ID:</span>{" "}
-                        {reserva.ultimo_pago.mp_payment_id ?? "-"}
-                      </div>
-                    </div>
-                  </>
-                )}
               </div>
             </div>
-
-            <div className="flex flex-col gap-3">
-              {/* ✅ Descargar PDF (cliente) */}
-              <button
-                onClick={() => reserva && downloadPdfFromReserva(reserva)}
-                className="bg-white/10 hover:bg-white/15 px-6 py-3 rounded-xl font-semibold flex items-center justify-center gap-2"
-              >
-                <Download className="w-5 h-5" />
-                Descargar comprobante (PDF)
-              </button>
-
-              <button
-                onClick={() => router.push("/mis-reservas")}
-                className="bg-emerald-600 hover:bg-emerald-700 px-6 py-3 rounded-xl font-semibold"
-              >
-                Ver mis reservas
-              </button>
-
-              {clubHomeUrl && (
-                <button
-                  onClick={() => (window.location.href = clubHomeUrl)}
-                  className="bg-gray-700/70 hover:bg-gray-600 px-6 py-3 rounded-xl font-semibold"
-                >
-                  Volver al club
-                </button>
-              )}
-            </div>
-          </>
+          </div>
         )}
 
+        {/* Pending State */}
         {!showPending && !pollError && estado === "pendiente_pago" && (
-          <>
-            <Clock className="w-16 h-16 text-yellow-400 mx-auto mb-4" />
-            <h1 className="text-2xl font-bold mb-2">Pago pendiente</h1>
-            <p className="text-neutral-300 mb-6">
-              Estamos esperando confirmación del pago.
+          <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-10 text-center">
+            <Clock className="w-16 h-16 text-amber-500 mx-auto mb-6" />
+            <h1 className="text-2xl font-bold mb-2">Pago Pendiente</h1>
+            <p className="text-zinc-400 mb-8">
+              Tu pago está siendo procesado. Si ya pagaste, espera unos
+              instantes.
             </p>
-
             <button
               onClick={() => window.location.reload()}
-              className="bg-blue-600 hover:bg-blue-700 px-6 py-3 rounded-xl font-semibold"
+              className="bg-amber-600 hover:bg-amber-700 text-white w-full py-3 rounded-xl font-bold transition-colors"
             >
-              Actualizar
+              Actualizar Estado
             </button>
-          </>
+          </div>
         )}
 
-        {!showPending && !pollError && estado === "rechazada" && (
-          <>
-            <XCircle className="w-16 h-16 text-rose-400 mx-auto mb-4" />
-            <h1 className="text-2xl font-bold mb-2">Pago rechazado</h1>
-            <p className="text-neutral-300 mb-6">El pago no pudo completarse.</p>
-
-            <div className="flex flex-col gap-3">
+        {/* Rejected/Expired State */}
+        {!showPending &&
+          !pollError &&
+          (estado === "rechazada" || estado === "expirada") && (
+            <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-10 text-center">
+              <XCircle className="w-16 h-16 text-red-500 mx-auto mb-6" />
+              <h1 className="text-2xl font-bold mb-2">
+                {estado === "rechazada" ? "Pago Rechazado" : "Reserva Expirada"}
+              </h1>
+              <p className="text-zinc-400 mb-8">
+                {estado === "rechazada"
+                  ? "El pago no pudo completarse. Por favor intenta con otro medio."
+                  : "El tiempo para realizar el pago ha finalizado."}
+              </p>
               <button
                 onClick={() => router.push("/reserva")}
-                className="bg-blue-600 hover:bg-blue-700 px-6 py-3 rounded-xl font-semibold"
+                className="bg-blue-600 hover:bg-blue-700 text-white w-full py-3 rounded-xl font-bold transition-colors"
               >
-                Reintentar reserva
+                Intentar de nuevo
               </button>
-
-              {clubHomeUrl && (
-                <button
-                  onClick={() => (window.location.href = clubHomeUrl)}
-                  className="bg-gray-700/70 hover:bg-gray-600 px-6 py-3 rounded-xl font-semibold"
-                >
-                  Volver al club
-                </button>
-              )}
             </div>
-          </>
-        )}
-
-        {!showPending && !pollError && estado === "expirada" && (
-          <>
-            <RotateCw className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-            <h1 className="text-2xl font-bold mb-2">Reserva expirada</h1>
-            <p className="text-neutral-300 mb-6">No se recibió el pago a tiempo.</p>
-
-            <div className="flex flex-col gap-3">
-              <button
-                onClick={() => router.push("/reserva")}
-                className="bg-blue-600 hover:bg-blue-700 px-6 py-3 rounded-xl font-semibold"
-              >
-                Volver a reservar
-              </button>
-
-              {clubHomeUrl && (
-                <button
-                  onClick={() => (window.location.href = clubHomeUrl)}
-                  className="bg-gray-700/70 hover:bg-gray-600 px-6 py-3 rounded-xl font-semibold"
-                >
-                  Volver al club
-                </button>
-              )}
-            </div>
-          </>
-        )}
+          )}
       </div>
     </section>
   );

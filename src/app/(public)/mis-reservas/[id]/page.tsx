@@ -10,9 +10,6 @@ import {
   XCircle,
   Calendar,
   MapPin,
-  CreditCard,
-  User,
-  Info,
 } from "lucide-react";
 import jsPDF from "jspdf";
 
@@ -39,6 +36,7 @@ type Detalle = {
   monto_anticipo?: number | null;
 
   club_nombre?: string | null;
+  club_direccion?: string | null; // Nuevo campo para dirección del club
   cancha_nombre?: string | null;
 
   cliente_nombre?: string | null;
@@ -78,14 +76,16 @@ function downloadPdf(r: Detalle) {
   const margin = 20;
   let y = 20;
 
-  // Header
+  // Header Background
   doc.setFillColor(15, 23, 42); // Slate 900
-  doc.rect(0, 0, pageWidth, 40, "F");
+  doc.rect(0, 0, pageWidth, 50, "F"); // Increased height for club info
 
+  // Title
   doc.setFontSize(22);
   doc.setTextColor(255, 255, 255);
   doc.text("COMPROBANTE DE RESERVA", margin, 25);
 
+  // ID
   doc.setFontSize(10);
   doc.setTextColor(200, 200, 200);
   doc.text(
@@ -95,11 +95,20 @@ function downloadPdf(r: Detalle) {
     { align: "right" },
   );
 
-  y = 55;
+  // Club Info in Header
+  doc.setFontSize(14);
+  doc.setTextColor(255, 255, 255);
+  doc.text(r.club_nombre || "Club Deportivo", margin, 35);
 
-  // Estado
+  doc.setFontSize(9);
+  doc.setTextColor(200, 200, 200);
+  doc.text(r.club_direccion || "Dirección no especificada", margin, 42);
+
+  y = 65;
+
+  // Estado Section
   doc.setFontSize(12);
-  doc.setTextColor(100);
+  doc.setTextColor(100); // Gray text for label
   doc.text("ESTADO DE LA RESERVA", margin, y);
 
   const statusColor = r.estado === "confirmada" ? [22, 163, 74] : [234, 179, 8]; // Green or Yellow
@@ -116,14 +125,14 @@ function downloadPdf(r: Detalle) {
 
   y += 15;
 
-  // Info Principal (Grid)
+  // Helper to draw sections
   const drawSection = (
     title: string,
-    data: (string | [string, string])[][], // Ajuste de tipo aquí
+    data: (string | [string, string])[][],
     startY: number,
   ) => {
     doc.setFontSize(11);
-    doc.setTextColor(15, 23, 42);
+    doc.setTextColor(15, 23, 42); // Dark text
     doc.text(title, margin, startY);
     doc.setDrawColor(200);
     doc.line(margin, startY + 2, pageWidth - margin, startY + 2);
@@ -147,7 +156,6 @@ function downloadPdf(r: Detalle) {
   y = drawSection(
     "DETALLES DEL TURNO",
     [
-      ["Club", r.club_nombre || "-"],
       ["Cancha", r.cancha_nombre || "-"],
       ["Fecha", formatDate(r.fecha)],
       [
@@ -223,6 +231,10 @@ export default function ReservaDetallePage() {
         });
         if (!res.ok) throw new Error("No se pudo cargar la reserva");
         const json = await res.json();
+
+        // Simulamos obtener dirección si no viene del backend (ajustar según tu API real)
+        // json.club_direccion = json.club_direccion || "Dirección del Club";
+
         setData(json);
       } catch (err: any) {
         setError(err.message);
