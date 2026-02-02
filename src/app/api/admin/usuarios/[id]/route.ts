@@ -11,7 +11,6 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-
     const searchParams = req.nextUrl.searchParams;
     const clubIdStr = searchParams.get("clubId");
 
@@ -21,7 +20,7 @@ export async function GET(
 
     const clubId = Number(clubIdStr);
 
-    // 1) Obtener Perfil Base (Datos personales)
+    // 1. Perfil Base
     const { data: profile, error: profileError } = await supabaseAdmin
       .from("profiles")
       .select("*")
@@ -35,66 +34,40 @@ export async function GET(
       );
     }
 
-    // 2) Obtener Roles y Notas en este Club
-    // Buscamos en club_usuarios para saber sus roles y si tiene notas internas
+    // 2. Datos del Club (Roles y NOTAS)
+    // Aquí traemos el campo 'notas' que agregaste a la base de datos
     const { data: memberData } = await supabaseAdmin
       .from("club_usuarios")
-      .select(`notas, roles ( nombre )`)
+      .select("notas, roles ( nombre )")
       .eq("id_usuario", id)
       .eq("id_club", clubId);
 
-    // Procesamos Roles: Array de strings ["admin", "cajero"]
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const roles =
       memberData?.map((r: any) => r.roles?.nombre).filter(Boolean) || [];
-
-    // Procesamos Notas: Tomamos la nota de la primera entrada (si existe)
-    // Ya que las notas suelen ser globales por usuario en el club
+    // Tomamos la nota del primer registro encontrado (asumiendo 1 usuario x club)
     const notasInternas = memberData?.[0]?.notas || "";
 
-    // 3) Obtener Historial de Reservas COMPLETO
-    const { data: reservas, error: reservasError } = await supabaseAdmin
+    // 3. Historial de Reservas
+    const { data: reservas } = await supabaseAdmin
       .from("reservas")
       .select(
         `
-        id_reserva,
-        fecha,
-        inicio,
-        fin,
-        precio_total,
-        estado,
-        created_at,
-        canchas (
-          nombre,
-          tipos_cancha (
-            nombre,
-            deportes ( nombre )
-          )
-        )
+        id_reserva, fecha, inicio, fin, precio_total, estado, created_at,
+        canchas ( nombre, tipos_cancha ( nombre, deportes ( nombre ) ) )
       `,
       )
       .eq("id_usuario", id)
       .eq("id_club", clubId)
       .order("fecha", { ascending: false });
 
-    if (reservasError) {
-      console.error("Error obteniendo reservas:", reservasError);
-    }
-
-    // 4) Respuesta Final Combinada
     return NextResponse.json({
-      ...profile, // nombre, email, telefono, etc.
-      roles, // ["admin", "cajero"]
+      ...profile,
+      roles,
       reservas: reservas || [],
-      notas_internas: notasInternas, // ✅ Campo nuevo para el frontend
-      // Si tienes un campo 'bloqueado' en club_usuarios, agrégalo al select del paso 2
-      bloqueado: false, // Default por ahora si no está en schema
+      notas_internas: notasInternas, // <--- Esto conecta con el frontend
     });
   } catch (error: any) {
-    console.error("Error en GET usuario:", error);
-    return NextResponse.json(
-      { error: error?.message || "Error interno" },
-      { status: 500 },
-    );
+    console.error("Error GET usuario:", error);
+    return NextResponse.json({ error: "Error interno" }, { status: 500 });
   }
 }

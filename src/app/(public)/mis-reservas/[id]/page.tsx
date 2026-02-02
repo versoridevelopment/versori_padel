@@ -8,10 +8,20 @@ import {
   CheckCircle2,
   Clock,
   XCircle,
+  Calendar,
+  MapPin,
+  CreditCard,
+  User,
+  Info,
 } from "lucide-react";
 import jsPDF from "jspdf";
 
-type Estado = "pendiente_pago" | "confirmada" | "expirada" | "rechazada";
+type Estado =
+  | "pendiente_pago"
+  | "confirmada"
+  | "expirada"
+  | "rechazada"
+  | "cancelada";
 
 type Detalle = {
   id_reserva: number;
@@ -43,337 +53,375 @@ type Detalle = {
   } | null;
 };
 
+// --- HELPERS ---
 function fmtMoney(n: any) {
   const v = Number(n || 0);
   if (!Number.isFinite(v)) return "-";
   return new Intl.NumberFormat("es-AR", {
     style: "currency",
     currency: "ARS",
+    minimumFractionDigits: 0,
   }).format(v);
 }
 
+function formatDate(dateStr?: string | null) {
+  if (!dateStr) return "-";
+  const [y, m, d] = dateStr.split("-");
+  return `${d}/${m}/${y}`;
+}
+
+// --- GENERADOR DE PDF ---
 function downloadPdf(r: Detalle) {
   const doc = new jsPDF();
-  const pageW = doc.internal.pageSize.getWidth();
-  const margin = 14;
-  let y = 18;
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const margin = 20;
+  let y = 20;
 
-  doc.setFontSize(18);
-  doc.text("Comprobante de Reserva", pageW / 2, y, { align: "center" });
-  y += 10;
+  // Header
+  doc.setFillColor(15, 23, 42); // Slate 900
+  doc.rect(0, 0, pageWidth, 40, "F");
 
-  doc.setDrawColor(180);
-  doc.line(margin, y, pageW - margin, y);
-  y += 10;
+  doc.setFontSize(22);
+  doc.setTextColor(255, 255, 255);
+  doc.text("COMPROBANTE DE RESERVA", margin, 25);
 
-  const labelValue = (
-    xL: number,
-    xV: number,
-    yy: number,
-    label: string,
-    value: string,
-  ) => {
-    doc.setFontSize(11);
-    doc.setTextColor(90);
-    doc.text(label, xL, yy);
-    doc.setTextColor(20);
-    doc.text(value || "-", xV, yy);
-  };
-
-  const boxX = margin;
-  const boxW = pageW - margin * 2;
-  const boxH = 74;
-
-  doc.setDrawColor(200);
-  doc.roundedRect(boxX, y, boxW, boxH, 3, 3);
-
-  const leftL = boxX + 6;
-  const leftV = boxX + 42;
-  const rightL = boxX + boxW / 2 + 6;
-  const rightV = boxX + boxW / 2 + 42;
-
-  let rowY = y + 10;
-
-  labelValue(leftL, leftV, rowY, "Reserva", `#${String(r.id_reserva)}`);
-  labelValue(rightL, rightV, rowY, "Estado", (r.estado ?? "-").toUpperCase());
-  rowY += 10;
-
-  labelValue(leftL, leftV, rowY, "Club", r.club_nombre ?? "-");
-  labelValue(rightL, rightV, rowY, "Cancha", r.cancha_nombre ?? "-");
-  rowY += 10;
-
-  labelValue(leftL, leftV, rowY, "Fecha", r.fecha ?? "-");
-  labelValue(
-    rightL,
-    rightV,
-    rowY,
-    "Horario",
-    `${r.inicio ?? "-"} - ${r.fin ?? "-"}${r.fin_dia_offset === 1 ? " (+1)" : ""}`,
-  );
-  rowY += 10;
-
-  labelValue(leftL, leftV, rowY, "Total", fmtMoney(r.precio_total));
-  labelValue(rightL, rightV, rowY, "Anticipo", fmtMoney(r.monto_anticipo));
-  rowY += 10;
-
-  labelValue(
-    leftL,
-    leftV,
-    rowY,
-    "Confirmada",
-    r.confirmed_at ? String(r.confirmed_at) : "-",
-  );
-
-  y += boxH + 10;
-
-  doc.setFontSize(12);
-  doc.setTextColor(20);
-  doc.text("Datos del cliente", margin, y);
-  y += 6;
-
-  const cBoxH = 28;
-  doc.setDrawColor(200);
-  doc.roundedRect(boxX, y, boxW, cBoxH, 3, 3);
-
-  doc.setFontSize(11);
-  doc.setTextColor(90);
-  doc.text("Nombre", leftL, y + 10);
-  doc.setTextColor(20);
-  doc.text(r.cliente_nombre ?? "-", leftV, y + 10);
-
-  doc.setTextColor(90);
-  doc.text("Teléfono", rightL, y + 10);
-  doc.setTextColor(20);
-  doc.text(r.cliente_telefono ?? "-", rightV, y + 10);
-
-  doc.setTextColor(90);
-  doc.text("Email", leftL, y + 20);
-  doc.setTextColor(20);
-  doc.text(r.cliente_email ?? "-", leftV, y + 20);
-
-  y += cBoxH + 12;
-
-  if (r.ultimo_pago) {
-    doc.setFontSize(12);
-    doc.setTextColor(20);
-    doc.text("Pago", margin, y);
-    y += 6;
-
-    const pBoxH = 24;
-    doc.setDrawColor(200);
-    doc.roundedRect(boxX, y, boxW, pBoxH, 3, 3);
-
-    doc.setFontSize(11);
-    doc.setTextColor(90);
-    doc.text("MP status", leftL, y + 10);
-    doc.setTextColor(20);
-    doc.text(r.ultimo_pago.mp_status ?? "-", leftV, y + 10);
-
-    doc.setTextColor(90);
-    doc.text("Payment ID", rightL, y + 10);
-    doc.setTextColor(20);
-    doc.text(String(r.ultimo_pago.mp_payment_id ?? "-"), rightV, y + 10);
-
-    y += pBoxH + 10;
-  }
-
-  doc.setFontSize(9);
-  doc.setTextColor(120);
+  doc.setFontSize(10);
+  doc.setTextColor(200, 200, 200);
   doc.text(
-    "Este comprobante es una constancia de la reserva registrada en el sistema.",
-    pageW / 2,
-    285,
+    `ID: #${r.id_reserva.toString().padStart(6, "0")}`,
+    pageWidth - margin,
+    25,
+    { align: "right" },
+  );
+
+  y = 55;
+
+  // Estado
+  doc.setFontSize(12);
+  doc.setTextColor(100);
+  doc.text("ESTADO DE LA RESERVA", margin, y);
+
+  const statusColor = r.estado === "confirmada" ? [22, 163, 74] : [234, 179, 8]; // Green or Yellow
+  doc.setFillColor(statusColor[0], statusColor[1], statusColor[2]);
+  doc.roundedRect(pageWidth - margin - 40, y - 5, 40, 8, 1, 1, "F");
+  doc.setTextColor(255);
+  doc.setFontSize(9);
+  doc.text(
+    r.estado.toUpperCase().replace("_", " "),
+    pageWidth - margin - 20,
+    y,
     { align: "center" },
   );
 
-  doc.save(`comprobante-reserva-${r.id_reserva}.pdf`);
+  y += 15;
+
+  // Info Principal (Grid)
+  const drawSection = (
+    title: string,
+    data: [string, string][],
+    startY: number,
+  ) => {
+    doc.setFontSize(11);
+    doc.setTextColor(15, 23, 42);
+    doc.text(title, margin, startY);
+    doc.setDrawColor(200);
+    doc.line(margin, startY + 2, pageWidth - margin, startY + 2);
+
+    let currentY = startY + 12;
+    doc.setFontSize(10);
+
+    data.forEach(([label, value]) => {
+      doc.setTextColor(100);
+      doc.text(label, margin, currentY);
+      doc.setTextColor(0);
+      doc.text(value, margin + 40, currentY);
+      currentY += 8;
+    });
+    return currentY + 10;
+  };
+
+  y = drawSection(
+    "DETALLES DEL TURNO",
+    [
+      ["Club", r.club_nombre || "-"],
+      ["Cancha", r.cancha_nombre || "-"],
+      ["Fecha", formatDate(r.fecha)],
+      [
+        "Horario",
+        `${r.inicio?.slice(0, 5)} - ${r.fin?.slice(0, 5)}${r.fin_dia_offset ? " (+1)" : ""}`,
+      ],
+    ],
+    y,
+  );
+
+  y = drawSection(
+    "DATOS DEL CLIENTE",
+    [
+      ["Nombre", r.cliente_nombre || "-"],
+      ["Teléfono", r.cliente_telefono || "-"],
+      ["Email", r.cliente_email || "-"],
+    ],
+    y,
+  );
+
+  y = drawSection(
+    "RESUMEN DE PAGO",
+    [
+      ["Precio Total", fmtMoney(r.precio_total)],
+      ["Seña / Anticipo", fmtMoney(r.monto_anticipo)],
+      [
+        "Saldo Restante",
+        fmtMoney((r.precio_total || 0) - (r.monto_anticipo || 0)),
+      ],
+    ],
+    y,
+  );
+
+  if (r.ultimo_pago) {
+    y = drawSection(
+      "DETALLE TRANSACCIÓN",
+      [
+        ["ID Pago MP", r.ultimo_pago.mp_payment_id?.toString() || "-"],
+        ["Estado MP", r.ultimo_pago.mp_status?.toUpperCase() || "-"],
+      ],
+      y,
+    );
+  }
+
+  // Footer
+  doc.setFontSize(8);
+  doc.setTextColor(150);
+  const footerText =
+    "Este documento sirve como comprobante de la reserva realizada. Preséntelo en el club al momento de ingresar.\nPor políticas de cancelación, consulte directamente con la administración del club.";
+  doc.text(footerText, pageWidth / 2, pageHeight - 20, { align: "center" });
+
+  doc.save(`Reserva_${r.id_reserva}_${r.fecha}.pdf`);
 }
 
+// --- COMPONENTE PRINCIPAL ---
 export default function ReservaDetallePage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-
   const id_reserva = Number(id);
 
   const [data, setData] = useState<Detalle | null>(null);
   const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id_reserva) return;
 
-    let alive = true;
-
-    async function load() {
+    // Simular fetch (Reemplazar con tu fetch real)
+    const fetchData = async () => {
       setLoading(true);
-      setErr(null);
       try {
         const res = await fetch(`/api/reservas/${id_reserva}/detalle`, {
           cache: "no-store",
         });
-        const json = await res.json().catch(() => null);
-
-        if (!alive) return;
-
-        if (!res.ok) {
-          setErr(json?.error || "No se pudo cargar el detalle.");
-          setData(null);
-          setLoading(false);
-          return;
-        }
-
-        setData(json as Detalle);
-        setLoading(false);
-      } catch (e: any) {
-        if (!alive) return;
-        setErr(e?.message || "Error de red.");
-        setData(null);
+        if (!res.ok) throw new Error("No se pudo cargar la reserva");
+        const json = await res.json();
+        setData(json);
+      } catch (err: any) {
+        setError(err.message);
+      } finally {
         setLoading(false);
       }
-    }
-
-    load();
-    return () => {
-      alive = false;
     };
+    fetchData();
   }, [id_reserva]);
 
-  if (!id_reserva)
-    return <div className="p-10 text-white">Reserva inválida</div>;
-
-  return (
-    <section className="min-h-screen bg-gradient-to-b from-[#001a33] to-[#002b5b] text-white px-6 py-10">
-      <div className="max-w-3xl mx-auto">
+  if (error) {
+    return (
+      <div className="min-h-screen bg-[#09090b] flex flex-col items-center justify-center p-6 text-center">
+        <div className="bg-red-500/10 p-4 rounded-full mb-4">
+          <XCircle className="w-10 h-10 text-red-500" />
+        </div>
+        <h1 className="text-xl font-bold text-white mb-2">Error al cargar</h1>
+        <p className="text-zinc-400 mb-6">{error}</p>
         <button
           onClick={() => router.push("/mis-reservas")}
-          className="inline-flex items-center gap-2 mb-6 bg-white/10 hover:bg-white/15 border border-white/10 px-4 py-2 rounded-xl font-semibold"
+          className="text-white bg-zinc-800 px-6 py-2 rounded-lg hover:bg-zinc-700"
         >
-          <ArrowLeft className="w-4 h-4" />
           Volver
         </button>
+      </div>
+    );
+  }
 
-        {loading && (
-          <div className="bg-[#0b2545] border border-[#1b4e89] rounded-2xl p-6 text-center">
-            Cargando comprobante…
-          </div>
-        )}
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#09090b] flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
+      </div>
+    );
+  }
 
-        {!loading && err && (
-          <div className="bg-[#0b2545] border border-rose-500/40 rounded-2xl p-6 text-center">
-            <p className="text-rose-200 font-semibold mb-2">Error</p>
-            <p className="text-neutral-200">{err}</p>
-          </div>
-        )}
+  if (!data) return null;
 
-        {!loading && !err && data && (
-          <div className="bg-[#0b2545] border border-[#1b4e89] rounded-3xl p-8">
-            <div className="flex items-start justify-between gap-4">
+  return (
+    <div className="min-h-screen bg-[#09090b] text-white p-4 md:p-8 font-sans">
+      <div className="max-w-2xl mx-auto space-y-6">
+        {/* Header Nav */}
+        <button
+          onClick={() => router.push("/mis-reservas")}
+          className="flex items-center gap-2 text-zinc-400 hover:text-white transition-colors text-sm font-medium"
+        >
+          <ArrowLeft className="w-4 h-4" /> Mis Reservas
+        </button>
+
+        {/* Card Principal */}
+        <div className="bg-zinc-900 border border-zinc-800 rounded-3xl overflow-hidden shadow-2xl">
+          {/* Status Banner */}
+          <div
+            className={`px-6 py-4 flex items-center justify-between border-b border-zinc-800 ${
+              data.estado === "confirmada"
+                ? "bg-emerald-500/10"
+                : data.estado === "pendiente_pago"
+                  ? "bg-amber-500/10"
+                  : "bg-red-500/10"
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              {data.estado === "confirmada" && (
+                <CheckCircle2 className="w-6 h-6 text-emerald-500" />
+              )}
+              {data.estado === "pendiente_pago" && (
+                <Clock className="w-6 h-6 text-amber-500" />
+              )}
+              {(data.estado === "cancelada" || data.estado === "rechazada") && (
+                <XCircle className="w-6 h-6 text-red-500" />
+              )}
+
               <div>
-                <h1 className="text-2xl font-bold">
-                  Reserva #{data.id_reserva}
-                </h1>
-                <p className="text-neutral-300 mt-1">
-                  {data.club_nombre ?? "Club"} ·{" "}
-                  {data.cancha_nombre ?? "Cancha"}
+                <p className="text-xs font-bold uppercase tracking-wider opacity-70">
+                  Estado
+                </p>
+                <p
+                  className={`font-bold capitalize ${
+                    data.estado === "confirmada"
+                      ? "text-emerald-400"
+                      : data.estado === "pendiente_pago"
+                        ? "text-amber-400"
+                        : "text-red-400"
+                  }`}
+                >
+                  {data.estado.replace("_", " ")}
                 </p>
               </div>
-
-              {data.estado === "confirmada" ? (
-                <CheckCircle2 className="w-10 h-10 text-emerald-400" />
-              ) : data.estado === "pendiente_pago" ? (
-                <Clock className="w-10 h-10 text-yellow-400" />
-              ) : (
-                <XCircle className="w-10 h-10 text-rose-400" />
-              )}
             </div>
-
-            <div className="mt-6 bg-[#071b33] border border-white/10 rounded-2xl p-5">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm text-neutral-200">
-                <div className="flex justify-between gap-4">
-                  <span className="text-neutral-400">Estado</span>
-                  <span className="font-semibold">{data.estado}</span>
-                </div>
-
-                <div className="flex justify-between gap-4">
-                  <span className="text-neutral-400">Fecha</span>
-                  <span>{data.fecha ?? "-"}</span>
-                </div>
-
-                <div className="flex justify-between gap-4">
-                  <span className="text-neutral-400">Horario</span>
-                  <span>
-                    {data.inicio ?? "-"} - {data.fin ?? "-"}
-                    {data.fin_dia_offset === 1 ? " (+1)" : ""}
-                  </span>
-                </div>
-
-                <div className="flex justify-between gap-4">
-                  <span className="text-neutral-400">Total</span>
-                  <span>{fmtMoney(data.precio_total)}</span>
-                </div>
-
-                <div className="flex justify-between gap-4">
-                  <span className="text-neutral-400">Anticipo</span>
-                  <span>{fmtMoney(data.monto_anticipo)}</span>
-                </div>
-
-                <div className="flex justify-between gap-4">
-                  <span className="text-neutral-400">Confirmada</span>
-                  <span>
-                    {data.confirmed_at ? String(data.confirmed_at) : "-"}
-                  </span>
-                </div>
-              </div>
-
-              <div className="mt-5 pt-5 border-t border-white/10">
-                <p className="font-semibold text-neutral-100 mb-2">Cliente</p>
-                <div className="text-sm text-neutral-200 space-y-1">
-                  <div>{data.cliente_nombre ?? "-"}</div>
-                  <div>{data.cliente_telefono ?? "-"}</div>
-                  <div>{data.cliente_email ?? "-"}</div>
-                </div>
-              </div>
-
-              {data.ultimo_pago && (
-                <div className="mt-5 pt-5 border-t border-white/10">
-                  <p className="font-semibold text-neutral-100 mb-2">Pago</p>
-                  <div className="text-sm text-neutral-200 space-y-1">
-                    <div>
-                      <span className="text-neutral-400">MP status:</span>{" "}
-                      {data.ultimo_pago.mp_status ?? "-"}
-                    </div>
-                    <div>
-                      <span className="text-neutral-400">Payment ID:</span>{" "}
-                      {data.ultimo_pago.mp_payment_id ?? "-"}
-                    </div>
-                    <div>
-                      <span className="text-neutral-400">Monto:</span>{" "}
-                      {fmtMoney(data.ultimo_pago.amount)}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="mt-6 flex flex-col md:flex-row gap-3">
-              <button
-                onClick={() => downloadPdf(data)}
-                className="bg-white/10 hover:bg-white/15 border border-white/10 px-6 py-3 rounded-xl font-semibold flex items-center justify-center gap-2"
-              >
-                <Download className="w-5 h-5" />
-                Descargar comprobante (PDF)
-              </button>
-
-              <button
-                onClick={() => router.push("/mis-reservas")}
-                className="bg-emerald-600 hover:bg-emerald-700 px-6 py-3 rounded-xl font-semibold"
-              >
-                Ver todas mis reservas
-              </button>
+            <div className="text-right">
+              <p className="text-xs text-zinc-500 font-mono">
+                #{data.id_reserva.toString().padStart(6, "0")}
+              </p>
             </div>
           </div>
-        )}
+
+          <div className="p-6 md:p-8 space-y-8">
+            {/* Info Principal */}
+            <div className="text-center space-y-1">
+              <h2 className="text-2xl font-bold text-white">
+                {data.club_nombre}
+              </h2>
+              <p className="text-zinc-400 flex items-center justify-center gap-2">
+                <MapPin className="w-4 h-4" /> {data.cancha_nombre}
+              </p>
+            </div>
+
+            {/* Grid de Detalles */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="bg-zinc-950/50 p-4 rounded-2xl border border-zinc-800/50">
+                <div className="flex items-center gap-2 text-zinc-400 mb-1">
+                  <Calendar className="w-4 h-4" />{" "}
+                  <span className="text-xs font-bold uppercase">Fecha</span>
+                </div>
+                <p className="text-lg font-semibold">
+                  {formatDate(data.fecha)}
+                </p>
+              </div>
+              <div className="bg-zinc-950/50 p-4 rounded-2xl border border-zinc-800/50">
+                <div className="flex items-center gap-2 text-zinc-400 mb-1">
+                  <Clock className="w-4 h-4" />{" "}
+                  <span className="text-xs font-bold uppercase">Horario</span>
+                </div>
+                <p className="text-lg font-semibold">
+                  {data.inicio?.slice(0, 5)} - {data.fin?.slice(0, 5)}
+                </p>
+              </div>
+            </div>
+
+            {/* Desglose de Pago */}
+            <div className="space-y-3 pt-4 border-t border-zinc-800/50">
+              <h3 className="text-sm font-bold text-zinc-500 uppercase tracking-wider mb-2">
+                Detalles del Pago
+              </h3>
+
+              <div className="flex justify-between text-sm">
+                <span className="text-zinc-400">Precio Total</span>
+                <span className="font-medium text-white">
+                  {fmtMoney(data.precio_total)}
+                </span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-zinc-400">Seña / Anticipo</span>
+                <span className="font-medium text-emerald-400">
+                  {fmtMoney(data.monto_anticipo)}
+                </span>
+              </div>
+
+              <div className="border-t border-zinc-800 my-2"></div>
+
+              <div className="flex justify-between text-base font-bold">
+                <span className="text-white">Saldo a pagar en el club</span>
+                <span className="text-white">
+                  {fmtMoney(
+                    (data.precio_total || 0) - (data.monto_anticipo || 0),
+                  )}
+                </span>
+              </div>
+            </div>
+
+            {/* Info Adicional / Pago MP */}
+            {data.ultimo_pago && (
+              <div className="bg-zinc-800/30 p-4 rounded-xl text-xs space-y-1">
+                <div className="flex justify-between text-zinc-400">
+                  <span>Transacción MP:</span>
+                  <span className="font-mono text-zinc-300">
+                    {data.ultimo_pago.mp_payment_id}
+                  </span>
+                </div>
+                <div className="flex justify-between text-zinc-400">
+                  <span>Estado pago:</span>
+                  <span className="font-mono text-zinc-300">
+                    {data.ultimo_pago.mp_status}
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Footer Actions */}
+          <div className="bg-zinc-950 p-6 flex flex-col sm:flex-row gap-3">
+            <button
+              onClick={() => downloadPdf(data)}
+              className="flex-1 bg-white text-black font-bold py-3 rounded-xl hover:bg-zinc-200 transition-colors flex items-center justify-center gap-2"
+            >
+              <Download className="w-4 h-4" /> Descargar PDF
+            </button>
+            <button
+              onClick={() => router.push("/mis-reservas")}
+              className="flex-1 bg-zinc-800 text-white font-bold py-3 rounded-xl hover:bg-zinc-700 transition-colors"
+            >
+              Mis Reservas
+            </button>
+          </div>
+        </div>
+
+        <p className="text-center text-xs text-zinc-600 px-6">
+          Presenta este comprobante en la recepción del club al momento de tu
+          llegada.
+        </p>
       </div>
-    </section>
+    </div>
   );
 }
