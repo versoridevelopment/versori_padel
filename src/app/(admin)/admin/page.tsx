@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import Image from "next/image"; // ✅ Importamos Image
 import { format, subDays, startOfYear } from "date-fns";
 import { es } from "date-fns/locale";
 import {
@@ -110,6 +111,7 @@ export default function DashboardPage() {
   // Contexto
   const [clubId, setClubId] = useState<number | null>(null);
   const [clubName, setClubName] = useState<string>("");
+  const [clubLogo, setClubLogo] = useState<string | null>(null); // ✅ Estado para el Logo
   const [userName, setUserName] = useState<string>("");
   const [userRole, setUserRole] = useState<"admin" | "cajero" | null>(null);
   const [currentTime, setCurrentTime] = useState<Date | null>(null);
@@ -128,8 +130,8 @@ export default function DashboardPage() {
 
   // 1. Reloj en tiempo real
   useEffect(() => {
-    setCurrentTime(new Date()); // Set inicial
-    const timer = setInterval(() => setCurrentTime(new Date()), 60000); // Actualizar cada minuto
+    setCurrentTime(new Date());
+    const timer = setInterval(() => setCurrentTime(new Date()), 60000);
     return () => clearInterval(timer);
   }, []);
 
@@ -157,6 +159,7 @@ export default function DashboardPage() {
       // B. Obtener Club
       let currentClubId = 9;
       let currentClubName = "Mi Club";
+      let currentClubLogo = null;
 
       if (typeof window !== "undefined") {
         const hostname = window.location.hostname;
@@ -164,18 +167,20 @@ export default function DashboardPage() {
         if (subdomain && subdomain !== "localhost") {
           const { data } = await supabase
             .from("clubes")
-            .select("id_club, nombre") // Traemos el nombre también
+            .select("id_club, nombre, logo_url") // ✅ Agregamos logo_url aquí
             .eq("subdominio", subdomain)
             .single();
 
           if (data) {
             currentClubId = data.id_club;
             currentClubName = data.nombre;
+            currentClubLogo = data.logo_url; // ✅ Guardamos el logo
           }
         }
       }
       setClubId(currentClubId);
       setClubName(currentClubName);
+      setClubLogo(currentClubLogo);
 
       // C. Obtener Rol
       const { data: members } = await supabase
@@ -241,7 +246,6 @@ export default function DashboardPage() {
   const { kpis, charts, tablaReservas, comparativaCanchas } = data;
   const isAdmin = userRole === "admin";
 
-  // Formato de fecha y hora
   const dateStr = currentTime
     ? format(currentTime, "EEEE d 'de' MMMM", { locale: es })
     : "...";
@@ -254,9 +258,23 @@ export default function DashboardPage() {
         <div>
           {/* Badge Club & Fecha */}
           <div className="flex flex-wrap items-center gap-3 mb-3">
-            <span className="px-3 py-1 rounded-full bg-slate-200 text-slate-700 text-[11px] font-bold uppercase tracking-wide flex items-center gap-1.5 shadow-sm border border-slate-300">
-              <Building2 size={12} className="text-slate-500" /> {clubName}
+            <span className="pl-1 pr-3 py-1 rounded-full bg-slate-200 text-slate-700 text-[11px] font-bold uppercase tracking-wide flex items-center gap-2 shadow-sm border border-slate-300">
+              {/* ✅ Renderizado Condicional del Logo */}
+              {clubLogo ? (
+                <div className="relative w-5 h-5 rounded-full overflow-hidden bg-white">
+                  <Image
+                    src={clubLogo}
+                    alt="Logo"
+                    fill
+                    className="object-cover"
+                  />
+                </div>
+              ) : (
+                <Building2 size={14} className="text-slate-500 ml-1" />
+              )}
+              {clubName}
             </span>
+
             <span className="px-3 py-1 rounded-full bg-white text-slate-500 text-[11px] font-medium border border-slate-200 flex items-center gap-1.5 shadow-sm">
               <CalendarRange size={12} /> {dateStr}
               <span className="w-px h-3 bg-slate-200 mx-1"></span>
