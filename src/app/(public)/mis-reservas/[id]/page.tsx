@@ -4,14 +4,16 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   ArrowLeft,
-  Download,
+  Printer, // Cambié el icono a Printer para ser más semántico
   CheckCircle2,
   Clock,
   XCircle,
   Calendar,
   MapPin,
+  Download,
 } from "lucide-react";
-import jsPDF from "jspdf";
+// ✅ Importamos la función compartida
+import { printReservaTicket } from "@/lib/printTicket";
 
 type Estado =
   | "pendiente_pago"
@@ -36,7 +38,7 @@ type Detalle = {
   monto_anticipo?: number | null;
 
   club_nombre?: string | null;
-  club_direccion?: string | null; // Nuevo campo para dirección del club
+  club_direccion?: string | null; // Dirección del club
   cancha_nombre?: string | null;
 
   cliente_nombre?: string | null;
@@ -68,148 +70,6 @@ function formatDate(dateStr?: string | null) {
   return `${d}/${m}/${y}`;
 }
 
-// --- GENERADOR DE PDF ---
-function downloadPdf(r: Detalle) {
-  const doc = new jsPDF();
-  const pageWidth = doc.internal.pageSize.getWidth();
-  const pageHeight = doc.internal.pageSize.getHeight();
-  const margin = 20;
-  let y = 20;
-
-  // Header Background
-  doc.setFillColor(15, 23, 42); // Slate 900
-  doc.rect(0, 0, pageWidth, 50, "F"); // Increased height for club info
-
-  // Title
-  doc.setFontSize(22);
-  doc.setTextColor(255, 255, 255);
-  doc.text("COMPROBANTE DE RESERVA", margin, 25);
-
-  // ID
-  doc.setFontSize(10);
-  doc.setTextColor(200, 200, 200);
-  doc.text(
-    `ID: #${r.id_reserva.toString().padStart(6, "0")}`,
-    pageWidth - margin,
-    25,
-    { align: "right" },
-  );
-
-  // Club Info in Header
-  doc.setFontSize(14);
-  doc.setTextColor(255, 255, 255);
-  doc.text(r.club_nombre || "Club Deportivo", margin, 35);
-
-  doc.setFontSize(9);
-  doc.setTextColor(200, 200, 200);
-  doc.text(r.club_direccion || "Dirección no especificada", margin, 42);
-
-  y = 65;
-
-  // Estado Section
-  doc.setFontSize(12);
-  doc.setTextColor(100); // Gray text for label
-  doc.text("ESTADO DE LA RESERVA", margin, y);
-
-  const statusColor = r.estado === "confirmada" ? [22, 163, 74] : [234, 179, 8]; // Green or Yellow
-  doc.setFillColor(statusColor[0], statusColor[1], statusColor[2]);
-  doc.roundedRect(pageWidth - margin - 40, y - 5, 40, 8, 1, 1, "F");
-  doc.setTextColor(255);
-  doc.setFontSize(9);
-  doc.text(
-    r.estado.toUpperCase().replace("_", " "),
-    pageWidth - margin - 20,
-    y,
-    { align: "center" },
-  );
-
-  y += 15;
-
-  // Helper to draw sections
-  const drawSection = (
-    title: string,
-    data: (string | [string, string])[][],
-    startY: number,
-  ) => {
-    doc.setFontSize(11);
-    doc.setTextColor(15, 23, 42); // Dark text
-    doc.text(title, margin, startY);
-    doc.setDrawColor(200);
-    doc.line(margin, startY + 2, pageWidth - margin, startY + 2);
-
-    let currentY = startY + 12;
-    doc.setFontSize(10);
-
-    data.forEach((item) => {
-      const label = item[0] as string;
-      const value = item[1] as string;
-
-      doc.setTextColor(100);
-      doc.text(label, margin, currentY);
-      doc.setTextColor(0);
-      doc.text(value, margin + 40, currentY);
-      currentY += 8;
-    });
-    return currentY + 10;
-  };
-
-  y = drawSection(
-    "DETALLES DEL TURNO",
-    [
-      ["Cancha", r.cancha_nombre || "-"],
-      ["Fecha", formatDate(r.fecha)],
-      [
-        "Horario",
-        `${r.inicio?.slice(0, 5)} - ${r.fin?.slice(0, 5)}${r.fin_dia_offset ? " (+1)" : ""}`,
-      ],
-    ],
-    y,
-  );
-
-  y = drawSection(
-    "DATOS DEL CLIENTE",
-    [
-      ["Nombre", r.cliente_nombre || "-"],
-      ["Teléfono", r.cliente_telefono || "-"],
-      ["Email", r.cliente_email || "-"],
-    ],
-    y,
-  );
-
-  y = drawSection(
-    "RESUMEN DE PAGO",
-    [
-      ["Precio Total", fmtMoney(r.precio_total)],
-      ["Seña / Anticipo", fmtMoney(r.monto_anticipo)],
-      [
-        "Saldo Restante",
-        fmtMoney((r.precio_total || 0) - (r.monto_anticipo || 0)),
-      ],
-    ],
-    y,
-  );
-
-  if (r.ultimo_pago) {
-    y = drawSection(
-      "DETALLE TRANSACCIÓN",
-      [
-        ["ID Pago MP", r.ultimo_pago.mp_payment_id?.toString() || "-"],
-        ["Estado MP", r.ultimo_pago.mp_status?.toUpperCase() || "-"],
-      ],
-      y,
-    );
-  }
-
-  // Footer
-  doc.setFontSize(8);
-  doc.setTextColor(150);
-  const footerText =
-    "Este documento sirve como comprobante de la reserva realizada. Preséntelo en el club al momento de ingresar.\nPor políticas de cancelación, consulte directamente con la administración del club.";
-  doc.text(footerText, pageWidth / 2, pageHeight - 20, { align: "center" });
-
-  doc.save(`Reserva_${r.id_reserva}_${r.fecha}.pdf`);
-}
-
 // --- COMPONENTE PRINCIPAL ---
 export default function ReservaDetallePage() {
   const { id } = useParams<{ id: string }>();
@@ -231,10 +91,6 @@ export default function ReservaDetallePage() {
         });
         if (!res.ok) throw new Error("No se pudo cargar la reserva");
         const json = await res.json();
-
-        // Simulamos obtener dirección si no viene del backend (ajustar según tu API real)
-        // json.club_direccion = json.club_direccion || "Dirección del Club";
-
         setData(json);
       } catch (err: any) {
         setError(err.message);
@@ -244,6 +100,32 @@ export default function ReservaDetallePage() {
     };
     fetchData();
   }, [id_reserva]);
+
+  // --- MANEJADOR DE IMPRESIÓN ---
+  const handlePrint = () => {
+    if (!data) return;
+
+    // Calculamos saldos
+    const total = data.precio_total || 0;
+    const pagado = data.monto_anticipo || 0;
+    const saldo = total - pagado;
+
+    // Llamamos a la función compartida
+    printReservaTicket({
+      id_reserva: data.id_reserva,
+      club_nombre: data.club_nombre,
+      club_direccion: data.club_direccion,
+      cliente_nombre: data.cliente_nombre,
+      cancha_nombre: data.cancha_nombre,
+      fecha: data.fecha || null,
+      inicio: data.inicio || null,
+      fin: data.fin || null,
+      fin_dia_offset: data.fin_dia_offset,
+      precio_total: total,
+      pagado: pagado,
+      saldo: saldo,
+    });
+  };
 
   if (error) {
     return (
@@ -417,10 +299,10 @@ export default function ReservaDetallePage() {
           {/* Footer Actions */}
           <div className="bg-zinc-950 p-6 flex flex-col sm:flex-row gap-3">
             <button
-              onClick={() => downloadPdf(data)}
+              onClick={handlePrint}
               className="flex-1 bg-white text-black font-bold py-3 rounded-xl hover:bg-zinc-200 transition-colors flex items-center justify-center gap-2"
             >
-              <Download className="w-4 h-4" /> Descargar PDF
+              <Printer className="w-4 h-4" /> Descargar/Imprimir Ticket
             </button>
             <button
               onClick={() => router.push("/mis-reservas")}
