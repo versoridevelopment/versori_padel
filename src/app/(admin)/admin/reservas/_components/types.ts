@@ -1,5 +1,13 @@
 export type CourtTheme = "blue" | "green" | "purple" | "orange" | "rose";
 
+// ✅ NUEVO: Definición para el cierre
+export type CierreUI = {
+  id_cierre: number;
+  inicio: string; // HH:MM
+  fin: string; // HH:MM
+  motivo: string | null;
+};
+
 export type CanchaUI = {
   id_cancha: number;
   nombre: string;
@@ -8,38 +16,27 @@ export type CanchaUI = {
   es_exterior: boolean;
   theme: CourtTheme;
   id_tarifario: number | null;
+  cierres: CierreUI[]; // ✅ Agregamos lista de cierres a la cancha
 };
 
 export type ReservaUI = {
   id_reserva: number;
   id_cancha: number;
-
-  fecha: string; // YYYY-MM-DD
-  horaInicio: string; // HH:MM
-  horaFin: string; // HH:MM
+  fecha: string;
+  horaInicio: string;
+  horaFin: string;
   fin_dia_offset: number;
-
-  estado:
-    | "confirmada"
-    | "pendiente_pago"
-    | "cancelada"
-    | "expirada"
-    | "finalizada"
-    | string;
-
+  estado: string;
   precio_total: number;
   monto_anticipo: number;
   pagos_aprobados_total: number;
   saldo_pendiente: number;
-
   segmento: string | null;
   tipo_turno: string | null;
   notas: string | null;
-
   cliente_nombre: string;
   cliente_telefono: string;
   cliente_email: string;
-
   inicio_ts: string;
   fin_ts: string;
   origen?: string;
