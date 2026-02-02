@@ -19,6 +19,17 @@ function parseReservaFromExternalRef(external_reference: any) {
   return num(first);
 }
 
+// ✅ NUEVO: leer id_pago desde metadata (tu preference ya lo manda)
+function parsePagoFromMetadata(mpJson: any) {
+  // Puede venir como number o string
+  return num(mpJson?.metadata?.id_pago);
+}
+
+// ✅ (Opcional) si querés también atarlo por preference_id cuando exista
+function parsePreferenceId(mpJson: any) {
+  return mpJson?.preference_id ? String(mpJson.preference_id) : null;
+}
+
 export async function POST(req: Request) {
   try {
     const url = new URL(req.url);
@@ -80,25 +91,65 @@ export async function POST(req: Request) {
     const payment_status_detail: string = mpJson.status_detail;
     const transaction_amount = Number(mpJson.transaction_amount || 0);
 
-    // 3) Buscar el pago DB (último created/pending)
-    //    Si tu tabla tiene id_club, validamos también.
-    let q = supabaseAdmin
-      .from("reservas_pagos")
-      .select("*")
-      .eq("id_reserva", id_reserva)
-      .in("status", ["created", "pending"])
-      .order("created_at", { ascending: false })
-      .limit(1);
+    // ==========================================================
+    // ✅ 3) BUSCAR PAGO DB EXACTO usando metadata.id_pago (si viene)
+    // ==========================================================
+    const id_pago_meta = parsePagoFromMetadata(mpJson);
+    const mp_preference_id = parsePreferenceId(mpJson); // opcional para log/fallback
 
-    // si existe columna id_club en la tabla, esto te asegura tenant
-    // (si NO existe, removelo)
-    q = q.eq("id_club", id_club);
+    let pago: any = null;
 
-    const { data: pago, error: pagoErr } = await q.maybeSingle();
+    if (id_pago_meta) {
+      const { data: pagoExacto, error: peErr } = await supabaseAdmin
+        .from("reservas_pagos")
+        .select("*")
+        .eq("id_pago", id_pago_meta)
+        .eq("id_club", id_club)         // asegura tenant
+        .eq("id_reserva", id_reserva)   // asegura que corresponde a esa reserva
+        .in("status", ["created", "pending"])
+        .maybeSingle();
 
-    if (pagoErr || !pago) {
-      console.error("[MP webhook] pago db no encontrado para reserva:", { id_reserva, id_club, pagoErr });
-      return jsonOk();
+      if (peErr) {
+        console.error("[MP webhook] error buscando pago por metadata.id_pago:", { peErr, id_pago_meta });
+        return jsonOk();
+      }
+
+      if (!pagoExacto) {
+        console.error("[MP webhook] metadata.id_pago no matchea un pago activo", {
+          id_pago_meta,
+          id_reserva,
+          id_club,
+          mp_preference_id,
+        });
+        return jsonOk();
+      }
+
+      pago = pagoExacto;
+    } else {
+      // 🔁 Fallback: tu comportamiento actual (por compatibilidad)
+      let q = supabaseAdmin
+        .from("reservas_pagos")
+        .select("*")
+        .eq("id_reserva", id_reserva)
+        .in("status", ["created", "pending"])
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+      q = q.eq("id_club", id_club);
+
+      const { data: pagoFallback, error: pagoErr } = await q.maybeSingle();
+
+      if (pagoErr || !pagoFallback) {
+        console.error("[MP webhook] pago db no encontrado para reserva:", {
+          id_reserva,
+          id_club,
+          pagoErr,
+          mp_preference_id,
+        });
+        return jsonOk();
+      }
+
+      pago = pagoFallback;
     }
 
     // 4) Validar monto con tolerancia

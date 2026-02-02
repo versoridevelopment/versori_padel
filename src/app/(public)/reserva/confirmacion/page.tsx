@@ -13,6 +13,7 @@ import {
   ShieldCheck,
   ChevronRight,
   CheckCircle2,
+  X,
 } from "lucide-react";
 import Image from "next/image";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
@@ -43,7 +44,7 @@ type PreviewAnticipoOk = {
 
 type PreviewAnticipoErr = { error: string };
 
-// ✅ NUEVO: respuesta del checkout (MP o cero)
+// ✅ Respuesta del checkout (MP o cero)
 type CheckoutResp = {
   ok: true;
   flow: "mp" | "zero";
@@ -63,13 +64,24 @@ type CheckoutResp = {
   fin_dia_offset?: 0 | 1;
 };
 
+// ✅ Restore: contemplar "confirmed: true" (id_pago null) vs "confirmed: false" (id_pago number)
 type RestoreResp =
   | {
       ok: true;
+      confirmed: true;
+      id_reserva: number;
+      id_pago: null;
+      expires_at: null;
+      checkout_url: string; // /pago/resultado?...
+      fin_dia_offset?: 0 | 1;
+    }
+  | {
+      ok: true;
+      confirmed: false;
       id_reserva: number;
       id_pago: number;
       expires_at: string;
-      checkout_url: string;
+      checkout_url: string; // /pago/iniciar?...
       fin_dia_offset?: 0 | 1;
     }
   | { ok: false; reason: string; detail?: string };
@@ -117,6 +129,9 @@ function lsKey(d: DraftSnapshot) {
   return `checkout_started_v1:${draftKey(d)}`;
 }
 
+// ✅ mini-toast
+type ToastState = { open: boolean; message: string; variant?: "success" | "info" | "warning" };
+
 function ConfirmacionTurno() {
   const router = useRouter();
   const supabase = createClientComponentClient();
@@ -146,6 +161,16 @@ function ConfirmacionTurno() {
   const [restoring, setRestoring] = useState(false);
   const [hadStartedCheckout, setHadStartedCheckout] = useState(false);
 
+  // ✅ Toast
+  const [toast, setToast] = useState<ToastState>({ open: false, message: "", variant: "info" });
+
+  function showToast(message: string, variant: ToastState["variant"] = "info") {
+    setToast({ open: true, message, variant });
+  }
+  function closeToast() {
+    setToast((t) => ({ ...t, open: false }));
+  }
+
   // Countdown (solo MP)
   const expiresAtMs =
     checkout?.payment_required && checkout?.expires_at
@@ -166,14 +191,8 @@ function ConfirmacionTurno() {
 
   const expired = remainingMs != null && remainingMs <= 0;
 
-  const horas = useMemo(
-    () => (draft?.duracion_min ? draft.duracion_min / 60 : 0),
-    [draft],
-  );
-  const fechaTexto = useMemo(
-    () => (draft?.fecha ? formatFechaAR(draft.fecha) : ""),
-    [draft],
-  );
+  const horas = useMemo(() => (draft?.duracion_min ? draft.duracion_min / 60 : 0), [draft]);
+  const fechaTexto = useMemo(() => (draft?.fecha ? formatFechaAR(draft.fecha) : ""), [draft]);
 
   const anticipoZero = (preview?.monto_anticipo ?? 0) <= 0;
 
@@ -219,9 +238,7 @@ function ConfirmacionTurno() {
           nombre: null,
         }));
         setHadStartedCheckout(false);
-        setWarning(
-          "No hay una reserva en curso. Volvé a seleccionar un horario.",
-        );
+        setWarning("No hay una reserva en curso. Volvé a seleccionar un horario.");
         return;
       }
 
@@ -239,16 +256,12 @@ function ConfirmacionTurno() {
     setLoadingContexto(true);
 
     try {
-      const resContext = await fetch("/api/reservas/contexto", {
-        cache: "no-store",
-      });
+      const resContext = await fetch("/api/reservas/contexto", { cache: "no-store" });
       const dataContext = await resContext.json().catch(() => null);
 
       const { data: clubData, error } = await supabase
         .from("clubes")
-        .select(
-          "nombre, color_primario, color_secundario, logo_url, imagen_hero_url",
-        )
+        .select("nombre, color_primario, color_secundario, logo_url, imagen_hero_url")
         .eq("id_club", draft.id_club)
         .single();
 
@@ -282,10 +295,7 @@ function ConfirmacionTurno() {
       const data = await res.json().catch(() => null);
       if (!res.ok) {
         setPreview(null);
-        setWarning(
-          (data as PreviewAnticipoErr)?.error ||
-            "No se pudo calcular el anticipo",
-        );
+        setWarning((data as PreviewAnticipoErr)?.error || "No se pudo calcular el anticipo");
         return;
       }
       setPreview(data as PreviewAnticipoOk);
@@ -300,17 +310,33 @@ function ConfirmacionTurno() {
   async function tryRestoreCheckout() {
     // ✅ restore solo aplica cuando hay anticipo > 0 (MP)
     if (anticipoZero) return;
-    if (restoring || !draft || !preview || checkout || !hadStartedCheckout)
-      return;
+    if (restoring || !draft || !preview || checkout || !hadStartedCheckout) return;
 
     setRestoring(true);
     try {
-      const res = await fetch("/api/reservas/checkout/restore", {
-        cache: "no-store",
-      });
+      const res = await fetch("/api/reservas/checkout/restore", { cache: "no-store" });
       const data = (await res.json().catch(() => null)) as RestoreResp | null;
 
       if (data?.ok) {
+        // ✅ NUEVO: si ya está confirmada, avisamos y redirigimos al comprobante
+        if (data.confirmed) {
+          showToast("✅ Ya está paga y confirmada, te llevamos al comprobante…", "success");
+
+          // limpiamos estado local para no volver a intentar restore
+          clearCheckoutStarted(draft);
+          setHadStartedCheckout(false);
+          setCheckout(null);
+          setWarning(null);
+
+          // pequeño delay para que el toast se vea
+          window.setTimeout(() => {
+            window.location.href = data.checkout_url; // /pago/resultado?...
+          }, 1200);
+
+          return;
+        }
+
+        // ✅ caso normal: hay hold + pago activo
         const restored: CheckoutResp = {
           ok: true,
           flow: "mp",
@@ -336,15 +362,12 @@ function ConfirmacionTurno() {
 
       if (data && !data.ok) {
         if (data.reason === "expired" || data.reason === "no_hold") {
-          setWarning(
-            "La reserva expiró o se liberó. Reintentá para generar un nuevo pago.",
-          );
+          setWarning("La reserva expiró o se liberó. Reintentá para generar un nuevo pago.");
           setCheckout(null);
           clearCheckoutStarted(draft);
           setHadStartedCheckout(false);
         }
       }
-    } catch {
     } finally {
       setRestoring(false);
     }
@@ -359,6 +382,7 @@ function ConfirmacionTurno() {
     return () => {
       alive = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -366,13 +390,7 @@ function ConfirmacionTurno() {
     loadContextoAndBranding();
     loadPreviewAnticipo();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    draft?.id_club,
-    draft?.id_cancha,
-    draft?.fecha,
-    draft?.inicio,
-    draft?.fin,
-  ]);
+  }, [draft?.id_club, draft?.id_cancha, draft?.fecha, draft?.inicio, draft?.fin]);
 
   // ✅ si anticipo es 0, limpiamos cualquier “checkout started” y no restauramos MP
   useEffect(() => {
@@ -390,13 +408,7 @@ function ConfirmacionTurno() {
   }, [draft, preview, hadStartedCheckout]);
 
   const canConfirm = useMemo(() => {
-    return (
-      !!draft &&
-      !!preview &&
-      !loadingDraft &&
-      !loadingPreview &&
-      !creatingCheckout
-    );
+    return !!draft && !!preview && !loadingDraft && !loadingPreview && !creatingCheckout;
   }, [draft, preview, loadingDraft, loadingPreview, creatingCheckout]);
 
   // ✅ MP: mostramos botón “Pagar seña…” solo cuando el checkout es MP y no expiró
@@ -412,6 +424,39 @@ function ConfirmacionTurno() {
       style={customStyle}
       className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-slate-950 via-[#0a0f1d] to-[var(--primary)]/30 text-white px-4 pt-32 pb-12 sm:pt-40 relative overflow-hidden"
     >
+      {/* ✅ TOAST */}
+      <AnimatePresence>
+        {toast.open && (
+          <motion.div
+            initial={{ opacity: 0, y: -12, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -12, scale: 0.98 }}
+            transition={{ duration: 0.2 }}
+            className="fixed top-5 left-1/2 -translate-x-1/2 z-[9999] w-[min(520px,92vw)]"
+          >
+            <div
+              className={[
+                "rounded-2xl border px-4 py-3 shadow-2xl backdrop-blur-xl flex items-start gap-3",
+                toast.variant === "success"
+                  ? "bg-emerald-500/10 border-emerald-500/25"
+                  : toast.variant === "warning"
+                    ? "bg-amber-500/10 border-amber-500/25"
+                    : "bg-white/10 border-white/15",
+              ].join(" ")}
+            >
+              <div className="flex-1 text-sm text-white/90">{toast.message}</div>
+              <button
+                onClick={closeToast}
+                className="p-1 rounded-lg hover:bg-white/10 transition-colors"
+                aria-label="Cerrar"
+              >
+                <X className="w-4 h-4 text-white/70" />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none">
         <div className="absolute top-[-10%] right-[-5%] w-96 h-96 bg-[var(--primary)] rounded-full blur-[120px] opacity-20" />
         <div className="absolute bottom-[-10%] left-[-10%] w-[500px] h-[500px] bg-[var(--secondary)] rounded-full blur-[150px] opacity-10" />
@@ -426,12 +471,7 @@ function ConfirmacionTurno() {
         <div className="flex flex-col items-center mb-8">
           {contexto.logo_url ? (
             <div className="w-24 h-24 relative mb-4 drop-shadow-[0_0_15px_rgba(255,255,255,0.1)]">
-              <Image
-                src={contexto.logo_url}
-                alt="Club Logo"
-                fill
-                className="object-contain"
-              />
+              <Image src={contexto.logo_url} alt="Club Logo" fill className="object-contain" />
             </div>
           ) : (
             <div className="w-20 h-20 bg-white/5 rounded-full flex items-center justify-center mb-4 border border-white/10">
@@ -439,12 +479,8 @@ function ConfirmacionTurno() {
             </div>
           )}
 
-          <h1 className="text-3xl font-bold text-center tracking-tight">
-            Confirmación de Turno
-          </h1>
-          <p className="text-neutral-400 text-sm mt-1">
-            Revisá los detalles antes de confirmar
-          </p>
+          <h1 className="text-3xl font-bold text-center tracking-tight">Confirmación de Turno</h1>
+          <p className="text-neutral-400 text-sm mt-1">Revisá los detalles antes de confirmar</p>
         </div>
 
         <div className="bg-[#111827]/70 backdrop-blur-xl border border-white/10 rounded-3xl overflow-hidden shadow-2xl relative">
@@ -459,18 +495,14 @@ function ConfirmacionTurno() {
             {loadingDraft ? (
               <div className="flex flex-col items-center justify-center py-12 gap-4">
                 <div className="w-8 h-8 border-2 border-[var(--primary)] border-t-transparent rounded-full animate-spin" />
-                <p className="text-neutral-400 text-sm animate-pulse">
-                  Cargando reserva...
-                </p>
+                <p className="text-neutral-400 text-sm animate-pulse">Cargando reserva...</p>
               </div>
             ) : !draft ? (
               <div className="text-center py-8">
                 <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-amber-500/10 mb-4">
                   <AlertTriangle className="w-6 h-6 text-amber-500" />
                 </div>
-                <h3 className="text-lg font-semibold text-white mb-2">
-                  Reserva no encontrada
-                </h3>
+                <h3 className="text-lg font-semibold text-white mb-2">Reserva no encontrada</h3>
                 <p className="text-neutral-400 text-sm mb-6 max-w-xs mx-auto">
                   {warning ?? "No hay datos disponibles"}
                 </p>
@@ -505,27 +537,17 @@ function ConfirmacionTurno() {
                     <div className="flex items-center gap-3 p-4 rounded-2xl bg-white/5 border border-white/5">
                       <Calendar className="w-5 h-5 text-neutral-400" />
                       <div className="flex flex-col">
-                        <span className="text-xs text-neutral-500 font-medium uppercase">
-                          Fecha
-                        </span>
-                        <span className="text-white capitalize font-medium">
-                          {fechaTexto}
-                        </span>
+                        <span className="text-xs text-neutral-500 font-medium uppercase">Fecha</span>
+                        <span className="text-white capitalize font-medium">{fechaTexto}</span>
                       </div>
                     </div>
                     <div className="flex items-center gap-3 p-4 rounded-2xl bg-white/5 border border-white/5">
                       <Clock className="w-5 h-5 text-neutral-400" />
                       <div className="flex flex-col">
-                        <span className="text-xs text-neutral-500 font-medium uppercase">
-                          Horario
-                        </span>
+                        <span className="text-xs text-neutral-500 font-medium uppercase">Horario</span>
                         <span className="text-white font-medium">
-                          {draft.inicio}{" "}
-                          <span className="text-neutral-600 px-1">-</span>{" "}
-                          {draft.fin}
-                          <span className="text-xs text-neutral-500 ml-1 font-normal">
-                            ({horas}h)
-                          </span>
+                          {draft.inicio} <span className="text-neutral-600 px-1">-</span> {draft.fin}
+                          <span className="text-xs text-neutral-500 ml-1 font-normal">({horas}h)</span>
                         </span>
                       </div>
                     </div>
@@ -535,9 +557,7 @@ function ConfirmacionTurno() {
 
                   <div className="flex flex-col gap-1">
                     <div className="flex justify-between items-center text-sm">
-                      <span className="text-neutral-400">
-                        Valor total del turno
-                      </span>
+                      <span className="text-neutral-400">Valor total del turno</span>
                       <span className="text-white font-medium text-lg">
                         ${moneyAR(preview?.precio_total ?? draft.precio_total)}
                       </span>
@@ -639,9 +659,7 @@ function ConfirmacionTurno() {
                             headers: { "Content-Type": "application/json" },
                             cache: "no-store",
                           });
-                          const data = (await res.json().catch(() => null)) as
-                            | CheckoutResp
-                            | any;
+                          const data = (await res.json().catch(() => null)) as CheckoutResp | any;
 
                           if (!res.ok || !data?.ok) {
                             setCheckout(null);
