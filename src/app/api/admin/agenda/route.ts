@@ -48,6 +48,13 @@ function roundUpToHalfHour(min: number) {
 function minToHourDecimal(min: number) {
   return Math.round((min / 60) * 2) / 2;
 }
+function minToHHMM(min: number) {
+  // Convierte minutos a HH:MM (mod 24h). Sirve para maxEnd > 1440 (cruce medianoche)
+  const m = ((min % 1440) + 1440) % 1440;
+  const hh = String(Math.floor(m / 60)).padStart(2, "0");
+  const mm = String(m % 60).padStart(2, "0");
+  return `${hh}:${mm}`;
+}
 function pickThemeByIndex(idx: number) {
   const themes = ["blue", "purple", "green", "orange", "rose"] as const;
   return themes[idx % themes.length];
@@ -166,6 +173,7 @@ export async function GET(req: Request) {
       .from("club_tarifarios_default")
       .select("id_tipo_cancha,id_tarifario")
       .eq("id_club", id_club);
+
     const defaultMap = new Map<number, number>();
     (defaultsRaw || []).forEach((row: any) =>
       defaultMap.set(row.id_tipo_cancha, row.id_tarifario),
@@ -185,6 +193,7 @@ export async function GET(req: Request) {
 
     let minStart = 8 * 60,
       maxEnd = 26 * 60;
+
     if (tarifariosSet.size > 0) {
       const dow = weekday0Sun(fecha);
       const { data: reglas } = await supabaseAdmin
@@ -202,6 +211,7 @@ export async function GET(req: Request) {
       if (reglas && reglas.length > 0) {
         let localMin = Infinity,
           localMax = 0;
+
         reglas.forEach((r: any) => {
           const s = toMin(r.hora_desde);
           const eBase = toMin(r.hora_hasta);
@@ -209,14 +219,17 @@ export async function GET(req: Request) {
           localMin = Math.min(localMin, s);
           localMax = Math.max(localMax, e);
         });
+
         if (localMin !== Infinity) minStart = roundDownToHalfHour(localMin);
         if (localMax > 0) maxEnd = roundUpToHalfHour(localMax);
+
         if (maxEnd <= minStart) {
           minStart = 8 * 60;
           maxEnd = 26 * 60;
         }
       }
     }
+
     const startHour = minToHourDecimal(minStart);
     const endHour = minToHourDecimal(maxEnd);
 
@@ -267,16 +280,31 @@ export async function GET(req: Request) {
       theme: pickThemeByIndex(idx),
       id_tarifario: canchaTarifario.get(c.id_cancha) ?? null,
       // ✅ ASIGNAR CIERRES (específicos de la cancha o globales)
+      // - Si el cierre es "total (todo el día)" en DB suele venir inicio/fin NULL.
+      // - Lo normalizamos a la ventana visible de agenda: [minStart, maxEnd]
+      //   así bloquea y renderiza perfecto incluso si cruza medianoche (endHour > 24).
       cierres: cierres
         .filter(
           (cie: any) => cie.id_cancha === c.id_cancha || cie.id_cancha === null,
         )
-        .map((cie: any) => ({
-          id_cierre: cie.id_cierre,
-          inicio: String(cie.inicio).slice(0, 5),
-          fin: String(cie.fin).slice(0, 5),
-          motivo: cie.motivo,
-        })),
+        .map((cie: any) => {
+          const isTotal = cie.inicio == null || cie.fin == null;
+
+          const inicioHHMM = isTotal
+            ? minToHHMM(minStart) // ej 08:00
+            : String(cie.inicio).slice(0, 5);
+
+          const finHHMM = isTotal
+            ? minToHHMM(maxEnd) // ej 02:00 (si maxEnd=1560)
+            : String(cie.fin).slice(0, 5);
+
+          return {
+            id_cierre: cie.id_cierre,
+            inicio: inicioHHMM,
+            fin: finHHMM,
+            motivo: cie.motivo,
+          };
+        }),
     }));
 
     const reservasOut = reservasValidas.map((r: any) => {
@@ -284,10 +312,12 @@ export async function GET(req: Request) {
       const nombreProfile = prof
         ? [prof.nombre, prof.apellido].filter(Boolean).join(" ")
         : "";
+
       const totalPagado =
         r.reservas_pagos
           ?.filter((p: any) => p.status === "approved")
           .reduce((sum: number, p: any) => sum + (p.amount || 0), 0) || 0;
+
       const precio = Number(r.precio_total || 0);
       const saldo = Math.max(0, precio - totalPagado);
 
