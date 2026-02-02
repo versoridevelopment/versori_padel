@@ -31,7 +31,6 @@ export default function ReservasPage() {
     initialData?: Partial<ReservaUI>;
     preSelectedCanchaId?: number | null;
     preSelectedTime?: string | null;
-    // ✅ Nuevo: Guardamos la fecha específica del clic
     preSelectedDate?: string | null;
   }>({ isOpen: false, mode: "view" });
 
@@ -68,11 +67,10 @@ export default function ReservasPage() {
       mode: "view",
       reservaId: r.id_reserva,
       initialData: r,
-      preSelectedDate: r.fecha, // Para ver, usamos la fecha de la reserva
+      preSelectedDate: r.fecha,
     });
   };
 
-  // ✅ Recibimos timeStr y dateStr desde CompactView
   const handleEmptySlotClick = (
     canchaId: number,
     timeStr: string,
@@ -85,7 +83,7 @@ export default function ReservasPage() {
       initialData: undefined,
       preSelectedCanchaId: canchaId,
       preSelectedTime: timeStr,
-      preSelectedDate: dateStr, // ✅ Fecha calculada (puede ser hoy o mañana)
+      preSelectedDate: dateStr,
     });
   };
 
@@ -118,7 +116,6 @@ export default function ReservasPage() {
         <div className="hidden md:flex items-center gap-2">
           <button
             onClick={() =>
-              // Si se abre desde el botón, usa la fecha general
               setSidebarState({
                 isOpen: true,
                 mode: "create",
@@ -160,10 +157,11 @@ export default function ReservasPage() {
         {!loading && !error && agenda && (
           <CompactView
             canchas={agenda.canchas}
-            reservas={agenda.reservas}
+            // ✅ CORRECCIÓN: Agregamos "|| []" para asegurar que siempre sea un array
+            reservas={agenda.reservas || []}
             startHour={agenda.startHour}
             endHour={agenda.endHour}
-            date={selectedDate} // ✅ Pasamos fecha base para cálculos
+            date={selectedDate}
             onReservaClick={handleReservaClick}
             onEmptySlotClick={handleEmptySlotClick}
           />
@@ -177,7 +175,6 @@ export default function ReservasPage() {
         initialData={sidebarState.initialData}
         isCreating={sidebarState.mode === "create"}
         selectedDate={selectedDate}
-        // ✅ Pasamos la fecha específica del clic (prioridad sobre selectedDate)
         fecha={sidebarState.preSelectedDate || fechaISO}
         preSelectedCanchaId={sidebarState.preSelectedCanchaId}
         preSelectedTime={sidebarState.preSelectedTime}

@@ -82,4 +82,5 @@ export type AgendaApiResponse = {
   canchas: CanchaUI[];
   startHour: number;
   endHour: number;
+  reservas?: ReservaUI[];
 };
