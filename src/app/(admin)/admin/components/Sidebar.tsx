@@ -5,6 +5,8 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { createBrowserClient } from "@supabase/ssr";
+import { format } from "date-fns";
+import { es } from "date-fns/locale";
 import {
   LayoutDashboard,
   Calendar,
@@ -26,8 +28,9 @@ import {
   LayoutGrid,
   ExternalLink,
   User as UserIcon,
-  Contact, // Icono para manuales
-  Globe, // Icono para web
+  Contact,
+  Globe,
+  Clock, // Importamos el reloj
 } from "lucide-react";
 
 import CierresSidebar from "./admin/CierresSidebar";
@@ -71,36 +74,36 @@ export function Sidebar() {
   });
 
   const [clubId, setClubId] = useState<number>(9);
+  const [clubLogo, setClubLogo] = useState<string | null>(null);
   const [canchas, setCanchas] = useState<
     { id_cancha: number; nombre: string }[]
   >([]);
   const [cierresOpen, setCierresOpen] = useState(false);
 
+  // Estado para el reloj
+  const [currentTime, setCurrentTime] = useState<Date | null>(null);
+
   const pathname = usePathname();
 
   // Estados de los desplegables
-  const [isUsuariosOpen, setIsUsuariosOpen] = useState(false); // ✅ NUEVO
+  const [isUsuariosOpen, setIsUsuariosOpen] = useState(false);
   const [isCanchasOpen, setIsCanchasOpen] = useState(true);
   const [isPersonalizacionOpen, setIsPersonalizacionOpen] = useState(false);
 
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
 
+  // 1. Reloj en tiempo real
+  useEffect(() => {
+    setCurrentTime(new Date());
+    const timer = setInterval(() => setCurrentTime(new Date()), 60000);
+    return () => clearInterval(timer);
+  }, []);
+
   useEffect(() => {
     setIsMounted(true);
-    // Abrir menú usuarios si estamos en una sub-ruta
     if (pathname.includes("/admin/usuarios")) setIsUsuariosOpen(true);
   }, [pathname]);
-
-  const getInitials = (name: string) => {
-    if (!name || name === "Cargando...") return "";
-    return name
-      .split(" ")
-      .map((n) => n[0])
-      .slice(0, 2)
-      .join("")
-      .toUpperCase();
-  };
 
   useEffect(() => {
     const loadUserAndRole = async () => {
@@ -110,19 +113,25 @@ export function Sidebar() {
       if (!user) return;
 
       let currentClubId = 9;
+      let currentClubLogo = null;
+
       if (typeof window !== "undefined") {
         const hostname = window.location.hostname;
         const subdomain = hostname.split(".")[0];
         if (subdomain && subdomain !== "localhost" && subdomain !== "www") {
           const { data: clubData } = await supabase
             .from("clubes")
-            .select("id_club")
+            .select("id_club, logo_url")
             .eq("subdominio", subdomain)
             .maybeSingle();
-          if (clubData) currentClubId = clubData.id_club;
+          if (clubData) {
+            currentClubId = clubData.id_club;
+            currentClubLogo = clubData.logo_url;
+          }
         }
       }
       setClubId(currentClubId);
+      setClubLogo(currentClubLogo);
 
       const { data: canchasData } = await supabase
         .from("canchas")
@@ -184,7 +193,7 @@ export function Sidebar() {
   const isActive = (href: string) =>
     pathname === href || pathname.startsWith(`${href}/`);
 
-  // CONFIG MENU PRINCIPAL (Sin 'usuarios' suelto)
+  // --- CONFIG MENU PRINCIPAL ---
   const mainLinks: MenuLink[] = [
     {
       key: "dashboard",
@@ -216,7 +225,6 @@ export function Sidebar() {
     },
   ];
 
-  // ✅ NUEVO: Links de Usuarios
   const usuariosLinks: MenuLink[] = [
     {
       key: "usuarios-manuales",
@@ -287,7 +295,7 @@ export function Sidebar() {
   );
   const visibleUsuariosLinks = usuariosLinks.filter((l) =>
     l.allowedRoles.includes(userRole),
-  ); // ✅
+  );
   const visibleGestionLinks = gestionLinks.filter((l) =>
     l.allowedRoles.includes(userRole),
   );
@@ -316,55 +324,81 @@ export function Sidebar() {
       <aside
         className={`fixed md:sticky top-0 left-0 h-screen w-64 bg-[#0d1b2a] text-white flex flex-col justify-between shadow-2xl z-40 overflow-hidden transition-transform duration-300 ease-in-out ${isMobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"}`}
       >
-        {/* HEADER USER */}
-        <div className="flex flex-col items-center p-6 border-b border-gray-800 bg-[#0b1623]">
-          <Link
-            href="/admin/usuario"
-            onClick={closeMobileMenu}
-            className="group relative"
-          >
-            <div className="relative w-16 h-16 mx-auto transition-transform duration-300 group-hover:scale-105">
-              <div className="rounded-full overflow-hidden border-2 border-blue-500/30 w-16 h-16 bg-gray-800 relative flex items-center justify-center">
-                {userData.fotoPerfil ? (
-                  <Image
-                    src={userData.fotoPerfil}
-                    alt="Perfil"
-                    fill
-                    className="object-cover"
-                    sizes="64px"
-                    priority
-                  />
-                ) : (
-                  <div className="w-full h-full bg-[#1b263b] flex items-center justify-center text-blue-300 font-bold text-xl">
-                    {getInitials(userData.nombreCompleto) || <UserIcon />}
-                  </div>
-                )}
+        {/* === HEADER MEJORADO CON EFECTO HERO === */}
+        <div className="flex flex-col items-center pt-8 pb-6 px-4 bg-[#0b1623] relative">
+          {/* Fondo Degradado Sutil */}
+          <div className="absolute top-0 left-0 w-full h-40 bg-gradient-to-b from-[#1b263b] via-[#0d1b2a]/80 to-transparent pointer-events-none" />
+
+          {/* Logo del Club Hero */}
+          <div className="relative w-36 h-36 mb-4 z-10 group cursor-default">
+            {clubLogo ? (
+              <div className="relative w-full h-full flex items-center justify-center">
+                {/* 1. Glow Base (Azul Profundo) */}
+                <div className="absolute inset-0 bg-blue-600/20 blur-[40px] rounded-full transform scale-90 group-hover:scale-100 transition-transform duration-700" />
+
+                {/* 2. Glow Secundario (Brillo) - Animación de respiración */}
+                <div className="absolute inset-0 bg-gradient-to-tr from-blue-400/10 to-purple-500/10 blur-2xl rounded-full animate-pulse" />
+
+                {/* 3. Imagen Real */}
+                <Image
+                  src={clubLogo}
+                  alt="Logo Club"
+                  fill
+                  className="object-contain drop-shadow-[0_10px_20px_rgba(0,0,0,0.5)] pointer-events-none select-none transition-transform duration-500 group-hover:scale-[1.02]"
+                  sizes="144px"
+                  priority
+                />
               </div>
-              <div
-                className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-green-500 border-2 border-[#0b1623] rounded-full"
-                title="Online"
-              ></div>
+            ) : (
+              <div className="w-full h-full bg-[#1b263b] rounded-full flex items-center justify-center text-blue-400/50 border border-blue-900/30 shadow-[0_0_30px_rgba(59,130,246,0.1)]">
+                <Building2 size={56} />
+              </div>
+            )}
+          </div>
+
+          {/* Widget de Fecha y Hora */}
+          <div className="flex flex-col items-center justify-center w-full mb-5 z-10">
+            <div className="flex items-center gap-2 text-2xl font-bold text-white tracking-widest font-mono drop-shadow-sm">
+              {currentTime ? format(currentTime, "HH:mm") : "--:--"}
             </div>
-          </Link>
-          <h2 className="mt-3 text-sm font-semibold tracking-wide text-gray-100 text-center">
-            {userData.nombreCompleto}
-          </h2>
-          <span
-            className={`px-2 py-0.5 mt-1 text-[10px] uppercase font-bold tracking-wider rounded-full border ${userRole === "admin" ? "bg-blue-900/40 text-blue-300 border-blue-800/50" : "bg-emerald-900/40 text-emerald-300 border-emerald-800/50"}`}
-          >
-            {userData.rolLabel}
-          </span>
+            <div className="text-[11px] text-blue-300/70 font-bold uppercase tracking-widest">
+              {currentTime
+                ? format(currentTime, "EEEE d, MMMM", { locale: es })
+                : "..."}
+            </div>
+          </div>
+
+          {/* Tarjeta de Usuario Compacta */}
+          <div className="w-full bg-[#16202e] rounded-xl p-3 border border-gray-800/60 flex items-center gap-3 shadow-lg relative z-10 group hover:border-gray-700 transition-colors">
+            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-600 to-blue-800 flex items-center justify-center text-xs font-bold text-white shrink-0 shadow-md">
+              {userData.nombreCompleto.charAt(0)}
+            </div>
+            <div className="flex flex-col overflow-hidden">
+              <span className="text-xs font-bold text-gray-200 truncate group-hover:text-white transition-colors">
+                {userData.nombreCompleto}
+              </span>
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <span
+                  className={`w-1.5 h-1.5 rounded-full ${userRole === "admin" ? "bg-blue-400" : "bg-emerald-400"} animate-pulse`}
+                ></span>
+                <span
+                  className={`text-[9px] uppercase font-bold tracking-wider ${userRole === "admin" ? "text-blue-400" : "text-emerald-400"}`}
+                >
+                  {userData.rolLabel}
+                </span>
+              </div>
+            </div>
+          </div>
         </div>
 
-        {/* MENU SCROLLABLE */}
+        {/* === NAVEGACIÓN === */}
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto custom-scrollbar">
-          {/* LINKS PRINCIPALES */}
           {visibleMainLinks.map((link) => (
             <Link
               key={link.key}
               href={link.href}
               onClick={closeMobileMenu}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 group font-medium text-sm ${isActive(link.href) ? "bg-[#1b263b] text-white shadow-sm" : "text-gray-400 hover:text-white hover:bg-[#1b263b]/50"}`}
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 group font-medium text-sm border border-transparent ${isActive(link.href) ? "bg-[#1b263b] text-white shadow-md border-gray-700/50" : "text-gray-400 hover:text-white hover:bg-[#1b263b]/50"}`}
             >
               <span
                 className={`transition-colors ${isActive(link.href) ? "text-blue-400" : "group-hover:text-blue-400"}`}
@@ -375,7 +409,7 @@ export function Sidebar() {
             </Link>
           ))}
 
-          {/* ✅ SECCIÓN USUARIOS DESPLEGABLE */}
+          {/* Submenú Usuarios */}
           {visibleUsuariosLinks.length > 0 && (
             <div className="pt-2">
               <button
@@ -413,7 +447,7 @@ export function Sidebar() {
             </div>
           )}
 
-          {/* BOTÓN CIERRES */}
+          {/* Cierres */}
           {(userRole === "admin" ||
             userRole === "staff" ||
             userRole === "cajero") && (
@@ -431,9 +465,12 @@ export function Sidebar() {
             </button>
           )}
 
-          {/* GESTION */}
+          {/* Gestión */}
           {visibleGestionLinks.length > 0 && (
             <div className="pt-4 mt-2 border-t border-gray-800/50">
+              <p className="px-3 pb-2 text-[10px] font-bold text-gray-500 uppercase tracking-wider">
+                Administración
+              </p>
               <button
                 onClick={() => setIsCanchasOpen(!isCanchasOpen)}
                 className={`flex w-full items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 text-sm ${isCanchasOpen ? "bg-[#1b263b] text-white" : "text-gray-400 hover:bg-[#1b263b] hover:text-white"}`}
@@ -469,7 +506,7 @@ export function Sidebar() {
             </div>
           )}
 
-          {/* PERSONALIZACIÓN */}
+          {/* Personalización */}
           {visiblePersonalizacionLinks.length > 0 && (
             <div className="pt-2 mt-2">
               <button
@@ -511,7 +548,7 @@ export function Sidebar() {
         </nav>
 
         {/* FOOTER */}
-        <div className="p-3 border-t border-gray-800 bg-[#0b1623] space-y-2 pb-6 md:pb-3">
+        <div className="p-3 border-t border-gray-800 bg-[#0b1623] space-y-2 pb-2">
           <Link
             href="/"
             className="flex w-full items-center justify-center gap-2 py-2 text-xs font-bold uppercase tracking-wider text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-all border border-gray-800 hover:border-gray-700"
@@ -527,6 +564,13 @@ export function Sidebar() {
           >
             <LogOut size={16} /> Cerrar sesión
           </button>
+
+          {/* ✅ MARCA DE AGUA SUTIL */}
+          <div className="pt-2 text-center pb-1 select-none">
+            <p className="text-[9px] text-gray-700 font-bold tracking-[0.2em] opacity-40 hover:opacity-70 transition-opacity">
+              POWERED BY <span className="text-gray-500">VERSORI</span>
+            </p>
+          </div>
         </div>
       </aside>
 
