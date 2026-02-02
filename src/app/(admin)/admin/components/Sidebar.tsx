@@ -30,7 +30,7 @@ import {
   User as UserIcon,
   Contact,
   Globe,
-  Clock, // Importamos el reloj
+  Clock,
 } from "lucide-react";
 
 import CierresSidebar from "./admin/CierresSidebar";
@@ -80,12 +80,10 @@ export function Sidebar() {
   >([]);
   const [cierresOpen, setCierresOpen] = useState(false);
 
-  // Estado para el reloj
   const [currentTime, setCurrentTime] = useState<Date | null>(null);
 
   const pathname = usePathname();
 
-  // Estados de los desplegables
   const [isUsuariosOpen, setIsUsuariosOpen] = useState(false);
   const [isCanchasOpen, setIsCanchasOpen] = useState(true);
   const [isPersonalizacionOpen, setIsPersonalizacionOpen] = useState(false);
@@ -93,7 +91,6 @@ export function Sidebar() {
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
 
-  // 1. Reloj en tiempo real
   useEffect(() => {
     setCurrentTime(new Date());
     const timer = setInterval(() => setCurrentTime(new Date()), 60000);
@@ -193,7 +190,6 @@ export function Sidebar() {
   const isActive = (href: string) =>
     pathname === href || pathname.startsWith(`${href}/`);
 
-  // --- CONFIG MENU PRINCIPAL ---
   const mainLinks: MenuLink[] = [
     {
       key: "dashboard",
@@ -324,22 +320,16 @@ export function Sidebar() {
       <aside
         className={`fixed md:sticky top-0 left-0 h-screen w-64 bg-[#0d1b2a] text-white flex flex-col justify-between shadow-2xl z-40 overflow-hidden transition-transform duration-300 ease-in-out ${isMobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"}`}
       >
-        {/* === HEADER MEJORADO CON EFECTO HERO === */}
+        {/* HEADER */}
         <div className="flex flex-col items-center pt-8 pb-6 px-4 bg-[#0b1623] relative">
-          {/* Fondo Degradado Sutil */}
           <div className="absolute top-0 left-0 w-full h-40 bg-gradient-to-b from-[#1b263b] via-[#0d1b2a]/80 to-transparent pointer-events-none" />
 
           {/* Logo del Club Hero */}
           <div className="relative w-36 h-36 mb-4 z-10 group cursor-default">
             {clubLogo ? (
               <div className="relative w-full h-full flex items-center justify-center">
-                {/* 1. Glow Base (Azul Profundo) */}
                 <div className="absolute inset-0 bg-blue-600/20 blur-[40px] rounded-full transform scale-90 group-hover:scale-100 transition-transform duration-700" />
-
-                {/* 2. Glow Secundario (Brillo) - Animación de respiración */}
                 <div className="absolute inset-0 bg-gradient-to-tr from-blue-400/10 to-purple-500/10 blur-2xl rounded-full animate-pulse" />
-
-                {/* 3. Imagen Real */}
                 <Image
                   src={clubLogo}
                   alt="Logo Club"
@@ -368,7 +358,7 @@ export function Sidebar() {
             </div>
           </div>
 
-          {/* Tarjeta de Usuario Compacta */}
+          {/* Tarjeta de Usuario */}
           <div className="w-full bg-[#16202e] rounded-xl p-3 border border-gray-800/60 flex items-center gap-3 shadow-lg relative z-10 group hover:border-gray-700 transition-colors">
             <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-600 to-blue-800 flex items-center justify-center text-xs font-bold text-white shrink-0 shadow-md">
               {userData.nombreCompleto.charAt(0)}
@@ -391,8 +381,13 @@ export function Sidebar() {
           </div>
         </div>
 
-        {/* === NAVEGACIÓN === */}
-        <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto custom-scrollbar">
+        {/* === CAMBIO CLAVE AQUÍ ===
+          Se eliminó 'custom-scrollbar' y se agregaron clases nativas para ocultar la barra.
+          [&::-webkit-scrollbar]:hidden -> Oculta en Chrome/Safari
+          [-ms-overflow-style:none] -> Oculta en IE/Edge
+          [scrollbar-width:none] -> Oculta en Firefox
+        */}
+        <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
           {visibleMainLinks.map((link) => (
             <Link
               key={link.key}
@@ -409,7 +404,6 @@ export function Sidebar() {
             </Link>
           ))}
 
-          {/* Submenú Usuarios */}
           {visibleUsuariosLinks.length > 0 && (
             <div className="pt-2">
               <button
@@ -447,7 +441,6 @@ export function Sidebar() {
             </div>
           )}
 
-          {/* Cierres */}
           {(userRole === "admin" ||
             userRole === "staff" ||
             userRole === "cajero") && (
@@ -465,7 +458,6 @@ export function Sidebar() {
             </button>
           )}
 
-          {/* Gestión */}
           {visibleGestionLinks.length > 0 && (
             <div className="pt-4 mt-2 border-t border-gray-800/50">
               <p className="px-3 pb-2 text-[10px] font-bold text-gray-500 uppercase tracking-wider">
@@ -506,7 +498,6 @@ export function Sidebar() {
             </div>
           )}
 
-          {/* Personalización */}
           {visiblePersonalizacionLinks.length > 0 && (
             <div className="pt-2 mt-2">
               <button
@@ -565,7 +556,7 @@ export function Sidebar() {
             <LogOut size={16} /> Cerrar sesión
           </button>
 
-          {/* ✅ MARCA DE AGUA SUTIL */}
+          {/* Marca de agua */}
           <div className="pt-2 text-center pb-1 select-none">
             <p className="text-[9px] text-gray-700 font-bold tracking-[0.2em] opacity-40 hover:opacity-70 transition-opacity">
               POWERED BY <span className="text-gray-500">VERSORI</span>
