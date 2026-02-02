@@ -13,18 +13,13 @@ import {
   Trophy,
   History,
   MapPin,
-  AlertCircle,
-  Activity,
   CreditCard,
   Loader2,
   ShieldCheck,
   Clock,
-  Briefcase,
   CheckCircle2,
   AlertTriangle,
   XCircle,
-  StickyNote, // Icono para notas
-  Save, // Icono para guardar
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { createBrowserClient } from "@supabase/ssr";
@@ -59,7 +54,6 @@ type UserProfile = {
   roles: string[];
   reservas: ReservaRaw[];
   bloqueado?: boolean;
-  notas_internas?: string; // Dato que viene de la API
 };
 
 // --- COMPONENTES AUXILIARES ---
@@ -167,12 +161,6 @@ export default function UsuarioDetalleClient({
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [userData, setUserData] = useState<UserProfile | null>(null);
-
-  // Notas
-  const [notes, setNotes] = useState("");
-  const [savingNotes, setSavingNotes] = useState(false);
-
-  // Permisos
   const [togglingRole, setTogglingRole] = useState<string | null>(null);
   const [viewerIsAdmin, setViewerIsAdmin] = useState(false);
 
@@ -183,9 +171,7 @@ export default function UsuarioDetalleClient({
         `/api/admin/usuarios/${idUsuario}?clubId=${clubId}`,
       );
       if (!res.ok) throw new Error("Error cargando perfil");
-      const data = await res.json();
-      setUserData(data);
-      setNotes(data.notas_internas || ""); // Cargar notas de la DB
+      setUserData(await res.json());
     } catch (err) {
       console.error(err);
     } finally {
@@ -207,14 +193,7 @@ export default function UsuarioDetalleClient({
         .eq("id_club", clubId);
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const isAdmin = rolesData?.some((r: any) => {
-        const name = r.roles?.nombre?.toLowerCase().trim();
-        return (
-          name === "admin" || name === "administrador" || name === "propietario"
-        );
-      });
-
-      console.log("Es admin?", isAdmin, rolesData); // Debug en consola
+      const isAdmin = rolesData?.some((r: any) => r.roles?.nombre === "admin");
       setViewerIsAdmin(isAdmin || false);
     };
 
@@ -247,44 +226,17 @@ export default function UsuarioDetalleClient({
     }
   };
 
-  // Guardar Notas
-  const handleSaveNotes = async () => {
-    setSavingNotes(true);
-    try {
-      // Usamos una ruta dedicada o la genérica de edición
-      // Asegúrate de tener una API que maneje esto, o usa /api/admin/usuarios/[id]/edit
-      const res = await fetch(`/api/admin/usuarios/${idUsuario}/notas`, {
-        method: "POST",
-        body: JSON.stringify({ clubId, notas: notes }),
-      });
-      if (!res.ok) alert("No se pudo guardar la nota");
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setSavingNotes(false);
-    }
-  };
-
   const stats = useMemo(() => {
     if (!userData) return null;
     const total = userData.reservas.length;
     const gastado = userData.reservas
       .filter((r) => r.estado === "finalizada" || r.estado === "confirmada")
       .reduce((acc, curr) => acc + Number(curr.precio_total), 0);
-
-    // Cálculo de edad (simple)
-    let edad = "-";
-    if (userData.fecha_nacimiento) {
-      const born = new Date(userData.fecha_nacimiento);
-      const today = new Date();
-      let age = today.getFullYear() - born.getFullYear();
-      const m = today.getMonth() - born.getMonth();
-      if (m < 0 || (m === 0 && today.getDate() < born.getDate())) {
-        age--;
-      }
-      edad = `${age} años`;
-    }
-
+    const canceladas = userData.reservas.filter(
+      (r) => r.estado === "cancelada",
+    ).length;
+    const cancelRate =
+      total > 0 ? ((canceladas / total) * 100).toFixed(0) : "0";
     const ultima =
       total > 0
         ? new Date(userData.reservas[0].fecha).toLocaleDateString("es-AR")
@@ -300,7 +252,7 @@ export default function UsuarioDetalleClient({
         ? Object.keys(counts).reduce((a, b) => (counts[a] > counts[b] ? a : b))
         : "-";
 
-    return { total, gastado, edad, favCourt, ultima };
+    return { total, gastado, cancelRate, favCourt, ultima };
   }, [userData]);
 
   if (loading)
@@ -345,7 +297,7 @@ export default function UsuarioDetalleClient({
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
-          {/* COLUMNA IZQ: PERFIL, NOTAS Y PERMISOS */}
+          {/* COLUMNA IZQ: PERFIL Y PERMISOS */}
           <div className="space-y-6 xl:col-span-1">
             <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
               {/* Banner */}
@@ -404,7 +356,11 @@ export default function UsuarioDetalleClient({
                     isLink
                   />
                   <div className="grid grid-cols-2 gap-3">
-                    <InfoItem icon={Calendar} label="Edad" value={stats.edad} />
+                    <InfoItem
+                      icon={Calendar}
+                      label="Edad"
+                      value={userData.fecha_nacimiento}
+                    />
                     <InfoItem
                       icon={User}
                       label="Género"
@@ -413,44 +369,12 @@ export default function UsuarioDetalleClient({
                   </div>
                 </div>
 
-                {/* --- NOTAS INTERNAS (AHORA SÍ VISIBLE) --- */}
-                {viewerIsAdmin && (
-                  <div className="mt-6 pt-6 border-t border-slate-100 bg-amber-50/50 -mx-5 px-5 py-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <label className="text-[10px] font-bold text-amber-700 uppercase tracking-wider flex items-center gap-1.5">
-                        <StickyNote size={14} /> Notas Internas
-                      </label>
-
-                      <button
-                        onClick={handleSaveNotes}
-                        disabled={savingNotes}
-                        className="text-[10px] flex items-center gap-1 bg-amber-100 hover:bg-amber-200 text-amber-800 px-2 py-1 rounded transition-colors disabled:opacity-50"
-                      >
-                        {savingNotes ? (
-                          <Loader2 size={10} className="animate-spin" />
-                        ) : (
-                          <Save size={10} />
-                        )}
-                        Guardar
-                      </button>
-                    </div>
-                    <textarea
-                      className="w-full bg-white border border-amber-200 rounded-xl p-3 text-sm text-slate-700 focus:ring-2 focus:ring-amber-500/20 focus:border-amber-400 outline-none resize-none placeholder:text-amber-800/30 min-h-[100px]"
-                      rows={3}
-                      placeholder="Escribe notas privadas (deudas, preferencias, comportamiento)..."
-                      value={notes}
-                      onChange={(e) => setNotes(e.target.value)}
-                      onBlur={handleSaveNotes} // Auto-guardado al salir
-                    />
-                  </div>
-                )}
-
                 {/* ZONA DE PERMISOS (Solo Admin ve esto) */}
                 {viewerIsAdmin && (
-                  <div className="mt-6 pt-6 border-t border-slate-100">
+                  <div className="mt-8 pt-6 border-t border-slate-100">
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-3">
                       <ShieldCheck size={12} className="inline mr-1" />
-                      Permisos del Sistema
+                      Permisos
                     </p>
                     <div className="space-y-3">
                       <button

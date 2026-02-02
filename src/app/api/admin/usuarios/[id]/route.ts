@@ -21,7 +21,7 @@ export async function GET(
 
     const clubId = Number(clubIdStr);
 
-    // 1) Obtener Perfil Base
+    // 1) Obtener Perfil Base (Datos personales)
     const { data: profile, error: profileError } = await supabaseAdmin
       .from("profiles")
       .select("*")
@@ -35,21 +35,24 @@ export async function GET(
       );
     }
 
-    // 2) Obtener Roles en este Club
-    // Solo nos interesa saber qué roles tiene asignados en la tabla club_usuarios
-    const { data: rolesData } = await supabaseAdmin
+    // 2) Obtener Roles y Notas en este Club
+    // Buscamos en club_usuarios para saber sus roles y si tiene notas internas
+    const { data: memberData } = await supabaseAdmin
       .from("club_usuarios")
-      .select(`roles ( nombre )`)
+      .select(`notas, roles ( nombre )`)
       .eq("id_usuario", id)
       .eq("id_club", clubId);
 
-    // Mapeamos los nombres de los roles (ej: ["admin", "cajero", "cliente"])
+    // Procesamos Roles: Array de strings ["admin", "cajero"]
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const roles =
-      rolesData?.map((r: any) => r.roles?.nombre).filter(Boolean) || [];
+      memberData?.map((r: any) => r.roles?.nombre).filter(Boolean) || [];
 
-    // 3) Obtener Historial de Reservas COMPLETO (Incluso canceladas)
-    // Esto sirve para calcular las estadísticas en el frontend
+    // Procesamos Notas: Tomamos la nota de la primera entrada (si existe)
+    // Ya que las notas suelen ser globales por usuario en el club
+    const notasInternas = memberData?.[0]?.notas || "";
+
+    // 3) Obtener Historial de Reservas COMPLETO
     const { data: reservas, error: reservasError } = await supabaseAdmin
       .from("reservas")
       .select(
@@ -76,13 +79,16 @@ export async function GET(
 
     if (reservasError) {
       console.error("Error obteniendo reservas:", reservasError);
-      // No bloqueamos la respuesta si fallan las reservas, devolvemos array vacío
     }
 
+    // 4) Respuesta Final Combinada
     return NextResponse.json({
-      ...profile,
-      roles, // El frontend recibirá ["admin", "cajero", ...] y decidirá qué botones activar
+      ...profile, // nombre, email, telefono, etc.
+      roles, // ["admin", "cajero"]
       reservas: reservas || [],
+      notas_internas: notasInternas, // ✅ Campo nuevo para el frontend
+      // Si tienes un campo 'bloqueado' en club_usuarios, agrégalo al select del paso 2
+      bloqueado: false, // Default por ahora si no está en schema
     });
   } catch (error: any) {
     console.error("Error en GET usuario:", error);

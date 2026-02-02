@@ -1,8 +1,8 @@
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import UserProfileForm from "../components/perfil/UserProfileForm";
 import { createClient } from "@supabase/supabase-js";
+import UserProfileForm from "../components/perfil/UserProfileForm";
 
 export const dynamic = "force-dynamic";
 
@@ -16,8 +16,6 @@ export default async function PerfilPage() {
         get(name: string) {
           return cookieStore.get(name)?.value;
         },
-        // ✅ SOLUCIÓN: Quitamos los argumentos por completo.
-        // Al usar 'as any' abajo, no necesitamos declarar los parámetros si no los usamos.
         set() {},
         remove() {},
         getAll() {
@@ -25,7 +23,7 @@ export default async function PerfilPage() {
             .getAll()
             .map((c) => ({ name: c.name, value: c.value }));
         },
-      } as any),
+      }) as any,
   });
 
   let {
@@ -34,14 +32,10 @@ export default async function PerfilPage() {
 
   // 2. FALLBACK MANUAL
   if (!session) {
-    console.log(
-      "⚠️ [Perfil] Falló lectura estándar. Intentando recuperación manual de cookies..."
-    );
-
     try {
       const allCookies = cookieStore.getAll();
       const tokenCookies = allCookies.filter((c) =>
-        c.name.includes("-auth-token")
+        c.name.includes("-auth-token"),
       );
 
       if (tokenCookies.length > 0) {
@@ -52,11 +46,9 @@ export default async function PerfilPage() {
         });
 
         let combinedValue = tokenCookies.map((c) => c.value).join("");
-
         if (combinedValue.startsWith("base64-")) {
           const base64Str = combinedValue.replace("base64-", "");
-          const jsonStr = Buffer.from(base64Str, "base64").toString("utf-8");
-          combinedValue = jsonStr;
+          combinedValue = Buffer.from(base64Str, "base64").toString("utf-8");
         }
 
         const sessionData = JSON.parse(combinedValue);
@@ -72,20 +64,17 @@ export default async function PerfilPage() {
           });
 
           if (manualSession.session) {
-            console.log("✅ [Perfil] ¡Sesión recuperada manualmente!");
             session = manualSession.session;
             supabase = manualClient as any;
           }
         }
       }
     } catch (err) {
-      console.error("❌ [Perfil] Error fatal en recuperación manual:", err);
+      console.error("Error recuperación sesión:", err);
     }
   }
 
-  // 3. VALIDACIÓN FINAL
   if (!session) {
-    console.log("⛔ [Perfil] Imposible recuperar sesión. Redirigiendo.");
     redirect("/login");
   }
 
@@ -96,12 +85,19 @@ export default async function PerfilPage() {
     .eq("id_usuario", session.user.id)
     .single();
 
+  const nombreSaludo = profile?.nombre || "Jugador";
+
   return (
-    <div className="min-h-screen bg-[#0b0d12] pt-24 pb-12 px-4">
-      <div className="max-w-3xl mx-auto">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-white">Mi Perfil</h1>
-          <p className="text-gray-400">Bienvenido/a.</p>
+    // Fondo Negro Estética Versori
+    <div className="min-h-screen bg-black text-white pt-24 pb-12 px-4 sm:px-6 font-sans selection:bg-white selection:text-black">
+      <div className="max-w-2xl mx-auto space-y-8">
+        <div className="border-b border-zinc-800 pb-6">
+          <h1 className="text-3xl md:text-4xl font-black tracking-tight text-white">
+            Hola, {nombreSaludo}.
+          </h1>
+          <p className="mt-2 text-zinc-400 text-sm">
+            Gestiona tu información personal y datos de contacto.
+          </p>
         </div>
 
         <UserProfileForm
