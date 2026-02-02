@@ -7,11 +7,10 @@ import {
   XCircle,
   Clock,
   RotateCw,
-  Download,
+  Printer,
   ArrowLeft,
   MapPin,
 } from "lucide-react";
-import jsPDF from "jspdf";
 
 type Estado = "pendiente_pago" | "confirmada" | "expirada" | "rechazada";
 
@@ -39,7 +38,7 @@ type ReservaApi = {
 
   club_nombre?: string | null;
   club_subdominio?: string | null;
-  club_direccion?: string | null; // Agregado para el ticket
+  club_direccion?: string | null; // ✅ Necesario para el ticket
   cancha_nombre?: string | null;
 
   ultimo_pago?: {
@@ -81,148 +80,112 @@ function fmtMoney(n: any) {
 
 function formatDate(dateStr?: string | null) {
   if (!dateStr) return "-";
-  const [y, m, d] = dateStr.split("-");
-  return `${d}/${m}/${y}`;
+  // Asumiendo formato YYYY-MM-DD
+  const parts = dateStr.split("-");
+  if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  return dateStr;
 }
 
-// --- PDF GENERATOR (Profesional) ---
-function downloadPdfFromReserva(r: ReservaApi) {
-  const doc = new jsPDF();
-  const pageWidth = doc.internal.pageSize.getWidth();
-  const pageHeight = doc.internal.pageSize.getHeight();
-  const margin = 20;
-  let y = 20;
+// --- GENERADOR DE TICKET (HTML Print) ---
+function printTicket(r: ReservaApi) {
+  const printWindow = window.open("", "PRINT", "height=650,width=450");
 
-  // Header Background
-  doc.setFillColor(15, 23, 42); // Slate 900
-  doc.rect(0, 0, pageWidth, 50, "F");
-
-  // Title
-  doc.setFontSize(22);
-  doc.setTextColor(255, 255, 255);
-  doc.text("COMPROBANTE DE RESERVA", margin, 25);
-
-  // ID
-  doc.setFontSize(10);
-  doc.setTextColor(200, 200, 200);
-  doc.text(
-    `ID: #${r.id_reserva.toString().padStart(6, "0")}`,
-    pageWidth - margin,
-    25,
-    { align: "right" },
-  );
-
-  // Club Info
-  doc.setFontSize(14);
-  doc.setTextColor(255, 255, 255);
-  doc.text(r.club_nombre || "Club Deportivo", margin, 35);
-
-  doc.setFontSize(9);
-  doc.setTextColor(200, 200, 200);
-  doc.text(r.club_direccion || "Dirección no especificada", margin, 42);
-
-  y = 65;
-
-  // Estado Section
-  doc.setFontSize(12);
-  doc.setTextColor(100);
-  doc.text("ESTADO DE LA RESERVA", margin, y);
-
-  const statusColor = r.estado === "confirmada" ? [22, 163, 74] : [234, 179, 8];
-  doc.setFillColor(statusColor[0], statusColor[1], statusColor[2]);
-  doc.roundedRect(pageWidth - margin - 40, y - 5, 40, 8, 1, 1, "F");
-  doc.setTextColor(255);
-  doc.setFontSize(9);
-  doc.text(
-    (r.estado || "").toUpperCase().replace("_", " "),
-    pageWidth - margin - 20,
-    y,
-    { align: "center" },
-  );
-
-  y += 15;
-
-  // Helper for grid sections
-  const drawSection = (
-    title: string,
-    data: (string | [string, string])[][],
-    startY: number,
-  ) => {
-    doc.setFontSize(11);
-    doc.setTextColor(15, 23, 42);
-    doc.text(title, margin, startY);
-    doc.setDrawColor(200);
-    doc.line(margin, startY + 2, pageWidth - margin, startY + 2);
-
-    let currentY = startY + 12;
-    doc.setFontSize(10);
-
-    data.forEach((item) => {
-      const label = item[0] as string;
-      const value = item[1] as string;
-      doc.setTextColor(100);
-      doc.text(label, margin, currentY);
-      doc.setTextColor(0);
-      doc.text(value, margin + 40, currentY);
-      currentY += 8;
+  if (printWindow) {
+    const fechaImpresion = new Date().toLocaleString("es-AR", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
     });
-    return currentY + 10;
-  };
 
-  y = drawSection(
-    "DETALLES DEL TURNO",
-    [
-      ["Cancha", r.cancha_nombre || "-"],
-      ["Fecha", formatDate(r.fecha)],
-      [
-        "Horario",
-        `${r.inicio?.slice(0, 5)} - ${r.fin?.slice(0, 5)}${r.fin_dia_offset ? " (+1)" : ""}`,
-      ],
-    ],
-    y,
-  );
+    // Cálculos
+    const total = r.precio_total || 0;
+    const pagado = r.monto_anticipo || 0; // O r.ultimo_pago.amount si prefieres lo real pagado
+    const saldo = total - pagado;
 
-  y = drawSection(
-    "DATOS DEL CLIENTE",
-    [
-      ["Nombre", r.cliente_nombre || "-"],
-      ["Teléfono", r.cliente_telefono || "-"],
-      ["Email", r.cliente_email || "-"],
-    ],
-    y,
-  );
+    // Horario
+    const horarioDisplay = `${r.inicio?.slice(0, 5)} - ${r.fin?.slice(0, 5)}${r.fin_dia_offset ? " (+1)" : ""}`;
 
-  const saldo = (r.precio_total || 0) - (r.monto_anticipo || 0);
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>Ticket #${r.id_reserva}</title>
+          <style>
+            @import url('https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap');
+            body { font-family: 'Roboto Mono', monospace; padding: 15px; margin: 0; background: #fff; color: #000; font-size: 12px; }
+            .ticket { width: 100%; max-width: 300px; margin: 0 auto; }
+            @media print { @page { margin: 0; } body { padding: 0; } button { display: none; } }
+            .text-center { text-align: center; } 
+            .text-right { text-align: right; } 
+            .font-bold { font-weight: 700; }
+            .text-lg { font-size: 16px; } 
+            .text-xl { font-size: 18px; } 
+            .uppercase { text-transform: uppercase; }
+            .divider { border-top: 1px dashed #000; margin: 12px 0; }
+            .double-divider { border-top: 3px double #000; margin: 12px 0; }
+            .row { display: flex; justify-content: space-between; margin-bottom: 6px; }
+            .box { border: 2px solid #000; padding: 8px; margin: 15px 0; text-align: center; }
+            
+            /* Header Club */
+            .club-header { margin-bottom: 15px; }
+            .club-name { font-size: 16px; font-weight: bold; text-transform: uppercase; margin-bottom: 4px; }
+            .club-address { font-size: 10px; color: #444; }
+          </style>
+        </head>
+        <body>
+          <div class="ticket">
+            
+            <div class="text-center club-header">
+              <div class="club-name">${r.club_nombre || "Club Deportivo"}</div>
+              <div class="club-address">${r.club_direccion || "Dirección no disponible"}</div>
+            </div>
 
-  y = drawSection(
-    "RESUMEN DE PAGO",
-    [
-      ["Precio Total", fmtMoney(r.precio_total)],
-      ["Seña / Anticipo", fmtMoney(r.monto_anticipo)],
-      ["Saldo Restante", fmtMoney(saldo)],
-    ],
-    y,
-  );
+            <div class="divider"></div>
 
-  if (r.ultimo_pago) {
-    y = drawSection(
-      "DETALLE TRANSACCIÓN",
-      [
-        ["ID Pago MP", r.ultimo_pago.mp_payment_id?.toString() || "-"],
-        ["Estado MP", r.ultimo_pago.mp_status?.toUpperCase() || "-"],
-      ],
-      y,
-    );
+            <div class="text-center">
+              <div class="font-bold text-xl uppercase">COMPROBANTE</div>
+              <div style="font-size: 14px; margin-top: 4px;">Reserva #${r.id_reserva}</div>
+              <div style="font-size: 10px; margin-top: 4px;">${fechaImpresion}</div>
+            </div>
+
+            <div class="double-divider"></div>
+
+            <div class="row"><span>CLIENTE:</span><span class="font-bold text-right">${r.cliente_nombre || "Consumidor Final"}</span></div>
+            <div class="row"><span>CANCHA:</span><span class="text-right">${r.cancha_nombre || "-"}</span></div>
+            <div class="row"><span>FECHA:</span><span class="text-right">${formatDate(r.fecha)}</span></div>
+            <div class="row"><span>HORARIO:</span><span class="font-bold text-right">${horarioDisplay}</span></div>
+            
+            <div class="divider"></div>
+            
+            <div class="row"><span>Concepto</span><span class="text-right">Alquiler Cancha</span></div>
+            <div class="row font-bold text-lg" style="margin-top: 8px;"><span>TOTAL:</span><span>${fmtMoney(total)}</span></div>
+            
+            <div class="divider"></div>
+            
+            <div class="row"><span>Pagado / Seña:</span><span>${fmtMoney(pagado)}</span></div>
+            
+            <div class="box">
+              <div style="font-size: 10px; margin-bottom: 4px;">SALDO PENDIENTE</div>
+              <div class="font-bold text-xl">${fmtMoney(saldo)}</div>
+            </div>
+
+            <div class="text-center" style="margin-top: 25px; font-size: 10px; color: #666;">
+              <p style="margin:4px 0;">GRACIAS POR SU VISITA</p>
+              <p style="margin:4px 0;">No válido como factura fiscal.</p>
+            </div>
+          </div>
+        </body>
+      </html>
+    `);
+
+    printWindow.document.close();
+    printWindow.focus();
+
+    setTimeout(() => {
+      printWindow.print();
+    }, 500);
   }
-
-  // Footer
-  doc.setFontSize(8);
-  doc.setTextColor(150);
-  const footerText =
-    "Este documento sirve como comprobante de la reserva realizada.\nPor políticas de cancelación, consulte directamente con la administración del club.";
-  doc.text(footerText, pageWidth / 2, pageHeight - 20, { align: "center" });
-
-  doc.save(`Reserva_${r.id_reserva}_${r.fecha}.pdf`);
 }
 
 export default function PagoResultadoPage() {
@@ -452,10 +415,10 @@ export default function PagoResultadoPage() {
               {/* Botones */}
               <div className="bg-zinc-950 p-4 flex flex-col gap-3">
                 <button
-                  onClick={() => reserva && downloadPdfFromReserva(reserva)}
+                  onClick={() => reserva && printTicket(reserva)}
                   className="w-full bg-white text-black font-bold py-3 rounded-xl hover:bg-zinc-200 transition-colors flex items-center justify-center gap-2"
                 >
-                  <Download className="w-4 h-4" /> Descargar Comprobante
+                  <Printer className="w-4 h-4" /> Imprimir Comprobante
                 </button>
 
                 <div className="grid grid-cols-2 gap-3">
