@@ -1,9 +1,18 @@
 "use client";
 
-import { X, Calendar, Copy, Clock, Loader2, Printer } from "lucide-react";
-import { useState, useEffect } from "react";
+import {
+  X,
+  Calendar,
+  Copy,
+  Clock,
+  Loader2,
+  Printer,
+  MapPin,
+  Hash,
+} from "lucide-react";
+import { useState, useEffect, useMemo } from "react";
 import { createBrowserClient } from "@supabase/ssr";
-import { printReservaTicket } from "@/lib/printTicket"; // ✅ Importamos la función compartida
+import { printReservaTicket } from "@/lib/printTicket";
 import {
   useReservaSidebar,
   type ReservaSidebarProps,
@@ -14,8 +23,26 @@ import ReservaDetails from "./sidebar/ReservaDetails";
 import CobroModal from "./sidebar/CobroModal";
 import EditReservaMoveForm from "./sidebar/EditReservaMoveForm";
 
+// Helper de normalización local
+const normalizeReserva = (r: any) => {
+  if (!r) return null;
+  return {
+    ...r,
+    horaInicio: r.horaInicio || r.inicio || "00:00",
+    horaFin: r.horaFin || r.fin || "00:00",
+    cliente_nombre: r.cliente_nombre || r.titulo || "Cliente sin nombre",
+    precio_total: Number(r.precio_total || r.precio || 0),
+    saldo_pendiente: Number(r.saldo_pendiente || r.saldo || 0),
+    pagos_aprobados_total: Number(
+      r.pagos_aprobados_total ||
+        Number(r.precio || 0) - Number(r.saldo || 0) ||
+        0,
+    ),
+    fecha: r.fecha || new Date().toISOString().split("T")[0],
+  };
+};
+
 export default function ReservaSidebar(props: ReservaSidebarProps) {
-  // 1. Instancia de Supabase para buscar datos del club
   const [supabase] = useState(() =>
     createBrowserClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -26,7 +53,7 @@ export default function ReservaSidebar(props: ReservaSidebarProps) {
   const {
     formData,
     setFormData,
-    reserva,
+    reserva: rawReserva,
     showCobro,
     setShowCobro,
     cobroMonto,
@@ -47,7 +74,7 @@ export default function ReservaSidebar(props: ReservaSidebarProps) {
     duracionManualCalculada,
     canchaDisplay,
     fechaDisplay,
-    horaFinCalculada,
+    horaFinCalculada, // ✅ Usamos esto para el título
     handleCreate,
     handleCancelar,
     openCobro,
@@ -58,7 +85,9 @@ export default function ReservaSidebar(props: ReservaSidebarProps) {
   const { isOpen, onClose, isCreating, onCreated, idClub } = props;
   const [isEditingMove, setIsEditingMove] = useState(false);
 
-  // 2. Estado para guardar info del club real
+  // Reserva Segura
+  const reserva = useMemo(() => normalizeReserva(rawReserva), [rawReserva]);
+
   const [clubData, setClubData] = useState<{
     nombre: string;
     direccion: string;
@@ -67,24 +96,20 @@ export default function ReservaSidebar(props: ReservaSidebarProps) {
     direccion: "",
   });
 
-  // 3. Efecto para cargar datos del club al montar
   useEffect(() => {
     async function fetchClubInfo() {
       if (!idClub) return;
-
       try {
         const { data: club } = await supabase
           .from("clubes")
           .select("nombre")
           .eq("id_club", idClub)
           .single();
-
         const { data: contacto } = await supabase
           .from("contacto")
           .select("id_contacto")
           .eq("id_club", idClub)
           .single();
-
         let direccionStr = "";
         if (contacto) {
           const { data: dir } = await supabase
@@ -92,14 +117,12 @@ export default function ReservaSidebar(props: ReservaSidebarProps) {
             .select("calle, altura_calle, barrio, id_localidad(nombre)")
             .eq("id_contacto", contacto.id_contacto)
             .single();
-
           if (dir) {
             // @ts-ignore
             const loc = dir.id_localidad?.nombre || "";
             direccionStr = `${dir.calle || ""} ${dir.altura_calle || ""} ${dir.barrio ? `- ${dir.barrio}` : ""} ${loc ? `(${loc})` : ""}`;
           }
         }
-
         setClubData({
           nombre: club?.nombre || "Club Deportivo",
           direccion: direccionStr || "",
@@ -108,11 +131,10 @@ export default function ReservaSidebar(props: ReservaSidebarProps) {
         console.error("Error cargando datos del club", err);
       }
     }
-
     if (isOpen) fetchClubInfo();
   }, [idClub, isOpen, supabase]);
 
-  // Sincronización de datos
+  // Sync Form Data
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rawTime = (props as any).inicio || (props as any).selectedStart || "";
   const incomingTime = rawTime.length > 5 ? rawTime.slice(0, 5) : rawTime;
@@ -125,7 +147,6 @@ export default function ReservaSidebar(props: ReservaSidebarProps) {
         const timeChanged = incomingTime && prev.horaInicio !== incomingTime;
         const canchaChanged =
           incomingCanchaId && prev.canchaId !== incomingCanchaId.toString();
-
         if (timeChanged || canchaChanged) {
           return {
             ...prev,
@@ -141,125 +162,157 @@ export default function ReservaSidebar(props: ReservaSidebarProps) {
     if (!isOpen) setIsEditingMove(false);
   }, [isOpen, isCreating, incomingTime, incomingCanchaId, setFormData]);
 
-  // --- FUNCIÓN DE IMPRESIÓN ---
   const handlePrintTicket = () => {
     if (!reserva) return;
-
-    // Casteamos 'as any' para acceder a props que vienen del backend
-    // aunque no estén en la interfaz estricta del frontend
-    const r = reserva as any;
-
     printReservaTicket({
       id_reserva: reserva.id_reserva,
       club_nombre: clubData.nombre,
       club_direccion: clubData.direccion,
-      cliente_nombre: r.cliente_nombre,
+      cliente_nombre: reserva.cliente_nombre,
       cancha_nombre: canchaDisplay,
       fecha: reserva.fecha,
       inicio: reserva.horaInicio,
       fin: reserva.horaFin,
       fin_dia_offset: 0,
-      precio_total: r.precio_total,
-      pagado: r.pagos_aprobados_total,
-      saldo: r.saldo_pendiente,
+      precio_total: reserva.precio_total,
+      pagado: reserva.pagos_aprobados_total,
+      saldo: reserva.saldo_pendiente,
     });
   };
 
   if (!isOpen) return null;
 
-  const inViewMode = !isCreating && !!reserva;
-  const showEditForm = inViewMode && isEditingMove;
-
   return (
     <>
       <div
-        className="fixed inset-0 z-40 bg-black/30 backdrop-blur-sm transition-opacity duration-300"
+        className="fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-[2px] transition-opacity duration-300"
         onClick={onClose}
       />
-      <div className="fixed inset-y-0 right-0 w-full md:w-[480px] bg-white shadow-2xl z-50 transform transition-transform duration-300 ease-out flex flex-col">
-        {/* HEADER */}
-        <div className="px-6 py-4 bg-white border-b border-gray-100 flex justify-between items-start sticky top-0 z-10">
+
+      <div className="fixed inset-y-0 right-0 w-full md:w-[500px] bg-white shadow-2xl z-50 transform transition-transform duration-300 ease-out flex flex-col border-l border-slate-100">
+        {/* --- HEADER ESTILIZADO --- */}
+        <div className="px-6 py-5 bg-white border-b border-slate-100 flex justify-between items-start sticky top-0 z-10 shrink-0">
           <div>
             {isCreating ? (
               <>
-                <h2 className="text-xl font-bold text-gray-800">
-                  Crear Turno{" "}
-                  {formData.horaInicio ? `${formData.horaInicio}hs` : ""}
-                </h2>
-                <div className="flex items-center gap-3 text-sm text-gray-500 mt-1">
-                  <span className="flex items-center gap-1">
-                    <Clock className="w-3.5 h-3.5" /> {canchaDisplay}
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className="bg-blue-50 text-blue-700 text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider border border-blue-100">
+                    Nueva Reserva
                   </span>
-                  <span className="flex items-center gap-1 capitalize">
-                    <Calendar className="w-3.5 h-3.5" /> {fechaDisplay}
+                </div>
+
+                {/* ✅ TITULO DE HORA CORREGIDO */}
+                <h2 className="text-xl font-bold text-slate-800 tracking-tight flex items-center gap-2">
+                  {formData.horaInicio ? (
+                    <>
+                      <span>{formData.horaInicio}</span>
+                      <span className="text-slate-300 font-light">-</span>
+                      <span>{horaFinCalculada || "--:--"}</span>
+                      <span className="text-sm font-normal text-slate-400 ml-1">
+                        hs
+                      </span>
+                    </>
+                  ) : (
+                    "Seleccionar horario"
+                  )}
+                </h2>
+
+                <div className="flex items-center gap-3 text-sm text-slate-500 mt-1 font-medium">
+                  <span className="flex items-center gap-1.5 bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100">
+                    <MapPin className="w-3.5 h-3.5 text-slate-400" />{" "}
+                    {canchaDisplay}
+                  </span>
+                  <span className="flex items-center gap-1.5 bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100 capitalize">
+                    <Calendar className="w-3.5 h-3.5 text-slate-400" />{" "}
+                    {fechaDisplay}
                   </span>
                 </div>
               </>
             ) : (
+              // MODO VER / EDITAR
               <>
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="bg-green-600 text-white text-[10px] font-bold px-2 py-0.5 rounded">
-                    Id: {reserva?.id_reserva}
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className="bg-emerald-50 text-emerald-700 text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider border border-emerald-100 flex items-center gap-1">
+                    <Hash className="w-3 h-3" /> ID: {reserva?.id_reserva}
                   </span>
                   <button
-                    className="text-gray-400 hover:text-gray-600"
-                    type="button"
+                    className="text-slate-400 hover:text-slate-600 transition-colors"
+                    onClick={() =>
+                      reserva?.id_reserva &&
+                      navigator.clipboard.writeText(String(reserva.id_reserva))
+                    }
                     title="Copiar ID"
-                    onClick={() => {
-                      if (reserva?.id_reserva)
-                        navigator.clipboard.writeText(
-                          String(reserva.id_reserva),
-                        );
-                    }}
                   >
                     <Copy className="w-3.5 h-3.5" />
                   </button>
                 </div>
-                <h2 className="text-xl font-bold text-gray-800">
-                  {isEditingMove
-                    ? "Editar turno"
-                    : `Turno ${reserva?.horaInicio} hs`}
+
+                <h2 className="text-xl font-bold text-slate-800 tracking-tight">
+                  {isEditingMove ? (
+                    "Modificar Turno"
+                  ) : (
+                    <>
+                      {reserva?.horaInicio}{" "}
+                      <span className="text-slate-300 font-light">-</span>{" "}
+                      {reserva?.horaFin}{" "}
+                      <span className="text-sm font-normal text-slate-400">
+                        hs
+                      </span>
+                    </>
+                  )}
                 </h2>
-                <div className="flex items-center gap-3 text-sm text-gray-500 mt-1">
-                  <span>{canchaDisplay}</span>
-                  <span className="capitalize">
-                    {new Date(reserva?.fecha || "").toLocaleDateString(
-                      "es-AR",
-                      { weekday: "short", day: "numeric" },
-                    )}
+
+                <div className="flex items-center gap-3 text-sm text-slate-500 mt-1 font-medium">
+                  <span className="flex items-center gap-1.5 bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100">
+                    <Clock className="w-3.5 h-3.5 text-slate-400" />{" "}
+                    {canchaDisplay}
+                  </span>
+                  <span className="flex items-center gap-1.5 bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100 capitalize">
+                    <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                    {reserva?.fecha
+                      ? new Date(
+                          reserva.fecha + "T12:00:00",
+                        ).toLocaleDateString("es-AR", {
+                          weekday: "short",
+                          day: "numeric",
+                        })
+                      : "-"}
                   </span>
                 </div>
               </>
             )}
           </div>
+
           <button
             onClick={onClose}
-            className="p-1.5 hover:bg-gray-100 rounded-full text-gray-400 transition-colors"
+            className="p-2 bg-slate-50 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 transition-colors border border-slate-100"
             title="Cerrar"
           >
-            <X className="w-6 h-6" />
+            <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* BODY */}
-        <div className="flex-1 overflow-y-auto p-6 custom-scrollbar bg-white">
+        {/* --- BODY CON SCROLL --- */}
+        <div className="flex-1 overflow-y-auto p-6 bg-white custom-scrollbar">
           {isCreating ? (
-            <CreateReservaForm
-              idClub={idClub}
-              formData={formData}
-              setFormData={setFormData}
-              canchas={props.canchas}
-              availableTimes={availableTimes}
-              manualDesdeOptions={manualDesdeOptions}
-              manualHastaOptions={manualHastaOptions}
-              duracionManualCalculada={duracionManualCalculada}
-              horaFinCalculada={horaFinCalculada}
-              priceLoading={priceLoading}
-              priceError={priceError}
-              createError={createError}
-            />
+            <div className="animate-in fade-in slide-in-from-right-4 duration-300">
+              <CreateReservaForm
+                idClub={idClub}
+                formData={formData}
+                setFormData={setFormData}
+                canchas={props.canchas}
+                availableTimes={availableTimes}
+                manualDesdeOptions={manualDesdeOptions}
+                manualHastaOptions={manualHastaOptions}
+                duracionManualCalculada={duracionManualCalculada}
+                horaFinCalculada={horaFinCalculada}
+                priceLoading={priceLoading}
+                priceError={priceError}
+                createError={createError}
+              />
+            </div>
           ) : reserva ? (
-            showEditForm ? (
+            isEditingMove ? (
               <EditReservaMoveForm
                 reserva={reserva}
                 idClub={props.idClub}
@@ -280,23 +333,28 @@ export default function ReservaSidebar(props: ReservaSidebarProps) {
                 onEdit={() => setIsEditingMove(true)}
               />
             )
-          ) : null}
+          ) : (
+            <div className="h-full flex flex-col items-center justify-center text-slate-400 gap-2">
+              <Loader2 className="w-8 h-8 animate-spin text-slate-300" />
+              <p className="text-sm font-medium">Cargando información...</p>
+            </div>
+          )}
         </div>
 
-        {/* FOOTER */}
-        <div className="p-4 bg-white border-t border-gray-200">
+        {/* --- FOOTER DE ACCIONES --- */}
+        <div className="p-5 bg-slate-50 border-t border-slate-200 shrink-0">
           {isCreating ? (
             <div className="flex gap-3">
               <button
                 onClick={onClose}
-                className="flex-1 py-2.5 border border-gray-300 text-gray-600 rounded-full text-sm font-bold hover:bg-gray-50"
+                className="flex-1 py-3 border border-slate-300 text-slate-700 bg-white rounded-xl text-sm font-bold hover:bg-slate-50 transition-colors shadow-sm"
                 disabled={createLoading}
               >
-                Cerrar
+                Cancelar
               </button>
               <button
                 onClick={handleCreate}
-                className="flex-1 py-2.5 bg-green-500 text-white rounded-full text-sm font-bold hover:bg-green-600 shadow-md flex items-center justify-center gap-2 disabled:opacity-60"
+                className="flex-[2] py-3 bg-slate-900 text-white rounded-xl text-sm font-bold hover:bg-slate-800 shadow-md shadow-slate-900/10 flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed transition-all active:scale-[0.98]"
                 disabled={
                   createLoading ||
                   !formData.horaInicio ||
@@ -306,32 +364,36 @@ export default function ReservaSidebar(props: ReservaSidebarProps) {
                       : !formData.precio || Number(formData.precio) <= 0))
                 }
               >
-                {createLoading && <Loader2 className="w-4 h-4 animate-spin" />}{" "}
-                Crear
+                {createLoading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Clock className="w-4 h-4" />
+                )}
+                Confirmar Reserva
               </button>
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-3">
               <button
                 onClick={handlePrintTicket}
-                className="py-2.5 border border-gray-300 text-gray-700 rounded-full text-sm font-bold hover:bg-gray-50 flex items-center justify-center gap-2 transition-colors"
-                title="Generar Comprobante"
+                className="py-3 border border-slate-200 bg-white text-slate-700 rounded-xl text-sm font-bold hover:bg-slate-50 hover:border-slate-300 shadow-sm flex items-center justify-center gap-2 transition-all"
+                disabled={!reserva}
               >
-                <Printer className="w-4 h-4" /> Ticket
+                <Printer className="w-4 h-4 text-slate-400" /> Ticket
               </button>
               <button
                 onClick={handleCancelar}
-                className="py-2.5 bg-pink-600 text-white rounded-full text-sm font-bold hover:bg-pink-700 disabled:opacity-60 transition-colors"
+                className="py-3 border border-rose-100 bg-rose-50 text-rose-700 rounded-xl text-sm font-bold hover:bg-rose-100 disabled:opacity-60 transition-colors"
                 disabled={!reserva}
               >
                 Cancelar
               </button>
               <button
                 onClick={openCobro}
-                className="col-span-2 py-2.5 bg-green-500 text-white rounded-full text-sm font-bold hover:bg-green-600 shadow-lg disabled:opacity-60 transition-colors flex items-center justify-center gap-2"
+                className="col-span-2 py-3 bg-emerald-600 text-white rounded-xl text-sm font-bold hover:bg-emerald-700 shadow-md shadow-emerald-600/20 disabled:opacity-60 transition-all flex items-center justify-center gap-2 active:scale-[0.98]"
                 disabled={!reserva}
               >
-                Cobrar
+                <DollarSignIcon className="w-4 h-4" /> Registrar Cobro
               </button>
             </div>
           )}
@@ -354,5 +416,26 @@ export default function ReservaSidebar(props: ReservaSidebarProps) {
         onConfirm={handleCobrar}
       />
     </>
+  );
+}
+
+// Icono local simple
+function DollarSignIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <line x1="12" x2="12" y1="1" y2="23" />
+      <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+    </svg>
   );
 }
