@@ -6,9 +6,9 @@ import { Montserrat } from "next/font/google";
 import { Metadata } from "next";
 import { supabase } from "@/lib/supabase/supabaseClient";
 
-// --- IMPORTACIONES NUEVAS PARA AUTH ---
+// --- AUTH SSR ---
 import { createServerClient } from "@supabase/ssr";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 
 const montserrat = Montserrat({
   subsets: ["latin"],
@@ -16,33 +16,86 @@ const montserrat = Montserrat({
   display: "swap",
 });
 
-// --- GENERACIÓN DE METADATOS ---
+// --- METADATA DINÁMICA MULTI-TENANT ---
 export async function generateMetadata(): Promise<Metadata> {
   const club = await getCurrentClub();
-  const timestamp = new Date().getTime();
+
+  const h = await headers();
+  const host =
+    h.get("x-forwarded-host") ||
+    h.get("host") ||
+    "versorisports.com";
+
+  const proto = h.get("x-forwarded-proto") || "https";
+
+  const baseUrl = `${proto}://${host}`;
+
+  const timestamp = Date.now();
   const iconUrl = club?.logo_url
     ? `${club.logo_url}?v=${timestamp}`
     : "/icon.png";
 
+  const nombreClub =
+    club?.nombre?.trim() || host.split(".")[0] || "Reservas";
+
+  const title = `${nombreClub} | Reservas de canchas online`;
+
+  const description = `Reservá tu cancha en ${nombreClub} de forma online. Turnos disponibles en tiempo real.`;
+
   return {
-    title: club?.nombre || "Ferpadel",
-    description: "Reserva tu cancha de pádel",
+    metadataBase: new URL(baseUrl),
+
+    title,
+    description,
+
+    robots: {
+      index: true,
+      follow: true,
+    },
+
+    alternates: {
+      canonical: "/",
+    },
+
     icons: {
       icon: iconUrl,
       shortcut: iconUrl,
       apple: iconUrl,
     },
+
+    openGraph: {
+      title,
+      description,
+      url: baseUrl,
+      siteName: nombreClub,
+      locale: "es_AR",
+      type: "website",
+      images: [
+        {
+          url: iconUrl,
+          width: 512,
+          height: 512,
+          alt: `${nombreClub} logo`,
+        },
+      ],
+    },
+
+    twitter: {
+      card: "summary",
+      title,
+      description,
+      images: [iconUrl],
+    },
   };
 }
 
-// --- COMPONENTE LAYOUT ---
+// --- ROOT LAYOUT ---
 export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  // 1. OBTENER SESIÓN DE USUARIO (SSR)
-  // Esto es vital para pasarlo al Navbar y evitar el error de hidratación
+  // 1. SESIÓN SSR
   const cookieStore = await cookies();
 
   const supabaseAuth = createServerClient(
@@ -53,8 +106,8 @@ export default async function RootLayout({
         getAll() {
           return cookieStore.getAll();
         },
-        setAll(cookiesToSet) {
-          // El layout no puede establecer cookies, pero necesitamos leerlas
+        setAll() {
+          // Layout no puede setear cookies (solo lectura)
         },
       },
     },
@@ -64,7 +117,7 @@ export default async function RootLayout({
     data: { user },
   } = await supabaseAuth.auth.getUser();
 
-  // 2. OBTENER DATOS DEL CLUB
+  // 2. DATOS DEL CLUB
   const club = await getCurrentClub();
 
   let tieneQuincho = false;
@@ -78,11 +131,13 @@ export default async function RootLayout({
         .select("activo")
         .eq("id_club", club.id_club)
         .maybeSingle(),
+
       supabase
         .from("nosotros")
         .select("activo_nosotros")
         .eq("id_club", club.id_club)
         .maybeSingle(),
+
       supabase
         .from("clubes")
         .select("activo_profesores")
@@ -108,10 +163,12 @@ export default async function RootLayout({
           tieneQuincho={tieneQuincho}
           showNosotros={showNosotros}
           showProfesores={showProfesores}
-          initialUser={user} // 👈 ¡ESTA ES LA CLAVE! Pasamos el usuario al cliente
+          initialUser={user}
         />
 
-        <main className="flex-grow w-full relative">{children}</main>
+        <main className="flex-grow w-full relative">
+          {children}
+        </main>
 
         <Footer />
       </body>

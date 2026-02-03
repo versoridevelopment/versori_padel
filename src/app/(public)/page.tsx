@@ -75,5 +75,12 @@ export default async function HomePage() {
     instagramUser: contactoFull?.usuario_instagram || null,
   };
 
-  return <LandingClient {...landingData} />;
+  return (
+    <>
+      {/* ✅ SEO: H1 principal para Google (no visible) */}
+      <h1 className="sr-only">{landingData.club.nombre}</h1>
+
+      <LandingClient {...landingData} />
+    </>
+  );
 }
