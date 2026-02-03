@@ -1,11 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Plus, Calendar as CalendarIcon, RefreshCw } from "lucide-react";
+import {
+  Plus,
+  Calendar as CalendarIcon,
+  RefreshCw,
+  Layers,
+} from "lucide-react";
 
 import CompactView from "./_components/CompactView";
 import DateSelector from "./_components/DateSelector";
 import ReservaSidebar from "./_components/ReservaSidebar";
+import Legend from "./_components/Legend";
 import type { AgendaApiResponse, ReservaUI } from "./_components/types";
 
 function toISODateAR(d: Date) {
@@ -17,10 +23,8 @@ function toISODateAR(d: Date) {
 
 export default function ReservasPage() {
   const [selectedDate, setSelectedDate] = useState(new Date());
-
   const [agenda, setAgenda] = useState<AgendaApiResponse | null>(null);
   const [idClub, setIdClub] = useState<number | null>(null);
-
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -35,6 +39,11 @@ export default function ReservasPage() {
   }>({ isOpen: false, mode: "view" });
 
   const fechaISO = useMemo(() => toISODateAR(selectedDate), [selectedDate]);
+
+  // ✅ Función de Refresco Literal (F5)
+  const handleHardRefresh = () => {
+    window.location.reload();
+  };
 
   async function loadAgenda() {
     setLoading(true);
@@ -58,7 +67,6 @@ export default function ReservasPage() {
 
   useEffect(() => {
     loadAgenda();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fechaISO]);
 
   const handleReservaClick = (r: ReservaUI) => {
@@ -88,21 +96,19 @@ export default function ReservasPage() {
   };
 
   return (
-    <div className="h-[100dvh] bg-slate-50/50 flex flex-col overflow-hidden font-sans">
-      {/* --- HEADER MEJORADO --- */}
-      {/* z-50 es clave para que el calendario tape a la grilla y no al revés */}
-      <header className="bg-white/90 backdrop-blur-md border-b border-slate-200 px-6 py-4 flex flex-col md:flex-row justify-between items-center gap-4 shrink-0 z-50 relative shadow-sm">
-        {/* Título y Botón Móvil */}
+    <div className="h-[100dvh] bg-slate-50 flex flex-col overflow-hidden font-sans">
+      {/* --- HEADER --- */}
+      <header className="bg-white border-b border-slate-200 px-6 py-4 flex flex-col md:flex-row justify-between items-center gap-4 shrink-0 z-50 relative shadow-sm">
         <div className="flex items-center justify-between w-full md:w-auto gap-6">
           <div className="flex items-center gap-2">
-            <div className="bg-slate-100 p-2 rounded-lg text-slate-700">
-              <CalendarIcon className="w-5 h-5" />
+            <div className="bg-slate-900 p-2 rounded-lg text-white shadow-md">
+              <Layers className="w-5 h-5" />
             </div>
             <div>
               <h1 className="text-xl font-black text-slate-800 tracking-tight leading-none">
                 Agenda
               </h1>
-              <p className="text-xs text-slate-500 font-medium mt-0.5">
+              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">
                 Gestión de Turnos
               </p>
             </div>
@@ -117,14 +123,12 @@ export default function ReservasPage() {
                 preSelectedDate: fechaISO,
               })
             }
-            className="md:hidden bg-slate-900 text-white p-2.5 rounded-xl active:bg-slate-700 transition-colors shadow-lg shadow-slate-900/10"
-            aria-label="Nuevo Turno"
+            className="md:hidden bg-slate-900 text-white p-2.5 rounded-xl active:scale-95 transition-all shadow-lg"
           >
             <Plus className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Selector de Fecha (Central) */}
         <div className="w-full md:w-auto flex justify-center">
           <div className="bg-white p-1 rounded-xl border border-slate-200 shadow-sm">
             <DateSelector
@@ -134,14 +138,15 @@ export default function ReservasPage() {
           </div>
         </div>
 
-        {/* Acciones Escritorio */}
         <div className="hidden md:flex items-center gap-3">
+          {/* ✅ Botón Refrescar Literal */}
           <button
-            onClick={() => loadAgenda()}
-            className="p-2.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-all"
-            title="Recargar"
+            onClick={handleHardRefresh}
+            className="p-2.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition-all flex items-center gap-2 border border-transparent hover:border-slate-200"
+            title="Recargar página completa"
           >
-            <RefreshCw className={`w-5 h-5 ${loading ? "animate-spin" : ""}`} />
+            <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+            <span className="text-xs font-bold uppercase">Actualizar</span>
           </button>
 
           <div className="h-8 w-px bg-slate-200 mx-1" />
@@ -162,33 +167,32 @@ export default function ReservasPage() {
         </div>
       </header>
 
-      {/* --- MAIN CONTENT (GRILLA) --- */}
-      {/* z-0 para que quede debajo del header */}
-      <main className="flex-1 relative overflow-hidden z-0">
-        {loading && (
-          <div className="absolute inset-0 z-20 bg-white/50 backdrop-blur-sm flex items-center justify-center">
-            <div className="bg-white px-6 py-4 rounded-2xl shadow-xl border border-slate-100 flex items-center gap-3">
+      {/* --- MAIN CONTENT --- */}
+      <main className="flex-1 relative flex flex-col min-h-0">
+        {loading && !agenda && (
+          <div className="absolute inset-0 z-20 bg-white/60 backdrop-blur-sm flex items-center justify-center">
+            <div className="bg-white px-6 py-4 rounded-2xl shadow-2xl border border-slate-100 flex items-center gap-3">
               <div className="w-5 h-5 border-2 border-slate-900 border-t-transparent rounded-full animate-spin" />
-              <span className="text-sm font-bold text-slate-700">
-                Cargando agenda...
+              <span className="text-sm font-bold text-slate-700 uppercase tracking-tight">
+                Sincronizando agenda...
               </span>
             </div>
           </div>
         )}
 
         {!loading && error && (
-          <div className="h-full grid place-items-center p-6">
-            <div className="bg-white border border-red-100 rounded-2xl p-8 shadow-xl shadow-red-500/5 max-w-md w-full text-center">
-              <div className="w-12 h-12 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4 text-red-500">
-                <RefreshCw className="w-6 h-6" />
+          <div className="h-full grid place-items-center p-6 bg-white">
+            <div className="text-center max-w-md">
+              <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4 text-red-500">
+                <RefreshCw className="w-8 h-8" />
               </div>
-              <div className="font-bold text-slate-800 text-lg mb-2">
+              <h2 className="font-bold text-slate-800 text-lg mb-2">
                 No se pudo cargar la agenda
-              </div>
-              <div className="text-sm text-slate-500 mb-6">{error}</div>
+              </h2>
+              <p className="text-sm text-slate-500 mb-6">{error}</p>
               <button
                 onClick={loadAgenda}
-                className="w-full px-4 py-3 rounded-xl bg-slate-900 text-white text-sm font-bold hover:bg-slate-800 transition-colors"
+                className="w-full px-4 py-3 rounded-xl bg-slate-900 text-white text-sm font-bold hover:bg-slate-800 transition-colors shadow-lg"
               >
                 Reintentar
               </button>
@@ -196,21 +200,28 @@ export default function ReservasPage() {
           </div>
         )}
 
-        {/* GRILLA COMPACTA */}
-        {/* Renderizamos siempre si hay data, aunque esté cargando (para evitar saltos visuales) */}
+        {/* CONTENIDO PRINCIPAL: GRILLA + LEYENDA */}
         {agenda && (
-          <div
-            className={`h-full transition-opacity duration-300 ${loading ? "opacity-50 pointer-events-none" : "opacity-100"}`}
-          >
-            <CompactView
-              canchas={agenda.canchas}
-              reservas={agenda.reservas || []} // ✅ Array seguro
-              startHour={agenda.startHour}
-              endHour={agenda.endHour}
-              date={selectedDate}
-              onReservaClick={handleReservaClick}
-              onEmptySlotClick={handleEmptySlotClick}
-            />
+          <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+            {/* Grilla: flex-1 asegura que tome el espacio pero min-h-0 permite que flexbox lo encoja si es necesario */}
+            <div
+              className={`flex-1 min-h-0 transition-opacity duration-300 ${loading ? "opacity-50 pointer-events-none" : "opacity-100"}`}
+            >
+              <CompactView
+                canchas={agenda.canchas}
+                reservas={agenda.reservas || []}
+                startHour={agenda.startHour}
+                endHour={agenda.endHour}
+                date={selectedDate}
+                onReservaClick={handleReservaClick}
+                onEmptySlotClick={handleEmptySlotClick}
+              />
+            </div>
+
+            {/* ✅ Leyenda Fija al Pie */}
+            <div className="shrink-0 bg-white border-t border-slate-200 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+              <Legend />
+            </div>
           </div>
         )}
       </main>
