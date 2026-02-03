@@ -16,13 +16,17 @@ type TipoTurno =
 
 type Segmento = "publico" | "profe";
 
+// ✅ Duraciones habilitadas (alineado con tu grilla y tu UI)
+const DURACIONES_VALIDAS = [30, 60, 90, 120, 150, 180, 210, 240] as const;
+type DuracionValida = (typeof DURACIONES_VALIDAS)[number];
+
 type Body = {
   id_club: number;
   id_cancha: number;
 
   // desde UI
   inicio: string; // "HH:MM"
-  duracion_min: 60 | 90 | 120;
+  duracion_min: DuracionValida;
   tipo_turno?: TipoTurno;
   notas?: string | null;
 
@@ -75,7 +79,7 @@ function addDaysISO(dateISO: string, add: number) {
   return `${yy}-${mm}-${dd}`;
 }
 function weekday0SunAR(fechaISO: string) {
-  // igual a tu calcular-precio: AR-safe
+  // AR-safe igual que tu calcular-precio
   const d = new Date(`${fechaISO}T00:00:00-03:00`);
   return d.getDay(); // 0..6
 }
@@ -114,7 +118,7 @@ async function assertAdminOrStaff(params: { id_club: number; userId: string }) {
 
 export async function POST(req: Request, { params }: { params: Promise<any> }) {
   try {
-    // Resolvemos params para cumplir con Next.js 15
+    // Next 15: params es Promise
     await params;
 
     const body = (await req.json().catch(() => null)) as Body | null;
@@ -138,7 +142,6 @@ export async function POST(req: Request, { params }: { params: Promise<any> }) {
     const weeks_ahead = clampWeeks(Number(body?.weeks_ahead ?? 8));
     const on_conflict = (body?.on_conflict || "skip") as "skip" | "abort";
 
-    // ✅ segmento admin: igual criterio que venís usando
     const segmento_override: Segmento =
       body?.segmento_override ||
       (tipo_turno === "profesor" ? "profe" : "publico");
@@ -159,9 +162,12 @@ export async function POST(req: Request, { params }: { params: Promise<any> }) {
         { status: 400 },
       );
 
-    if (![60, 90, 120].includes(duracion_min))
+    // ✅ Duraciones extendidas
+    if (!DURACIONES_VALIDAS.includes(duracion_min as any))
       return NextResponse.json(
-        { error: "duracion_min inválida (60/90/120)" },
+        {
+          error: `duracion_min inválida (${DURACIONES_VALIDAS.join("/")})`,
+        },
         { status: 400 },
       );
 
@@ -204,7 +210,9 @@ export async function POST(req: Request, { params }: { params: Promise<any> }) {
     // ===== Calcular fin del template =====
     const startMin = toMin(inicio);
     const endMinAbs = startMin + duracion_min;
-    const fin_dia_offset: 0 | 1 = endMinAbs > 1440 ? 1 : 0;
+
+    // ✅ Unificación: si endMinAbs >= 1440 => termina día siguiente
+    const fin_dia_offset: 0 | 1 = endMinAbs >= 1440 ? 1 : 0;
     const fin = minToHHMM(endMinAbs);
 
     // ===== DOW (AR-safe) del start_date =====
@@ -251,7 +259,6 @@ export async function POST(req: Request, { params }: { params: Promise<any> }) {
     const id_turno_fijo = Number((tf as any).id_turno_fijo);
 
     // ===== 2) Rango de generación =====
-    // start_date .. min(end_date, start_date + weeks_ahead*7)
     const maxEnd = addDaysISO(start_date, weeks_ahead * 7);
     const limitEnd = end_date
       ? end_date < maxEnd
@@ -270,7 +277,6 @@ export async function POST(req: Request, { params }: { params: Promise<any> }) {
     const conflicts: Conflict[] = [];
     let created_count = 0;
 
-    // cache club anticipo una sola vez
     const { data: club, error: cErr } = await supabaseAdmin
       .from("clubes")
       .select("id_club, anticipo_porcentaje")
@@ -287,7 +293,6 @@ export async function POST(req: Request, { params }: { params: Promise<any> }) {
     const pctRaw = Number((club as any).anticipo_porcentaje ?? 50);
     const pct = Math.min(100, Math.max(0, pctRaw));
 
-    // helper: llamar TU calcular-precio (tal cual)
     async function calcularPrecio(params: {
       fecha: string;
       inicio: string;
@@ -307,7 +312,7 @@ export async function POST(req: Request, { params }: { params: Promise<any> }) {
             fecha: params.fecha,
             inicio: params.inicio,
             fin: params.fin,
-            segmento_override, // ✅ tu endpoint lo soporta
+            segmento_override,
           }),
           cache: "no-store",
         },
@@ -318,18 +323,13 @@ export async function POST(req: Request, { params }: { params: Promise<any> }) {
     }
 
     for (const fecha of fechas) {
-      // 3.1 Precio (source of truth)
       let precio_total = 0;
       let id_tarifario: number | null = null;
       let id_regla: number | null = null;
       let segmento: Segmento = segmento_override;
 
       try {
-        const { calcRes, calcJson } = await calcularPrecio({
-          fecha,
-          inicio,
-          fin,
-        });
+        const { calcRes, calcJson } = await calcularPrecio({ fecha, inicio, fin });
 
         if (!calcRes.ok || !calcJson?.ok) {
           conflicts.push({
@@ -343,7 +343,6 @@ export async function POST(req: Request, { params }: { params: Promise<any> }) {
           continue;
         }
 
-        // ✅ EXACTO a tu retorno
         precio_total = Number(calcJson.precio_total || 0);
         if (!Number.isFinite(precio_total) || precio_total <= 0) {
           conflicts.push({
@@ -372,10 +371,9 @@ export async function POST(req: Request, { params }: { params: Promise<any> }) {
         continue;
       }
 
-      // 3.2 Anticipo snapshot
-      const monto_anticipo = Math.round(precio_total * (pct / 100) * 100) / 100;
+      const monto_anticipo =
+        Math.round(precio_total * (pct / 100) * 100) / 100;
 
-      // 3.3 Insert reserva (snapshot completo + link)
       const { error: insErr } = await supabaseAdmin.from("reservas").insert({
         id_club,
         id_cancha,
@@ -410,7 +408,6 @@ export async function POST(req: Request, { params }: { params: Promise<any> }) {
       });
 
       if (insErr) {
-        // ✅ tu EXCLUDE constraint
         if ((insErr as any).code === "23P01") {
           conflicts.push({ fecha, inicio, fin, reason: "TURNOS_SOLAPADOS" });
           if (on_conflict === "abort") break;
@@ -461,7 +458,6 @@ function todayISO() {
 
 export async function GET(req: Request, { params }: { params: Promise<any> }) {
   try {
-    // Resolvemos params para cumplir con Next.js 15
     await params;
 
     const url = new URL(req.url);
@@ -478,7 +474,6 @@ export async function GET(req: Request, { params }: { params: Promise<any> }) {
         { status: 400 },
       );
 
-    // Auth
     const supabase = await getSupabaseServerClient();
     const { data: authRes, error: aErr } = await supabase.auth.getUser();
     if (aErr)
@@ -493,7 +488,6 @@ export async function GET(req: Request, { params }: { params: Promise<any> }) {
         { status: 401 },
       );
 
-    // Permisos
     const perm = await assertAdminOrStaff({ id_club, userId });
     if (!perm.ok)
       return NextResponse.json(
@@ -501,7 +495,6 @@ export async function GET(req: Request, { params }: { params: Promise<any> }) {
         { status: perm.status },
       );
 
-    // Templates base
     let q = supabaseAdmin
       .from("turnos_fijos")
       .select(
@@ -511,7 +504,6 @@ export async function GET(req: Request, { params }: { params: Promise<any> }) {
       .order("activo", { ascending: false })
       .order("inicio", { ascending: true });
 
-    // Si viene fecha => filtrar “aplicables”
     if (fecha) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
         return NextResponse.json(
@@ -534,7 +526,6 @@ export async function GET(req: Request, { params }: { params: Promise<any> }) {
         { status: 500 },
       );
 
-    // Si no pedís future_count, devolvemos directo
     if (!include_future_count) {
       return NextResponse.json({
         ok: true,
@@ -544,7 +535,6 @@ export async function GET(req: Request, { params }: { params: Promise<any> }) {
       });
     }
 
-    // future_count (N+1) – OK si hay pocos templates
     const hoy = todayISO();
 
     const rows = await Promise.all(

@@ -16,13 +16,20 @@ type TipoTurno =
 
 type Segmento = "publico" | "profe";
 
+const DURACIONES_VALIDAS = [30, 60, 90, 120, 150, 180, 210, 240] as const;
+type DuracionMin = (typeof DURACIONES_VALIDAS)[number];
+
+function isDuracionValida(n: number): n is DuracionMin {
+  return (DURACIONES_VALIDAS as readonly number[]).includes(n);
+}
+
 type Body = {
   id_club: number;
   id_cancha: number;
 
   // desde UI
   inicio: string; // "HH:MM"
-  duracion_min: 60 | 90 | 120;
+  duracion_min: number; // ✅ ahora soporta 30..240
   tipo_turno?: TipoTurno;
   notas?: string | null;
 
@@ -66,6 +73,14 @@ function minToHHMM(minAbs: number) {
   const mm = m % 60;
   return `${pad2(hh)}:${pad2(mm)}`;
 }
+function computeEnd(inicioHHMM: string, duracion_min: number) {
+  const startMin = toMin(inicioHHMM);
+  const endMinAbs = startMin + duracion_min;
+  // ✅ UNIFICADO
+  const fin_dia_offset: 0 | 1 = endMinAbs >= 1440 ? 1 : 0;
+  const fin = minToHHMM(endMinAbs);
+  return { fin, fin_dia_offset };
+}
 function addDaysISO(dateISO: string, add: number) {
   const [y, m, d] = dateISO.split("-").map(Number);
   const dt = new Date(y, m - 1, d + add);
@@ -81,6 +96,17 @@ function weekday0SunAR(fechaISO: string) {
 function clampWeeks(n: number) {
   if (!Number.isFinite(n)) return 8;
   return Math.min(52, Math.max(1, Math.floor(n)));
+}
+function dowFromISO(fechaISO: string) {
+  const d = new Date(`${fechaISO}T00:00:00-03:00`);
+  return d.getDay();
+}
+function todayISO() {
+  const dt = new Date();
+  const y = dt.getFullYear();
+  const m = String(dt.getMonth() + 1).padStart(2, "0");
+  const d = String(dt.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
 }
 
 async function assertAdminOrStaff(params: { id_club: number; userId: string }) {
@@ -138,14 +164,12 @@ export async function POST(req: Request) {
       body?.segmento_override ||
       (tipo_turno === "profesor" ? "profe" : "publico");
 
+    // ===== Validaciones =====
     if (!id_club || Number.isNaN(id_club))
       return NextResponse.json({ error: "id_club requerido" }, { status: 400 });
 
     if (!id_cancha || Number.isNaN(id_cancha))
-      return NextResponse.json(
-        { error: "id_cancha requerido" },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: "id_cancha requerido" }, { status: 400 });
 
     if (!/^\d{2}:\d{2}$/.test(inicio))
       return NextResponse.json(
@@ -153,9 +177,9 @@ export async function POST(req: Request) {
         { status: 400 },
       );
 
-    if (![60, 90, 120].includes(duracion_min))
+    if (!isDuracionValida(duracion_min))
       return NextResponse.json(
-        { error: "duracion_min inválida (60/90/120)" },
+        { error: "duracion_min inválida (30..240 en múltiplos de 30)" },
         { status: 400 },
       );
 
@@ -178,30 +202,25 @@ export async function POST(req: Request) {
       );
     }
 
+    // ===== Auth =====
     const supabase = await getSupabaseServerClient();
     const { data: authRes, error: aErr } = await supabase.auth.getUser();
     if (aErr)
-      return NextResponse.json(
-        { error: "No se pudo validar sesión" },
-        { status: 401 },
-      );
+      return NextResponse.json({ error: "No se pudo validar sesión" }, { status: 401 });
+
     const adminUserId = authRes?.user?.id ?? null;
     if (!adminUserId)
       return NextResponse.json({ error: "LOGIN_REQUERIDO" }, { status: 401 });
 
+    // ===== Permisos =====
     const perm = await assertAdminOrStaff({ id_club, userId: adminUserId });
     if (!perm.ok)
       return NextResponse.json({ error: perm.error }, { status: perm.status });
 
-    // --- CORRECCIÓN LÓGICA DE OFFSET (igual que en admin/reservas) ---
-    const startMin = toMin(inicio);
-    const endMinAbs = startMin + duracion_min;
+    // ===== Fin + offset unificado =====
+    const { fin, fin_dia_offset } = computeEnd(inicio, duracion_min);
 
-    // Si endMinAbs >= 1440 significa que termina a las 00:00 del día siguiente o después.
-    const fin_dia_offset: 0 | 1 = endMinAbs >= 1440 ? 1 : 0;
-    const fin = minToHHMM(endMinAbs);
-    // ----------------------------------------------------------------
-
+    // dow del start_date
     const dow = weekday0SunAR(start_date);
 
     // 1) Crear template
@@ -256,10 +275,7 @@ export async function POST(req: Request) {
       fechas.push(f);
     }
 
-    // 3) Generar instancias
-    const conflicts: Conflict[] = [];
-    let created_count = 0;
-
+    // 3) Anticipo: leer club UNA sola vez
     const { data: club, error: cErr } = await supabaseAdmin
       .from("clubes")
       .select("id_club, anticipo_porcentaje")
@@ -276,35 +292,32 @@ export async function POST(req: Request) {
     const pctRaw = Number((club as any).anticipo_porcentaje ?? 50);
     const pct = Math.min(100, Math.max(0, pctRaw));
 
-    async function calcularPrecio(params: {
-      fecha: string;
-      inicio: string;
-      fin: string;
-    }) {
-      const calcRes = await fetch(
-        new URL("/api/reservas/calcular-precio", req.url),
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            cookie: req.headers.get("cookie") || "",
-          },
-          body: JSON.stringify({
-            id_club,
-            id_cancha,
-            fecha: params.fecha,
-            inicio: params.inicio,
-            fin: params.fin,
-            segmento_override,
-          }),
-          cache: "no-store",
+    async function calcularPrecio(params: { fecha: string; inicio: string; fin: string }) {
+      const calcRes = await fetch(new URL("/api/reservas/calcular-precio", req.url), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          cookie: req.headers.get("cookie") || "",
         },
-      );
+        body: JSON.stringify({
+          id_club,
+          id_cancha,
+          fecha: params.fecha,
+          inicio: params.inicio,
+          fin: params.fin,
+          segmento_override,
+        }),
+        cache: "no-store",
+      });
 
       const calcJson = await calcRes.json().catch(() => null);
       return { calcRes, calcJson };
     }
 
+    const conflicts: Conflict[] = [];
+    let created_count = 0;
+
+    // 4) Generar instancias
     for (const fecha of fechas) {
       let precio_total = 0;
       let id_tarifario: number | null = null;
@@ -312,33 +325,17 @@ export async function POST(req: Request) {
       let segmento: Segmento = segmento_override;
 
       try {
-        const { calcRes, calcJson } = await calcularPrecio({
-          fecha,
-          inicio,
-          fin,
-        });
+        const { calcRes, calcJson } = await calcularPrecio({ fecha, inicio, fin });
 
         if (!calcRes.ok || !calcJson?.ok) {
-          conflicts.push({
-            fecha,
-            inicio,
-            fin,
-            reason: "ERROR_PRECIO",
-            detail: calcJson,
-          });
+          conflicts.push({ fecha, inicio, fin, reason: "ERROR_PRECIO", detail: calcJson });
           if (on_conflict === "abort") break;
           continue;
         }
 
         precio_total = Number(calcJson.precio_total || 0);
         if (!Number.isFinite(precio_total) || precio_total <= 0) {
-          conflicts.push({
-            fecha,
-            inicio,
-            fin,
-            reason: "PRECIO_INVALIDO",
-            detail: calcJson,
-          });
+          conflicts.push({ fecha, inicio, fin, reason: "PRECIO_INVALIDO", detail: calcJson });
           if (on_conflict === "abort") break;
           continue;
         }
@@ -347,13 +344,7 @@ export async function POST(req: Request) {
         id_regla = Number(calcJson.id_regla);
         segmento = (calcJson.segmento ?? segmento_override) as Segmento;
       } catch (e: any) {
-        conflicts.push({
-          fecha,
-          inicio,
-          fin,
-          reason: "ERROR_PRECIO",
-          detail: e?.message || e,
-        });
+        conflicts.push({ fecha, inicio, fin, reason: "ERROR_PRECIO", detail: e?.message || e });
         if (on_conflict === "abort") break;
         continue;
       }
@@ -392,45 +383,19 @@ export async function POST(req: Request) {
           if (on_conflict === "abort") break;
           continue;
         }
-        conflicts.push({
-          fecha,
-          inicio,
-          fin,
-          reason: "ERROR_INSERT",
-          detail: insErr,
-        });
+        conflicts.push({ fecha, inicio, fin, reason: "ERROR_INSERT", detail: insErr });
         if (on_conflict === "abort") break;
         continue;
       }
+
       created_count++;
     }
 
-    return NextResponse.json({
-      ok: true,
-      id_turno_fijo,
-      created_count,
-      conflicts,
-    });
+    return NextResponse.json({ ok: true, id_turno_fijo, created_count, conflicts });
   } catch (e: any) {
     console.error("[POST /api/admin/turnos-fijos] ex:", e);
-    return NextResponse.json(
-      { error: e?.message || "Error interno" },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: e?.message || "Error interno" }, { status: 500 });
   }
-}
-
-function dowFromISO(fechaISO: string) {
-  const d = new Date(`${fechaISO}T00:00:00-03:00`);
-  return d.getDay();
-}
-
-function todayISO() {
-  const dt = new Date();
-  const y = dt.getFullYear();
-  const m = String(dt.getMonth() + 1).padStart(2, "0");
-  const d = String(dt.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
 }
 
 export async function GET(req: Request) {
@@ -443,31 +408,20 @@ export async function GET(req: Request) {
       url.searchParams.get("include_future_count") === "true";
 
     if (!id_club)
-      return NextResponse.json(
-        { ok: false, error: "id_club requerido" },
-        { status: 400 },
-      );
+      return NextResponse.json({ ok: false, error: "id_club requerido" }, { status: 400 });
 
     const supabase = await getSupabaseServerClient();
     const { data: authRes, error: aErr } = await supabase.auth.getUser();
     if (aErr)
-      return NextResponse.json(
-        { ok: false, error: "No se pudo validar sesión" },
-        { status: 401 },
-      );
+      return NextResponse.json({ ok: false, error: "No se pudo validar sesión" }, { status: 401 });
+
     const userId = authRes?.user?.id ?? null;
     if (!userId)
-      return NextResponse.json(
-        { ok: false, error: "LOGIN_REQUERIDO" },
-        { status: 401 },
-      );
+      return NextResponse.json({ ok: false, error: "LOGIN_REQUERIDO" }, { status: 401 });
 
     const perm = await assertAdminOrStaff({ id_club, userId });
     if (!perm.ok)
-      return NextResponse.json(
-        { ok: false, error: perm.error },
-        { status: perm.status },
-      );
+      return NextResponse.json({ ok: false, error: perm.error }, { status: perm.status });
 
     let q = supabaseAdmin
       .from("turnos_fijos")
@@ -486,18 +440,12 @@ export async function GET(req: Request) {
         );
       }
       const dow = dowFromISO(fecha);
-      q = q
-        .eq("dow", dow)
-        .lte("start_date", fecha)
-        .or(`end_date.is.null,end_date.gte.${fecha}`);
+      q = q.eq("dow", dow).lte("start_date", fecha).or(`end_date.is.null,end_date.gte.${fecha}`);
     }
 
     const { data: templates, error: tErr } = await q;
     if (tErr)
-      return NextResponse.json(
-        { ok: false, error: tErr.message },
-        { status: 500 },
-      );
+      return NextResponse.json({ ok: false, error: tErr.message }, { status: 500 });
 
     if (!include_future_count) {
       return NextResponse.json({
@@ -531,9 +479,6 @@ export async function GET(req: Request) {
     });
   } catch (e: any) {
     console.error("[GET /api/admin/turnos-fijos] ex:", e);
-    return NextResponse.json(
-      { ok: false, error: e?.message || "Error interno" },
-      { status: 500 },
-    );
+    return NextResponse.json({ ok: false, error: e?.message || "Error interno" }, { status: 500 });
   }
 }

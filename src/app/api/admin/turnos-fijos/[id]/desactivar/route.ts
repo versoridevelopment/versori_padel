@@ -70,10 +70,8 @@ export async function POST(
     const supabase = await getSupabaseServerClient();
     const { data: authRes, error: aErr } = await supabase.auth.getUser();
     if (aErr)
-      return NextResponse.json(
-        { error: "No se pudo validar sesión" },
-        { status: 401 },
-      );
+      return NextResponse.json({ error: "No se pudo validar sesión" }, { status: 401 });
+
     const userId = authRes?.user?.id ?? null;
     if (!userId)
       return NextResponse.json({ error: "LOGIN_REQUERIDO" }, { status: 401 });
@@ -91,10 +89,7 @@ export async function POST(
     if (tfErr)
       return NextResponse.json({ error: tfErr.message }, { status: 500 });
     if (!tf || Number((tf as any).id_club) !== id_club) {
-      return NextResponse.json(
-        { error: "Turno fijo no encontrado" },
-        { status: 404 },
-      );
+      return NextResponse.json({ error: "Turno fijo no encontrado" }, { status: 404 });
     }
 
     const { error: upErr } = await supabaseAdmin
@@ -103,8 +98,7 @@ export async function POST(
       .eq("id_turno_fijo", id_turno_fijo)
       .eq("id_club", id_club);
 
-    if (upErr)
-      return NextResponse.json({ error: upErr.message }, { status: 500 });
+    if (upErr) return NextResponse.json({ error: upErr.message }, { status: 500 });
 
     let canceled_count = 0;
 
@@ -128,17 +122,13 @@ export async function POST(
         ? await base.gte("fecha", hoy).select("id_reserva")
         : await base.gt("fecha", hoy).select("id_reserva");
 
-      if (canErr)
-        return NextResponse.json({ error: canErr.message }, { status: 500 });
+      if (canErr) return NextResponse.json({ error: canErr.message }, { status: 500 });
       canceled_count = Array.isArray(upd) ? upd.length : 0;
     }
 
     return NextResponse.json({ ok: true, id_turno_fijo, canceled_count });
   } catch (e: any) {
     console.error("[POST /api/admin/turnos-fijos/:id/desactivar] ex:", e);
-    return NextResponse.json(
-      { error: e?.message || "Error interno" },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: e?.message || "Error interno" }, { status: 500 });
   }
 }
