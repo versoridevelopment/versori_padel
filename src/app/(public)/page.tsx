@@ -15,7 +15,6 @@ export default async function HomePage() {
     );
   }
 
-  // 1. Consulta optimizada con JOINs para traer todo el contacto de una vez
   // Traemos: contacto + direccion (hija) + telefono (hija)
   const { data: contactoFull } = await supabase
     .from("contacto")
