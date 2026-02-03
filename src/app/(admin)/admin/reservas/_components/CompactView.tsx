@@ -1,8 +1,18 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react"; // ✅ Imports de React agregados
-import { Lock, RefreshCw, Globe, UserCog } from "lucide-react"; // ✅ Iconos agregados
-import { CanchaUI, ReservaUI, THEME_COLORS } from "./types";
+import { useState, useEffect, useMemo } from "react";
+import {
+  Lock,
+  RefreshCw,
+  Globe,
+  UserCog,
+  StickyNote,
+  Phone,
+  CheckCircle2,
+  AlertCircle,
+  CircleDollarSign,
+} from "lucide-react";
+import { CanchaUI, ReservaUI, THEME_COLORS, getTipoTurnoConfig } from "./types";
 
 interface Props {
   canchas: CanchaUI[];
@@ -23,7 +33,7 @@ interface Props {
 const PIXELS_PER_HOUR = 140;
 const GRID_TOP_OFFSET = 30;
 
-// --- FUNCIONES AUXILIARES (Internalizadas para evitar errores de importación) ---
+// --- FUNCIONES AUXILIARES ---
 
 function getTargetDateISO(baseDate: Date, extraDays: number) {
   const d = new Date(baseDate);
@@ -61,50 +71,6 @@ const formatHHMMFromDecimal = (decimal: number) => {
   const m = Math.floor((decimal - h) * 60);
   if (h >= 24) h -= 24;
   return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
-};
-
-// Configuración visual según el tipo de turno
-const getTipoTurnoConfig = (tipo?: string | null) => {
-  const t = String(tipo || "normal").toLowerCase();
-  if (t === "fijo") {
-    return {
-      bg: "bg-indigo-50",
-      border: "border-indigo-200",
-      text: "text-indigo-700",
-      label: "Fijo",
-    };
-  }
-  if (t === "profesor" || t.includes("clase")) {
-    return {
-      bg: "bg-cyan-50",
-      border: "border-cyan-200",
-      text: "text-cyan-700",
-      label: "Clase",
-    };
-  }
-  if (t === "escuela") {
-    return {
-      bg: "bg-teal-50",
-      border: "border-teal-200",
-      text: "text-teal-700",
-      label: "Escuela",
-    };
-  }
-  if (t === "torneo") {
-    return {
-      bg: "bg-amber-50",
-      border: "border-amber-200",
-      text: "text-amber-700",
-      label: "Torneo",
-    };
-  }
-  // Normal / Default
-  return {
-    bg: "bg-white",
-    border: "border-slate-200",
-    text: "text-slate-600",
-    label: "Turno",
-  };
 };
 
 export default function CompactView({
@@ -173,7 +139,6 @@ export default function CompactView({
   // ✅ BARRA "HORA ACTUAL"
   // =========================
   const [tick, setTick] = useState(0);
-
   useEffect(() => {
     const id = setInterval(() => setTick((t) => t + 1), 30_000);
     return () => clearInterval(id);
@@ -181,13 +146,9 @@ export default function CompactView({
 
   const nowLine = useMemo(() => {
     const now = new Date();
-
-    // Solo mostrar si estamos viendo HOY (local)
     if (!sameLocalDay(now, date)) return null;
 
     const dec = now.getHours() + now.getMinutes() / 60;
-
-    // Tu grilla puede ir a 26 (cruza medianoche). Elegimos la representación que caiga dentro del rango.
     const candidates = [dec, dec + 24];
     const picked = candidates.find((x) => x >= startHour && x <= endHour);
 
@@ -239,7 +200,7 @@ export default function CompactView({
             </div>
           </div>
 
-          {/* ✅ Overlay de barra "AHORA" */}
+          {/* LINEA DE TIEMPO ACTUAL */}
           {nowLine && (
             <div
               className="absolute left-16 right-0 z-[25] pointer-events-none"
@@ -282,7 +243,7 @@ export default function CompactView({
                 </div>
 
                 <div className="relative w-full h-full bg-white group-hover/col:bg-slate-50/30 transition-colors">
-                  {/* CIERRES (Bloqueos) */}
+                  {/* CIERRES */}
                   {cancha.cierres?.map((cierre) => {
                     const style = getCierreStyle(cierre.inicio, cierre.fin);
                     if (!style) return null;
@@ -307,7 +268,7 @@ export default function CompactView({
                     );
                   })}
 
-                  {/* SLOTS VACÍOS (Clickeables) */}
+                  {/* SLOTS VACÍOS */}
                   {timeSlots.map((time) => {
                     if (time === endHour && !Number.isInteger(time))
                       return null;
@@ -343,20 +304,27 @@ export default function CompactView({
                     );
                   })}
 
-                  {/* RESERVAS (Cards Mejoradas) */}
+                  {/* RESERVAS (Cards Optimizadas para Cancheros) */}
                   {reservasCancha.map((reserva) => {
                     const saldo = Number(reserva.saldo_pendiente || 0);
-                    const debe = saldo > 0;
-                    const isFijo = reserva.tipo_turno?.toLowerCase() === "fijo";
+                    const precio = Number(reserva.precio_total || 0);
+                    const pagadoTotalmente = saldo <= 0;
+                    const seña = saldo > 0 && saldo < precio;
 
+                    const isFijo = reserva.tipo_turno?.toLowerCase() === "fijo";
                     const config = getTipoTurnoConfig(reserva.tipo_turno);
 
                     const origenIcon =
                       reserva.origen === "web" ? (
-                        <Globe size={12} />
+                        <Globe size={11} className="text-blue-500" />
                       ) : (
-                        <UserCog size={12} />
+                        <UserCog size={11} className="text-amber-600" />
                       );
+
+                    const hasNotes = reserva.notas && reserva.notas.length > 0;
+                    const hasPhone =
+                      reserva.cliente_telefono &&
+                      reserva.cliente_telefono.length > 5;
 
                     return (
                       <div
@@ -368,57 +336,81 @@ export default function CompactView({
                         className={`
                           absolute left-1 right-1 rounded-lg shadow-sm cursor-pointer z-20 
                           hover:shadow-md hover:scale-[1.01] hover:z-30 transition-all 
-                          p-2 flex flex-col justify-between overflow-hidden
-                          ${config.bg} ${config.border} border-l-[5px] border-t border-r border-b border-gray-200/60
+                          p-2 flex flex-col justify-between overflow-hidden group
+                          ${config.bg} ${config.border} border-l-[4px] border-t border-r border-b border-gray-200/60
                         `}
                         style={{
                           top: getTopPosition(reserva.horaInicio),
                           height:
                             getHeight(reserva.horaInicio, reserva.horaFin) - 3,
                         }}
+                        title={`${reserva.cliente_nombre} - ${config.label}${hasNotes ? " - Ver notas" : ""}`}
                       >
-                        {/* --- HEADER: Hora + ID --- */}
+                        {/* --- HEADER: Rango Horario + ID + Iconos --- */}
                         <div className="flex justify-between items-start text-[10px] leading-none mb-1">
-                          <span className="font-mono font-bold text-slate-700 bg-white/50 px-1.5 py-0.5 rounded border border-black/5">
+                          <span className="font-mono font-bold text-slate-700 bg-white/60 px-1.5 py-0.5 rounded border border-black/5">
                             {reserva.horaInicio} - {reserva.horaFin}
                           </span>
-                          <div className="flex items-center gap-1 opacity-60 text-slate-900">
+
+                          {/* Iconos de alerta e información rápida */}
+                          <div className="flex items-center gap-1.5">
+                            {hasPhone && (
+                              <Phone size={10} className="text-slate-400" />
+                            )}
+                            {hasNotes && (
+                              <StickyNote
+                                size={10}
+                                className="text-amber-500 animate-pulse"
+                              />
+                            )}
+                            <span className="text-slate-300">|</span>
                             {origenIcon}
-                            <span className="tracking-tighter font-mono font-medium">
-                              #{reserva.id_reserva}
-                            </span>
                           </div>
                         </div>
 
-                        {/* --- BODY: Nombre + Estado --- */}
-                        <div className="flex justify-between items-start flex-1 min-h-0">
-                          <span className="text-xs font-bold text-slate-800 truncate leading-tight pr-1">
+                        {/* --- BODY: Nombre Cliente --- */}
+                        <div className="flex-1 min-h-0 flex flex-col justify-center">
+                          <span className="text-xs font-extrabold text-slate-800 truncate leading-tight w-full">
                             {reserva.cliente_nombre || "Cliente Final"}
                           </span>
-
-                          {/* Punto verde SOLO si NO debe */}
-                          {!debe && (
-                            <div
-                              className="w-2 h-2 rounded-full ring-2 ring-white bg-emerald-500 shrink-0"
-                              title="Pagado"
-                            />
-                          )}
+                          <span
+                            className={`text-[9px] uppercase font-bold tracking-tight opacity-70 ${config.text}`}
+                          >
+                            {config.label}
+                          </span>
                         </div>
 
-                        {/* --- FOOTER: Tipo + Precio --- */}
-                        <div className="flex justify-between items-end mt-1 pt-1 border-t border-black/5">
-                          <span
-                            className={`text-[9px] font-bold uppercase tracking-wide opacity-80 ${config.text}`}
-                          >
-                            {!isFijo && config.label}
-                          </span>
-
-                          <span className="text-[10px] font-extrabold text-slate-700">
-                            $
-                            {Number(reserva.precio_total).toLocaleString(
-                              "es-AR",
+                        {/* --- FOOTER: Estado de Pago --- */}
+                        <div className="flex justify-between items-end mt-1 pt-1.5 border-t border-black/5">
+                          {/* Estado del pago visual */}
+                          <div className="flex items-center gap-1">
+                            {pagadoTotalmente ? (
+                              <span className="flex items-center gap-1 text-[9px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded-sm">
+                                <CheckCircle2 size={10} /> Pagado
+                              </span>
+                            ) : seña ? (
+                              <span className="flex items-center gap-1 text-[9px] font-bold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded-sm">
+                                <CircleDollarSign size={10} /> Seña
+                              </span>
+                            ) : (
+                              <span className="flex items-center gap-1 text-[9px] font-bold text-red-700 bg-red-100 px-1.5 py-0.5 rounded-sm">
+                                <AlertCircle size={10} /> Impago
+                              </span>
                             )}
-                          </span>
+                          </div>
+
+                          {/* Precio o Deuda */}
+                          <div className="text-right">
+                            {saldo > 0 ? (
+                              <span className="text-[10px] font-black text-red-600 block leading-none">
+                                -{saldo.toLocaleString("es-AR")}
+                              </span>
+                            ) : (
+                              <span className="text-[10px] font-bold text-slate-400 block leading-none decoration-slate-300">
+                                ${precio.toLocaleString("es-AR")}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
                     );
