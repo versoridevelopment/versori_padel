@@ -33,6 +33,12 @@ function Badge({ ok, label }: { ok: boolean; label: string }) {
   );
 }
 
+
+
+
+
+
+
 export default function ClubesPage() {
   const [clubs, setClubs] = useState<Club[]>([]);
   const [loading, setLoading] = useState(true);
