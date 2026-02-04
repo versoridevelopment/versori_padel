@@ -61,6 +61,7 @@ export const TIPO_TURNO_CONFIG: Record<
     label: "Torneo",
   },
 
+  // Si más adelante los reactivás, descomentá y listo.
   // escuela: {
   //   border: "border-l-cyan-600",
   //   bg: "bg-cyan-100",
@@ -84,7 +85,7 @@ export const TIPO_TURNO_CONFIG: Record<
 // Helper para obtener la configuración garantizando un fallback
 export const getTipoTurnoConfig = (tipo?: string | null) => {
   const t = String(tipo || "normal").toLowerCase();
-  if (t.includes("cumple")) return TIPO_TURNO_CONFIG.cumpleanos;
+  if (t.includes("cumple")) return (TIPO_TURNO_CONFIG as any).cumpleanos;
   return TIPO_TURNO_CONFIG[t] || TIPO_TURNO_CONFIG.normal;
 };
 
@@ -114,25 +115,45 @@ export type CierreUI = {
   motivo: string | null;
 };
 
+// ✅ Estados de reserva (API)
+export type EstadoReserva =
+  | "pendiente_pago"
+  | "confirmada"
+  | "expirada"
+  | "rechazada"
+  | "cancelada";
+
 export type ReservaUI = {
   id_reserva: number;
   id_cancha: number;
   fecha: string;
   horaInicio: string;
   horaFin: string;
+
   cliente_nombre: string;
   cliente_telefono: string;
   cliente_email: string;
+
   id_usuario?: string | null;
   id_cliente_manual?: number | null;
+
   precio_total: number;
   monto_anticipo?: number;
+
   pagos_aprobados_total: number;
   saldo_pendiente: number;
-  estado: string;
+
+  // ✅ IMPORTANTE: estado viene de tu API (reservas.estado)
+  estado: EstadoReserva | string;
+
+  // (opcionales por si querés usarlos luego)
+  expires_at?: string | null;
+  confirmed_at?: string | null;
+
   tipo_turno: string | null;
   notas: string | null;
   origen: string;
+
   manual?: {
     nombre: string;
     email?: string;

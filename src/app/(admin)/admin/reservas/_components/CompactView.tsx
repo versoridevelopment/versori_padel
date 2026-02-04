@@ -3,7 +3,6 @@
 import { useState, useEffect, useMemo } from "react";
 import {
   Lock,
-  RefreshCw,
   Globe,
   UserCog,
   StickyNote,
@@ -68,15 +67,6 @@ function dayDiff(a: Date, b: Date) {
   return Math.round(ms / 86_400_000);
 }
 
-
-const sameLocalDay = (d1: Date, d2: Date) => {
-  return (
-    d1.getDate() === d2.getDate() &&
-    d1.getMonth() === d2.getMonth() &&
-    d1.getFullYear() === d2.getFullYear()
-  );
-};
-
 const formatHHMMFromDecimal = (decimal: number) => {
   let h = Math.floor(decimal);
   const m = Math.round((decimal - h) * 60);
@@ -87,6 +77,58 @@ const formatHHMMFromDecimal = (decimal: number) => {
 function prettyTipoTurno(tipo?: string | null) {
   const t = String(tipo || "normal").toLowerCase();
   return t.charAt(0).toUpperCase() + t.slice(1).replace(/_/g, " ");
+}
+
+// ✅ Badge de estado (API)
+function getEstadoReservaUI(reserva: ReservaUI) {
+  const estado = String(reserva.estado || "").toLowerCase();
+
+  if (estado === "confirmada") {
+    return {
+      label: "Confirmada",
+      className: "bg-emerald-100 text-emerald-800",
+      icon: <CheckCircle2 size={10} />,
+    };
+  }
+
+  if (estado === "pendiente_pago") {
+    return {
+      label: "Pendiente pago",
+      className: "bg-blue-100 text-blue-800",
+      icon: <CircleDollarSign size={10} />,
+    };
+  }
+
+  if (estado === "expirada") {
+    return {
+      label: "Expirada",
+      className: "bg-slate-200 text-slate-700",
+      icon: <AlertCircle size={10} />,
+    };
+  }
+
+  if (estado === "rechazada") {
+    return {
+      label: "Rechazada",
+      className: "bg-red-100 text-red-800",
+      icon: <AlertCircle size={10} />,
+    };
+  }
+
+  if (estado === "cancelada") {
+    return {
+      label: "Cancelada",
+      className: "bg-orange-100 text-orange-800",
+      icon: <AlertCircle size={10} />,
+    };
+  }
+
+  // fallback
+  return {
+    label: estado ? estado.replace(/_/g, " ") : "Sin estado",
+    className: "bg-slate-100 text-slate-700",
+    icon: <AlertCircle size={10} />,
+  };
 }
 
 export default function CompactView({
@@ -160,20 +202,17 @@ export default function CompactView({
     return () => clearInterval(id);
   }, []);
 
-    const nowLine = useMemo(() => {
+  const nowLine = useMemo(() => {
     const now = new Date();
 
     // Rango visible "operativo" de esta agenda
     let end = endHour;
-    if (end <= startHour) end += 24; // por si alguna vez viene endHour menor y cruza
+    if (end <= startHour) end += 24;
 
-    // En qué "día relativo" está now respecto a `date` (0 = mismo día, 1 = día siguiente, etc.)
     const offsetDays = dayDiff(now, date);
 
-    // Hora actual expresada en "horas decimales" dentro del eje de esta agenda
     const dec = now.getHours() + now.getMinutes() / 60 + offsetDays * 24;
 
-    // Si no cae dentro del rango que muestra esta vista, no dibujar
     if (dec < startHour || dec > end) return null;
 
     const top = (dec - startHour) * PIXELS_PER_HOUR + GRID_TOP_OFFSET;
@@ -181,7 +220,6 @@ export default function CompactView({
 
     return { top, label };
   }, [tick, date, startHour, endHour]);
-
 
   return (
     <div className="flex flex-col h-full bg-white rounded-3xl border border-slate-200 shadow-xl overflow-hidden select-none ring-1 ring-slate-100">
@@ -286,14 +324,11 @@ export default function CompactView({
 
                   {/* SLOTS VACÍOS */}
                   {timeSlots.map((time) => {
-                    if (time === endHour && !Number.isInteger(time))
-                      return null;
+                    if (time === endHour && !Number.isInteger(time)) return null;
                     if (isSlotBlocked(cancha, time)) return null;
+
                     const isNextDay = time >= 24;
-                    const slotDateISO = getTargetDateISO(
-                      date,
-                      isNextDay ? 1 : 0,
-                    );
+                    const slotDateISO = getTargetDateISO(date, isNextDay ? 1 : 0);
 
                     return (
                       <div
@@ -336,10 +371,18 @@ export default function CompactView({
                         <UserCog size={11} className="text-amber-600" />
                       );
 
-                    const hasNotes = reserva.notas && reserva.notas.length > 0;
-                    const hasPhone =
-                      reserva.cliente_telefono &&
-                      reserva.cliente_telefono.length > 5;
+                    const hasNotes = !!(reserva.notas && reserva.notas.length > 0);
+                    const hasPhone = !!(
+                      reserva.cliente_telefono && reserva.cliente_telefono.length > 5
+                    );
+
+                    const estado = String(reserva.estado || "").toLowerCase();
+                    const estadoUI = getEstadoReservaUI(reserva);
+                    const isPendientePago = estado === "pendiente_pago";
+                    const isInactiva =
+                      estado === "expirada" ||
+                      estado === "rechazada" ||
+                      estado === "cancelada";
 
                     return (
                       <div
@@ -353,24 +396,36 @@ export default function CompactView({
                           hover:shadow-md hover:scale-[1.01] hover:z-30 transition-all 
                           p-2 flex flex-col justify-between overflow-hidden group
                           ${config.bg} ${config.border} border-l-[4px] border-t border-r border-b border-gray-200/60
+                          ${isPendientePago ? "ring-2 ring-blue-200" : ""}
+                          ${isInactiva ? "opacity-60 grayscale-[0.2]" : ""}
                         `}
                         style={{
                           top: getTopPosition(reserva.horaInicio),
-                          height:
-                            getHeight(reserva.horaInicio, reserva.horaFin) - 3,
+                          height: getHeight(reserva.horaInicio, reserva.horaFin) - 3,
                         }}
-                        title={`${reserva.cliente_nombre} - ${config.label}${hasNotes ? " - Ver notas" : ""}`}
+                        title={`${reserva.cliente_nombre} - ${config.label}${
+                          hasNotes ? " - Ver notas" : ""
+                        }`}
                       >
-                        {/* --- HEADER: Rango Horario + Iconos --- */}
-                        <div className="flex justify-between items-start text-[10px] leading-none mb-1">
-                          <span className="font-mono font-bold text-slate-700 bg-white/60 px-1.5 py-0.5 rounded border border-black/5">
+                        {/* HEADER: Rango Horario + Estado + Iconos */}
+                        <div className="flex justify-between items-start text-[10px] leading-none mb-1 gap-2">
+                          <span className="font-mono font-bold text-slate-700 bg-white/60 px-1.5 py-0.5 rounded border border-black/5 whitespace-nowrap">
                             {reserva.horaInicio} - {reserva.horaFin}
                           </span>
 
-                          <div className="flex items-center gap-1.5">
-                            {hasPhone && (
-                              <Phone size={10} className="text-slate-400" />
-                            )}
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            {/* ✅ BADGE ESTADO RESERVA (API) */}
+                            <span
+                              className={`inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[9px] font-black uppercase whitespace-nowrap ${estadoUI.className}`}
+                              title={`Estado reserva: ${estadoUI.label}`}
+                            >
+                              {estadoUI.icon}
+                              {estadoUI.label}
+                            </span>
+
+                            <span className="text-slate-300">|</span>
+
+                            {hasPhone && <Phone size={10} className="text-slate-400" />}
                             {hasNotes && (
                               <StickyNote
                                 size={10}
@@ -382,7 +437,7 @@ export default function CompactView({
                           </div>
                         </div>
 
-                        {/* --- BODY: Nombre Cliente --- */}
+                        {/* BODY: Nombre Cliente */}
                         <div className="flex-1 min-h-0 flex flex-col justify-center">
                           <span className="text-xs font-extrabold text-slate-800 truncate leading-tight w-full">
                             {reserva.cliente_nombre || "Cliente Final"}
@@ -394,7 +449,7 @@ export default function CompactView({
                           </span>
                         </div>
 
-                        {/* --- FOOTER: Estado de Pago --- */}
+                        {/* FOOTER: Estado de Pago (saldo) */}
                         <div className="flex justify-between items-end mt-1 pt-1.5 border-t border-black/5">
                           <div className="flex items-center gap-1">
                             {pagadoTotalmente ? (
