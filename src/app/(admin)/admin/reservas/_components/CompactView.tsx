@@ -169,22 +169,9 @@ export default function CompactView({
     <div className="flex flex-col h-full bg-white rounded-3xl border border-slate-200 shadow-xl overflow-hidden select-none ring-1 ring-slate-100">
       <div className="flex-1 overflow-auto relative custom-scrollbar bg-slate-50/30">
         <div className="flex min-w-max" style={{ height: totalHeight }}>
-          
           {/* COLUMNA HORAS */}
           <div className="w-16 sticky left-0 z-30 bg-white border-r border-slate-200 flex-shrink-0">
-            <div className="h-12 border-b border-slate-200 bg-slate-50/80 backdrop-blur-sm sticky top-0 z-40 flex items-center justify-center p-1">
-               <button
-                onClick={onRefresh}
-                disabled={isLoading}
-                className={`p-1.5 rounded-lg transition-colors ${
-                  isLoading
-                    ? "animate-spin text-blue-500"
-                    : "text-slate-400 hover:text-blue-600 hover:bg-blue-50"
-                }`}
-              >
-                <RefreshCw size={16} />
-              </button>
-            </div>
+            <div className="h-12 border-b border-slate-200 bg-slate-50/80 backdrop-blur-sm sticky top-0 z-40 flex items-center justify-center p-1"></div>
             <div className="relative h-full">
               {timeSlots.map((time) => {
                 if (!Number.isInteger(time)) return null;
@@ -253,8 +240,11 @@ export default function CompactView({
                   {cancha.cierres?.map((cierre) => {
                     const style = getCierreStyle(cierre.inicio, cierre.fin);
                     if (!style) return null;
-                    const cierreLabel = typeof cierre.motivo === "string" && cierre.motivo.trim() ? cierre.motivo : "CERRADO";
-                    
+                    const cierreLabel =
+                      typeof cierre.motivo === "string" && cierre.motivo.trim()
+                        ? cierre.motivo
+                        : "CERRADO";
+
                     return (
                       <div
                         key={cierre.id_cierre}
