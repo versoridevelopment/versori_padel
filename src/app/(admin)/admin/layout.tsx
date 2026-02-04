@@ -2,20 +2,18 @@ import { createServerClient } from "@supabase/ssr";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import "../../globals.css";
+// Asegúrate de que la ruta apunte correctamente a tu Sidebar.
+// Si Sidebar está en src/app/(admin)/components/Sidebar.tsx:
 import { Sidebar } from "./components/Sidebar";
 
-// --- 1. METADATA DINÁMICA (Opcional, pero recomendado) ---
-export async function generateMetadata() {
-  const { club } = await getClubContext();
-  return {
-    title: club ? ` ${club.nombre} - Administrador` : "Panel de Administración",
-    icons: {
-      icon: club?.logo_url || "/favicon.ico",
-    },
-  };
+// ✅ Definimos la interfaz exacta que esperamos de la base de datos
+interface ClubData {
+  id_club: number;
+  nombre: string;
+  logo_url: string | null;
 }
 
-// --- HELPER: Lógica para obtener el club actual ---
+// --- HELPER: Lógica centralizada para obtener el contexto del club ---
 async function getClubContext() {
   const cookieStore = await cookies();
   const headersList = await headers();
@@ -40,30 +38,40 @@ async function getClubContext() {
     },
   );
 
-  // A. Verificar Sesión
+  // 1. Autenticación
   const {
     data: { user },
   } = await supabase.auth.getUser();
+
+  // Si no hay usuario, retornamos estado vacío
   if (!user) return { user: null, club: null, hasAccess: false };
 
-  // B. Detectar Club (Subdominio > Fallback)
-  let currentClub = null;
-  const subdomain = host.split(".")[0];
-  const isLocalhostRoot =
-    subdomain === "localhost" || host.includes("127.0.0.1");
+  // 2. Detección de Club
+  let currentClub: ClubData | null = null;
 
-  // Intento 1: Por Subdominio
-  if (!isLocalhostRoot && subdomain !== "www") {
+  // Limpieza del host para obtener subdominio
+  const hostname = host.split(":")[0];
+  const parts = hostname.split(".");
+  const subdomain =
+    parts.length > 1 && parts[0] !== "www" && parts[0] !== "localhost"
+      ? parts[0]
+      : null;
+
+  // A. Estrategia Subdominio (Producción / Subdominio Local)
+  if (subdomain) {
     const { data: clubData } = await supabase
       .from("clubes")
       .select("id_club, nombre, logo_url")
       .eq("subdominio", subdomain)
       .single();
 
-    if (clubData) currentClub = clubData;
+    if (clubData) {
+      // TypeScript casting seguro
+      currentClub = clubData as ClubData;
+    }
   }
 
-  // Intento 2: Fallback (Primer club del usuario)
+  // B. Estrategia Fallback (Primer club del usuario si falla lo anterior)
   if (!currentClub) {
     const { data: defaultClub } = await supabase
       .from("club_usuarios")
@@ -73,25 +81,37 @@ async function getClubContext() {
       .maybeSingle();
 
     if (defaultClub?.clubes) {
-      // Forzamos el tipo porque Supabase a veces devuelve array en joins
+      // Normalización de datos devueltos por join
       currentClub = Array.isArray(defaultClub.clubes)
-        ? defaultClub.clubes[0]
-        : defaultClub.clubes;
+        ? (defaultClub.clubes[0] as ClubData)
+        : (defaultClub.clubes as unknown as ClubData);
     }
   }
 
-  // C. Verificar Roles
+  // 3. Verificación de Roles (Seguridad)
   const { data: rolesData } = await supabase
     .from("club_usuarios")
     .select("roles!inner(nombre)")
     .eq("id_usuario", user.id);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // Verificación de acceso simplificada sin eslint-disable innecesario
   const hasAccess = rolesData?.some((r: any) =>
-    ["admin", "cajero", "staff"].includes(r.roles?.nombre),
+    ["admin", "cajero", "staff", "profe"].includes(r.roles?.nombre),
   );
 
   return { user, club: currentClub, hasAccess };
+}
+
+// --- METADATA DINÁMICA ---
+export async function generateMetadata() {
+  const { club } = await getClubContext();
+
+  return {
+    title: club ? `${club.nombre} - Admin` : "Panel Admin | Versori",
+    icons: {
+      icon: club?.logo_url || "/favicon.ico",
+    },
+  };
 }
 
 // --- LAYOUT PRINCIPAL ---
@@ -100,23 +120,29 @@ export default async function AdminLayout({
 }: {
   children: React.ReactNode;
 }) {
-  // Obtenemos los datos del contexto antes de renderizar
   const { user, club, hasAccess } = await getClubContext();
 
-  if (!user) redirect("/login");
-  if (!hasAccess) redirect("/");
+  if (!user) {
+    redirect("/login");
+  }
+
+  if (!hasAccess) {
+    redirect("/");
+  }
 
   return (
     <html lang="es">
-      <body className="bg-slate-50">
+      <body className="bg-slate-50 antialiased">
         <div className="flex h-screen text-gray-900 overflow-hidden">
-          {/* ✅ AQUÍ PASAMOS LOS DATOS DINÁMICOS AL SIDEBAR */}
+          {/* Si Sidebar.tsx está actualizado correctamente con `interface SidebarProps`,
+             estas líneas dejarán de marcar error.
+          */}
           <Sidebar
             clubName={club?.nombre || "Mi Club"}
             clubLogo={club?.logo_url}
           />
 
-          <main className="flex-1 overflow-y-auto bg-slate-50 relative">
+          <main className="flex-1 overflow-y-auto bg-slate-50 relative focus:outline-none">
             {children}
           </main>
         </div>

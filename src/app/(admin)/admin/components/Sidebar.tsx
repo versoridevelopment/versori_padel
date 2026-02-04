@@ -54,7 +54,17 @@ type MenuLink = {
   allowedRoles: UserRole[];
 };
 
-export function Sidebar() {
+// ✅ Definición de Props para recibir datos del Layout
+interface SidebarProps {
+  clubName?: string;
+  clubLogo?: string | null;
+}
+
+// ✅ Función aceptando props
+export function Sidebar({
+  clubName: serverClubName,
+  clubLogo: serverClubLogo,
+}: SidebarProps) {
   const [supabase] = useState(() =>
     createBrowserClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -74,7 +84,10 @@ export function Sidebar() {
   });
 
   const [clubId, setClubId] = useState<number>(9);
-  const [clubLogo, setClubLogo] = useState<string | null>(null);
+
+  // ✅ Usamos props del servidor si existen, si no, null (se llenará con useEffect si es necesario)
+  // Nota: Para visualización usamos directamente las variables serverClubName/Logo en el JSX
+
   const [canchas, setCanchas] = useState<
     { id_cancha: number; nombre: string }[]
   >([]);
@@ -110,7 +123,7 @@ export function Sidebar() {
       if (!user) return;
 
       let currentClubId = 9;
-      let currentClubLogo = null;
+      // let currentClubLogo = null; // Ya no lo necesitamos para visualización, viene por props
 
       if (typeof window !== "undefined") {
         const hostname = window.location.hostname;
@@ -118,17 +131,16 @@ export function Sidebar() {
         if (subdomain && subdomain !== "localhost" && subdomain !== "www") {
           const { data: clubData } = await supabase
             .from("clubes")
-            .select("id_club, logo_url")
+            .select("id_club") // Solo ID, logo y nombre vienen del server component
             .eq("subdominio", subdomain)
             .maybeSingle();
           if (clubData) {
             currentClubId = clubData.id_club;
-            currentClubLogo = clubData.logo_url;
           }
         }
       }
       setClubId(currentClubId);
-      setClubLogo(currentClubLogo);
+      // setClubLogo(currentClubLogo); // Usaremos serverClubLogo
 
       const { data: canchasData } = await supabase
         .from("canchas")
@@ -301,6 +313,10 @@ export function Sidebar() {
 
   if (!isMounted) return null;
 
+  // Variables finales para renderizar (prioridad: props > estado default)
+  const finalClubLogo = serverClubLogo;
+  const finalClubName = serverClubName || "Mi Club";
+
   return (
     <>
       <button
@@ -326,12 +342,12 @@ export function Sidebar() {
 
           {/* Logo del Club Hero */}
           <div className="relative w-36 h-36 mb-4 z-10 group cursor-default">
-            {clubLogo ? (
+            {finalClubLogo ? (
               <div className="relative w-full h-full flex items-center justify-center">
                 <div className="absolute inset-0 bg-blue-600/20 blur-[40px] rounded-full transform scale-90 group-hover:scale-100 transition-transform duration-700" />
                 <div className="absolute inset-0 bg-gradient-to-tr from-blue-400/10 to-purple-500/10 blur-2xl rounded-full animate-pulse" />
                 <Image
-                  src={clubLogo}
+                  src={finalClubLogo}
                   alt="Logo Club"
                   fill
                   className="object-contain drop-shadow-[0_10px_20px_rgba(0,0,0,0.5)] pointer-events-none select-none transition-transform duration-500 group-hover:scale-[1.02]"
@@ -341,7 +357,10 @@ export function Sidebar() {
               </div>
             ) : (
               <div className="w-full h-full bg-[#1b263b] rounded-full flex items-center justify-center text-blue-400/50 border border-blue-900/30 shadow-[0_0_30px_rgba(59,130,246,0.1)]">
-                <Building2 size={56} />
+                {/* Fallback si no hay logo: Inicial del nombre */}
+                <span className="text-4xl font-bold text-white/20">
+                  {finalClubName.charAt(0)}
+                </span>
               </div>
             )}
           </div>
@@ -381,12 +400,7 @@ export function Sidebar() {
           </div>
         </div>
 
-        {/* === CAMBIO CLAVE AQUÍ ===
-          Se eliminó 'custom-scrollbar' y se agregaron clases nativas para ocultar la barra.
-          [&::-webkit-scrollbar]:hidden -> Oculta en Chrome/Safari
-          [-ms-overflow-style:none] -> Oculta en IE/Edge
-          [scrollbar-width:none] -> Oculta en Firefox
-        */}
+        {/* Scrollbar Oculta */}
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
           {visibleMainLinks.map((link) => (
             <Link
