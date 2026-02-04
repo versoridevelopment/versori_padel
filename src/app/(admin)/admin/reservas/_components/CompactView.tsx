@@ -58,6 +58,17 @@ const timeStringToDecimal = (
   return decimal;
 };
 
+function localMidnight(d: Date) {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
+}
+
+function dayDiff(a: Date, b: Date) {
+  // diferencia en días entre medianoches locales
+  const ms = localMidnight(a).getTime() - localMidnight(b).getTime();
+  return Math.round(ms / 86_400_000);
+}
+
+
 const sameLocalDay = (d1: Date, d2: Date) => {
   return (
     d1.getDate() === d2.getDate() &&
@@ -149,21 +160,28 @@ export default function CompactView({
     return () => clearInterval(id);
   }, []);
 
-  const nowLine = useMemo(() => {
+    const nowLine = useMemo(() => {
     const now = new Date();
-    if (!sameLocalDay(now, date)) return null;
 
-    const dec = now.getHours() + now.getMinutes() / 60;
-    const candidates = [dec, dec + 24];
-    const picked = candidates.find((x) => x >= startHour && x <= endHour);
+    // Rango visible "operativo" de esta agenda
+    let end = endHour;
+    if (end <= startHour) end += 24; // por si alguna vez viene endHour menor y cruza
 
-    if (picked == null) return null;
+    // En qué "día relativo" está now respecto a `date` (0 = mismo día, 1 = día siguiente, etc.)
+    const offsetDays = dayDiff(now, date);
 
-    const top = (picked - startHour) * PIXELS_PER_HOUR + GRID_TOP_OFFSET;
-    const label = formatHHMMFromDecimal(picked);
+    // Hora actual expresada en "horas decimales" dentro del eje de esta agenda
+    const dec = now.getHours() + now.getMinutes() / 60 + offsetDays * 24;
+
+    // Si no cae dentro del rango que muestra esta vista, no dibujar
+    if (dec < startHour || dec > end) return null;
+
+    const top = (dec - startHour) * PIXELS_PER_HOUR + GRID_TOP_OFFSET;
+    const label = formatHHMMFromDecimal(dec);
 
     return { top, label };
   }, [tick, date, startHour, endHour]);
+
 
   return (
     <div className="flex flex-col h-full bg-white rounded-3xl border border-slate-200 shadow-xl overflow-hidden select-none ring-1 ring-slate-100">
