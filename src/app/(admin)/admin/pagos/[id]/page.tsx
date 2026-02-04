@@ -2,22 +2,7 @@
 
 import { use, useEffect, useState } from "react";
 import Link from "next/link";
-import {
-  ChevronLeft,
-  CheckCircle2,
-  XCircle,
-  AlertCircle,
-  Copy,
-  Printer,
-  RotateCcw,
-  FileJson,
-  Loader2,
-  Calendar,
-  User,
-  CreditCard,
-  Clock,
-  ExternalLink,
-} from "lucide-react";
+import { ChevronLeft, Printer, Loader2, Share2 } from "lucide-react";
 
 // --- TIPOS ---
 type PagoDetalle = {
@@ -32,7 +17,12 @@ type PagoDetalle = {
   approved_at: string | null;
   method: string;
   card_last4?: string;
-
+  // ✅ Nuevo Objeto Club Dinámico
+  club: {
+    nombre: string;
+    direccion: string;
+    telefono: string;
+  };
   cliente: {
     id_usuario: string;
     nombre: string;
@@ -48,73 +38,50 @@ type PagoDetalle = {
     cancha: string;
     precio_total_reserva: number;
   };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   raw: any;
 };
 
-// Componente Badge Grande
-function StatusBadgeLarge({ status }: { status: string }) {
-  const styles: Record<string, string> = {
-    approved: "bg-emerald-100 text-emerald-800 border-emerald-200",
-    in_process: "bg-amber-100 text-amber-800 border-amber-200",
-    pending: "bg-amber-100 text-amber-800 border-amber-200",
-    rejected: "bg-red-100 text-red-800 border-red-200",
-    refunded: "bg-gray-100 text-gray-800 border-gray-200",
-  };
+// --- HELPERS DE FORMATO ---
+const money = (val: number) =>
+  new Intl.NumberFormat("es-AR", {
+    style: "currency",
+    currency: "ARS",
+    minimumFractionDigits: 0,
+  }).format(val);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const icons: Record<string, any> = {
-    approved: CheckCircle2,
-    in_process: AlertCircle,
-    pending: AlertCircle,
-    rejected: XCircle,
-    refunded: RotateCcw,
-  };
+// --- COMPONENTES VISUALES TICKET ---
+const TicketDivider = () => (
+  <div className="w-full border-b-2 border-dashed border-gray-300 my-3" />
+);
 
-  const style = styles[status] || styles.in_process;
-  const Icon = icons[status] || AlertCircle;
-
-  const labelMap: Record<string, string> = {
-    approved: "Aprobado",
-    rejected: "Rechazado",
-    in_process: "En revisión",
-    pending: "Pendiente",
-    refunded: "Reembolsado",
-  };
-
-  return (
-    <div
-      className={`flex items-center gap-2 px-4 py-2 rounded-lg border ${style} w-fit`}
+const TicketRow = ({ label, value, bold = false, size = "sm" }: any) => (
+  <div
+    className={`flex justify-between items-start ${size === "xs" ? "text-[10px]" : "text-xs"} mb-1`}
+  >
+    <span className="text-gray-500 uppercase">{label}</span>
+    <span
+      className={`text-right text-black ${bold ? "font-bold" : "font-medium"}`}
     >
-      <Icon className="w-5 h-5" />
-      <span className="font-semibold text-sm uppercase tracking-wide">
-        {labelMap[status] || status}
-      </span>
-    </div>
-  );
-}
-
-type PageParams = { id: string };
+      {value}
+    </span>
+  </div>
+);
 
 export default function DetallePagoPage({
   params,
 }: {
-  params: Promise<PageParams>;
+  params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [pago, setPago] = useState<PagoDetalle | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
-      setLoading(true);
       try {
         const res = await fetch(`/api/admin/pagos/${id}`);
-        if (!res.ok) {
-          if (res.status === 404) throw new Error("Pago no encontrado");
-          throw new Error("Error cargando el pago");
-        }
+        if (!res.ok) throw new Error("Error al cargar el pago");
         const data = await res.json();
         setPago(data);
       } catch (err: any) {
@@ -126,295 +93,205 @@ export default function DetallePagoPage({
     load();
   }, [id]);
 
-  const handleCopy = (text: string) => {
-    navigator.clipboard.writeText(text);
-  };
-
-  // FUNCIONALIDAD DE IMPRESIÓN
   const handlePrint = () => {
     window.print();
   };
 
   if (loading)
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="flex flex-col items-center gap-2 text-gray-500">
-          <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
-          <p>Cargando detalle...</p>
-        </div>
+      <div className="h-screen flex items-center justify-center bg-slate-100">
+        <Loader2 className="w-8 h-8 animate-spin text-slate-400" />
       </div>
     );
 
   if (error || !pago)
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <XCircle className="w-12 h-12 text-red-500 mx-auto mb-2" />
-          <h2 className="text-xl font-bold text-gray-900">Error</h2>
-          <p className="text-gray-500 mb-4">
-            {error || "No se encontró el pago"}
-          </p>
-          <Link href="/admin/pagos" className="text-blue-600 hover:underline">
-            Volver al listado
-          </Link>
-        </div>
+      <div className="h-screen flex items-center justify-center bg-slate-100 text-red-500">
+        Error: {error}
       </div>
     );
 
+  // --- VARIABLES DERIVADAS ---
+  const fecha = new Date(pago.created_at).toLocaleDateString("es-AR");
+  const hora = new Date(pago.created_at).toLocaleTimeString("es-AR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  const isWeb = pago.provider === "mercadopago";
+  const cajero = isWeb ? "SISTEMA WEB" : "CAJA ADMINISTRACIÓN";
+  const metodoLabel =
+    pago.method === "account_money"
+      ? "Dinero en Cuenta"
+      : pago.method === "credit_card" || pago.method === "debit_card"
+        ? `Tarjeta ${pago.card_last4 ? "•••• " + pago.card_last4 : ""}`
+        : "Efectivo / Otro";
+
   return (
-    <div className="min-h-screen bg-gray-50 p-6 print:p-0 print:bg-white">
-      <div className="max-w-5xl mx-auto space-y-6">
-        {/* HEADER NAV (Oculto al imprimir) */}
-        <div className="flex items-center gap-4 print:hidden">
-          <Link
-            href="/admin/pagos"
-            className="p-2 rounded-lg hover:bg-white hover:shadow-sm text-gray-500 transition-all"
+    <div className="min-h-screen bg-slate-100 py-8 px-4 flex flex-col items-center font-sans">
+      {/* --- ESTILOS DE IMPRESIÓN (Inyectados) --- */}
+      <style jsx global>{`
+        @media print {
+          @page {
+            margin: 0;
+            size: auto;
+          }
+          body {
+            background: white;
+          }
+          body * {
+            visibility: hidden;
+          }
+          #ticket-container,
+          #ticket-container * {
+            visibility: visible;
+          }
+          #ticket-container {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            max-width: 100%;
+            margin: 0;
+            padding: 20px;
+            box-shadow: none;
+            border: none;
+            background: white;
+          }
+          .no-print {
+            display: none !important;
+          }
+        }
+      `}</style>
+
+      {/* --- NAV SUPERIOR (No se imprime) --- */}
+      <div className="w-full max-w-sm mb-6 flex items-center justify-between no-print">
+        <Link
+          href="/admin/pagos"
+          className="flex items-center gap-2 text-slate-500 hover:text-slate-800 transition-colors font-medium text-sm"
+        >
+          <ChevronLeft className="w-4 h-4" /> Volver
+        </Link>
+        <div className="flex gap-2">
+          <button
+            onClick={handlePrint}
+            className="flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-full text-xs font-bold shadow-lg hover:bg-slate-800 transition-all active:scale-95"
           >
-            <ChevronLeft className="w-5 h-5" />
-          </Link>
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-              Pago #{pago.id_pago}
-              <span className="text-sm font-normal text-gray-400 font-mono hidden sm:inline-block">
-                MP: {pago.mp_payment_id}
-              </span>
-            </h1>
+            <Printer className="w-3.5 h-3.5" /> IMPRIMIR
+          </button>
+        </div>
+      </div>
+
+      {/* --- EL TICKET (Visible e Imprimible) --- */}
+      <div
+        id="ticket-container"
+        className="bg-white w-full max-w-[320px] p-6 shadow-2xl relative font-mono text-black leading-snug border border-gray-200 text-[11px]"
+        style={{
+          clipPath:
+            "polygon(0 0, 100% 0, 100% 99%, 98% 100%, 96% 99%, 94% 100%, 92% 99%, 90% 100%, 88% 99%, 86% 100%, 84% 99%, 82% 100%, 80% 99%, 78% 100%, 76% 99%, 74% 100%, 72% 99%, 70% 100%, 68% 99%, 66% 100%, 64% 99%, 62% 100%, 60% 99%, 58% 100%, 56% 99%, 54% 100%, 52% 99%, 50% 100%, 48% 99%, 46% 100%, 44% 99%, 42% 100%, 40% 99%, 38% 100%, 36% 99%, 34% 100%, 32% 99%, 30% 100%, 28% 99%, 26% 100%, 24% 99%, 22% 100%, 20% 99%, 18% 100%, 16% 99%, 14% 100%, 12% 99%, 10% 100%, 8% 99%, 6% 100%, 4% 99%, 2% 100%, 0 99%)",
+        }}
+      >
+        {/* 1. ENCABEZADO CLUB (DINÁMICO) */}
+        <div className="text-center mb-4">
+          <h1 className="text-base font-bold uppercase mb-1">
+            {pago.club.nombre}
+          </h1>
+          <p className="text-[10px] uppercase">{pago.club.direccion}</p>
+          {pago.club.telefono && (
+            <p className="text-[10px]">Tel: {pago.club.telefono}</p>
+          )}
+        </div>
+
+        <TicketDivider />
+
+        {/* 2. DATOS DEL RECIBO */}
+        <div className="space-y-1">
+          <div className="flex justify-between">
+            <span>FECHA:</span>
+            <span>
+              {fecha} {hora}
+            </span>
           </div>
-          <div className="ml-auto flex gap-2">
-            <button
-              onClick={handlePrint}
-              className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors shadow-sm"
-            >
-              <Printer className="w-4 h-4" />
-              <span className="hidden sm:inline">Imprimir</span>
-            </button>
+          <div className="flex justify-between">
+            <span>RECIBO N°:</span>
+            <span className="font-bold">
+              #{pago.id_pago.toString().padStart(6, "0")}
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span>CAJERO:</span>
+            <span className="uppercase">{cajero}</span>
           </div>
         </div>
 
-        {/* HEADER SOLO IMPRESIÓN */}
-        <div className="hidden print:block mb-8 border-b pb-4">
-          <h1 className="text-3xl font-bold">Comprobante de Pago</h1>
-          <p className="text-gray-500">
-            Ref: #{pago.id_pago} - {pago.mp_payment_id}
+        <TicketDivider />
+
+        {/* 3. CLIENTE */}
+        <div className="mb-3">
+          <p className="text-[10px] mb-1">RECIBIMOS DE:</p>
+          <p className="font-bold text-sm uppercase truncate">
+            {pago.cliente.nombre} {pago.cliente.apellido}
+          </p>
+          {pago.cliente.telefono &&
+            pago.cliente.telefono !== "No especificado" && (
+              <p className="text-[10px]">Tel: {pago.cliente.telefono}</p>
+            )}
+        </div>
+
+        <TicketDivider />
+
+        {/* 4. CONCEPTO (Reserva) */}
+        <div className="mb-2">
+          <div className="flex justify-between font-bold mb-1">
+            <span>CONCEPTO</span>
+            <span>IMPORTE</span>
+          </div>
+          <div className="flex justify-between items-start">
+            <div className="pr-2">
+              <p>ALQUILER CANCHA</p>
+              <p className="text-[9px] text-gray-600">
+                {pago.reserva.cancha} | {pago.reserva.fecha}
+              </p>
+              <p className="text-[9px] text-gray-600">
+                Turno: {pago.reserva.inicio?.slice(0, 5)} -{" "}
+                {pago.reserva.fin?.slice(0, 5)}
+              </p>
+            </div>
+            <span>{money(pago.amount)}</span>
+          </div>
+        </div>
+
+        <div className="border-t border-black my-3" />
+
+        {/* 5. TOTALES */}
+        <div className="flex justify-between items-end mb-2">
+          <span className="text-sm font-bold">TOTAL PAGADO</span>
+          <span className="text-xl font-bold">{money(pago.amount)}</span>
+        </div>
+
+        <div className="text-[10px] space-y-1 text-right">
+          <p>
+            FORMA DE PAGO:{" "}
+            <span className="font-bold uppercase">{metodoLabel}</span>
+          </p>
+          {pago.mp_payment_id && pago.mp_payment_id !== "N/A" && (
+            <p>REF EXT: {pago.mp_payment_id}</p>
+          )}
+        </div>
+
+        {/* 6. CAJA DE ESTADO */}
+        <div className="mt-6 border-2 border-black p-2 text-center">
+          <p className="text-[9px] mb-1">ESTADO DE LA OPERACIÓN</p>
+          <p className="text-base font-bold uppercase">
+            {pago.status === "approved" ? "APROBADA" : pago.status}
           </p>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* COLUMNA PRINCIPAL */}
-          <div className="lg:col-span-2 space-y-6">
-            {/* TARJETA PRINCIPAL DE ESTADO */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 print:border-0 print:shadow-none print:p-0">
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-gray-100 pb-6 mb-6">
-                <div>
-                  <p className="text-sm text-gray-500 mb-1">
-                    Estado de la transacción
-                  </p>
-                  <StatusBadgeLarge status={pago.status} />
-                </div>
-                <div className="text-right">
-                  <p className="text-sm text-gray-500 mb-1">Monto Cobrado</p>
-                  <span className="text-4xl font-bold text-gray-900 tracking-tight">
-                    ${pago.amount.toLocaleString("es-AR")}
-                  </span>
-                  <span className="text-sm text-gray-400 ml-1">
-                    {pago.currency}
-                  </span>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                <div>
-                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
-                    Fecha de Creación
-                  </p>
-                  <div className="flex items-center gap-2 text-gray-700">
-                    <Calendar className="w-4 h-4 text-gray-400" />
-                    <span>
-                      {new Date(pago.created_at).toLocaleDateString("es-AR", {
-                        weekday: "long",
-                        year: "numeric",
-                        month: "long",
-                        day: "numeric",
-                      })}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 text-gray-500 text-sm mt-1 ml-6">
-                    <Clock className="w-3 h-3" />
-                    <span>
-                      {new Date(pago.created_at).toLocaleTimeString("es-AR")}
-                    </span>
-                  </div>
-                </div>
-                <div>
-                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
-                    Método de Pago
-                  </p>
-                  <div className="flex items-center gap-2 text-gray-700">
-                    <CreditCard className="w-4 h-4 text-gray-400" />
-                    <span className="capitalize">
-                      {pago.method.replace("_", " ")}
-                    </span>
-                  </div>
-                  {pago.card_last4 && (
-                    <p className="text-sm text-gray-500 mt-1 ml-6">
-                      Terminada en •••• {pago.card_last4}
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* DETALLES DE LA RESERVA */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 print:border print:border-gray-300">
-              <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-                <Calendar className="w-5 h-5 text-blue-600" /> Detalle de la
-                Reserva
-              </h3>
-              <div className="bg-blue-50/50 rounded-lg p-4 border border-blue-100 print:bg-gray-50 print:border-gray-200">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-xs text-blue-600 font-semibold uppercase print:text-black">
-                      Cancha
-                    </p>
-                    <p className="text-gray-900 font-medium">
-                      {pago.reserva.cancha}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-blue-600 font-semibold uppercase print:text-black">
-                      Horario
-                    </p>
-                    <p className="text-gray-900 font-medium">
-                      {pago.reserva.inicio?.slice(0, 5)} -{" "}
-                      {pago.reserva.fin?.slice(0, 5)} hs
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-blue-600 font-semibold uppercase print:text-black">
-                      Fecha
-                    </p>
-                    <p className="text-gray-900 font-medium">
-                      {pago.reserva.fecha}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-blue-600 font-semibold uppercase print:text-black">
-                      ID Reserva
-                    </p>
-                    <Link
-                      href={`/admin/reservas?q=${pago.reserva.id_reserva}`}
-                      className="text-blue-600 hover:underline font-mono print:no-underline print:text-black"
-                    >
-                      #{pago.reserva.id_reserva}
-                    </Link>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* RAW DATA (Oculto al imprimir) */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden print:hidden">
-              <details className="group">
-                <summary className="flex items-center justify-between p-4 cursor-pointer bg-gray-50 hover:bg-gray-100 transition-colors list-none">
-                  <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
-                    <FileJson className="w-4 h-4 text-gray-400" />
-                    Datos técnicos (Mercado Pago Raw)
-                  </div>
-                  <ChevronLeft className="w-4 h-4 text-gray-400 transition-transform group-open:-rotate-90" />
-                </summary>
-                <div className="p-4 bg-gray-900 text-gray-100 text-xs font-mono overflow-x-auto max-h-96">
-                  <pre>{JSON.stringify(pago.raw, null, 2)}</pre>
-                </div>
-              </details>
-            </div>
-          </div>
-
-          {/* SIDEBAR LATERAL */}
-          <div className="space-y-6">
-            {/* DATOS DEL CLIENTE */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 print:border print:border-gray-300">
-              <h3 className="font-semibold text-gray-900 mb-4 text-sm flex items-center gap-2">
-                <User className="w-4 h-4 text-gray-500" /> Cliente
-              </h3>
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold print:border print:border-gray-300">
-                  {pago.cliente.nombre[0]}
-                </div>
-                <div>
-                  {/* ENLACE AL PERFIL DE USUARIO */}
-                  {pago.cliente.id_usuario !== "invitado" ? (
-                    <Link
-                      href={`/admin/usuarios/${pago.cliente.id_usuario}`}
-                      className="text-sm font-bold text-blue-600 hover:underline flex items-center gap-1"
-                    >
-                      {pago.cliente.nombre} {pago.cliente.apellido}
-                      <ExternalLink size={12} />
-                    </Link>
-                  ) : (
-                    <p className="text-sm font-bold text-gray-900">
-                      {pago.cliente.nombre} {pago.cliente.apellido}
-                    </p>
-                  )}
-
-                  <p className="text-xs text-gray-500">
-                    {pago.cliente.id_usuario === "invitado"
-                      ? "Invitado (Sin cuenta)"
-                      : "Usuario Registrado"}
-                  </p>
-                </div>
-              </div>
-              <div className="space-y-3 pt-3 border-t border-gray-100">
-                <div>
-                  <p className="text-xs text-gray-400">Email</p>
-                  <p
-                    className="text-sm text-gray-700 truncate"
-                    title={pago.cliente.email}
-                  >
-                    {pago.cliente.email}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-400">Teléfono</p>
-                  <p className="text-sm text-gray-700">
-                    {pago.cliente.telefono}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* IDs DE REFERENCIA */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 print:hidden">
-              <h3 className="font-semibold text-gray-900 mb-4 text-sm">
-                IDs de Referencia
-              </h3>
-              <div className="space-y-3">
-                <div className="p-3 bg-gray-50 rounded-lg border border-gray-100">
-                  <p className="text-xs text-gray-500 mb-1">Mercado Pago ID</p>
-                  <div className="flex items-center justify-between">
-                    <code
-                      className="text-sm font-mono font-medium text-gray-800 truncate mr-2"
-                      title={pago.mp_payment_id}
-                    >
-                      {pago.mp_payment_id}
-                    </code>
-                    <button
-                      onClick={() => handleCopy(pago.mp_payment_id)}
-                      className="text-gray-400 hover:text-blue-600"
-                      title="Copiar"
-                    >
-                      <Copy className="w-3 h-3" />
-                    </button>
-                  </div>
-                </div>
-                <div className="p-3 bg-gray-50 rounded-lg border border-gray-100">
-                  <p className="text-xs text-gray-500 mb-1">ID Interno (DB)</p>
-                  <code className="text-sm font-mono font-medium text-gray-800">
-                    #{pago.id_pago}
-                  </code>
-                </div>
-              </div>
-            </div>
-          </div>
+        {/* 7. PIE */}
+        <div className="text-center mt-6 text-[9px] text-gray-600">
+          <p>¡GRACIAS POR ELEGIRNOS!</p>
+          <p className="mt-1">Comprobante no válido como factura fiscal.</p>
+          <p className="mt-4 text-[8px] text-gray-400">Powered by Versori</p>
         </div>
       </div>
     </div>

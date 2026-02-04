@@ -6,21 +6,17 @@ import {
   Search,
   Download,
   Filter,
-  ChevronLeft,
-  ChevronRight,
   CreditCard,
   DollarSign,
   Calendar,
   CheckCircle2,
   AlertCircle,
   XCircle,
-  Copy,
-  ExternalLink,
   Eye,
   X,
   Loader2,
   Clock,
-  ChevronRight as ChevronRightIcon, // Alias para evitar conflicto
+  ChevronRight as ChevronRightIcon,
 } from "lucide-react";
 
 // --- TIPOS ---
@@ -34,14 +30,14 @@ type MPStatus =
 
 type PagoRow = {
   id_pago: number;
-  mp_payment_id: string;
+  mp_payment_id: string | null; // Puede venir nulo
   monto: number;
   estado: MPStatus;
   fecha: string;
   cliente: {
-    nombre: string;
-    apellido: string;
-    email: string;
+    nombre: string | null;
+    apellido: string | null;
+    email: string | null;
   };
   metodo_detalle: string;
 };
@@ -92,7 +88,11 @@ function DateRangeFilter({
     <div className="relative w-full sm:w-auto" ref={containerRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className={`w-full sm:w-auto flex items-center justify-between gap-2 px-4 py-2 border rounded-lg text-sm transition-colors ${activeLabel !== "Fecha" ? "bg-blue-50 border-blue-200 text-blue-700" : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50"}`}
+        className={`w-full sm:w-auto flex items-center justify-between gap-2 px-4 py-2 border rounded-lg text-sm transition-colors ${
+          activeLabel !== "Fecha"
+            ? "bg-blue-50 border-blue-200 text-blue-700"
+            : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50"
+        }`}
       >
         <div className="flex items-center gap-2">
           <Calendar className="w-4 h-4" />
@@ -116,14 +116,8 @@ function DateRangeFilter({
         <div className="absolute right-0 left-0 sm:left-auto mt-2 w-full sm:w-72 bg-white rounded-xl shadow-xl border border-gray-100 z-50 p-4">
           <div className="space-y-3">
             <div>
-              <label
-                htmlFor="date-from"
-                className="block text-xs text-gray-500 mb-1"
-              >
-                Desde
-              </label>
+              <label className="block text-xs text-gray-500 mb-1">Desde</label>
               <input
-                id="date-from"
                 type="date"
                 className="w-full px-2 py-1.5 border border-gray-200 rounded text-sm text-gray-700"
                 value={tempFrom}
@@ -131,14 +125,8 @@ function DateRangeFilter({
               />
             </div>
             <div>
-              <label
-                htmlFor="date-to"
-                className="block text-xs text-gray-500 mb-1"
-              >
-                Hasta
-              </label>
+              <label className="block text-xs text-gray-500 mb-1">Hasta</label>
               <input
-                id="date-to"
                 type="date"
                 className="w-full px-2 py-1.5 border border-gray-200 rounded text-sm text-gray-700"
                 value={tempTo}
@@ -170,12 +158,12 @@ function StatusBadge({ status }: { status: MPStatus }) {
     pending: {
       label: "Pendiente",
       style: "bg-amber-50 text-amber-700 border-amber-200",
-      icon: AlertCircle,
+      icon: Clock,
     },
     in_process: {
-      label: "En proceso",
+      label: "Procesando",
       style: "bg-amber-50 text-amber-700 border-amber-200",
-      icon: AlertCircle,
+      icon: Clock,
     },
     rejected: {
       label: "Rechazado",
@@ -189,8 +177,8 @@ function StatusBadge({ status }: { status: MPStatus }) {
     },
     created: {
       label: "Creado",
-      style: "bg-gray-50 text-gray-600 border-gray-200",
-      icon: AlertCircle,
+      style: "bg-gray-100 text-gray-500 border-gray-200",
+      icon: Clock,
     },
   };
   const { label, style, icon: Icon } = config[status] || config.pending;
@@ -238,20 +226,36 @@ export default function PagosPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [q, setQ] = useState("");
-  const [filterStatus, setFilterStatus] = useState<MPStatus | "all">("all");
+  const [filterStatus, setFilterStatus] = useState<string>("approved");
   const [dateRange, setDateRange] = useState<DateRange | null>(null);
 
   useEffect(() => {
     async function fetchPagos() {
       try {
         setLoading(true);
+        setError(null);
+
         const res = await fetch("/api/admin/pagos");
-        if (!res.ok) throw new Error("Error al cargar los pagos");
-        const data = await res.json();
+
+        let data;
+        try {
+          data = await res.json();
+        } catch {
+          throw new Error(
+            `El servidor no devolvió una respuesta válida (${res.status})`,
+          );
+        }
+
+        if (!res.ok) {
+          throw new Error(
+            data.error || `Error desconocido del servidor (${res.status})`,
+          );
+        }
+
         setPagos(data.pagos || []);
-      } catch (err) {
-        console.error(err);
-        setError("No se pudieron cargar los pagos.");
+      } catch (err: any) {
+        console.error("Error fetching pagos:", err);
+        setError(err.message || "No se pudieron cargar los pagos.");
       } finally {
         setLoading(false);
       }
@@ -259,18 +263,22 @@ export default function PagosPage() {
     fetchPagos();
   }, []);
 
-  // FILTRADO
+  // --- FILTRADO A PRUEBA DE FALLOS ---
   const filteredPagos = useMemo(() => {
     return pagos.filter((p) => {
       const searchString = q.toLowerCase();
-      const matchesText =
-        p.mp_payment_id.toLowerCase().includes(searchString) ||
-        p.cliente.nombre.toLowerCase().includes(searchString) ||
-        p.cliente.apellido.toLowerCase().includes(searchString) ||
-        p.cliente.email.toLowerCase().includes(searchString);
 
+      // ✅ CORRECCIÓN: Usamos (campo || "") para asegurar que siempre haya un string antes de toLowerCase()
+      const matchesText =
+        (p.mp_payment_id || "").toLowerCase().includes(searchString) ||
+        (p.cliente?.nombre || "").toLowerCase().includes(searchString) ||
+        (p.cliente?.apellido || "").toLowerCase().includes(searchString) ||
+        (p.cliente?.email || "").toLowerCase().includes(searchString);
+
+      // Filtro Estado
       const matchesStatus = filterStatus === "all" || p.estado === filterStatus;
 
+      // Filtro Fecha
       let matchesDate = true;
       if (dateRange) {
         const itemDate = new Date(p.fecha).setHours(0, 0, 0, 0);
@@ -284,32 +292,17 @@ export default function PagosPage() {
           if (itemTime > toDate) matchesDate = false;
         }
       }
+
       return matchesText && matchesStatus && matchesDate;
     });
   }, [pagos, q, filterStatus, dateRange]);
 
-  // CÁLCULO ESTADÍSTICAS (Ahora usa filteredPagos para ser dinámico)
   const stats = useMemo(() => {
-    // Si quieres que las stats sean globales (de todos los tiempos), usa `pagos`.
-    // Si quieres que respondan al filtro (ej: ingresos de hoy), usa `filteredPagos`.
-    // Aquí usamos `filteredPagos` para que sea interactivo.
     const listToCalculate = filteredPagos;
-
-    const total = listToCalculate
-      .filter((p) => p.estado === "approved")
-      .reduce((acc, curr) => acc + curr.monto, 0);
-
-    const approved = listToCalculate.filter(
-      (p) => p.estado === "approved",
-    ).length;
-    const pending = listToCalculate.filter((p) =>
-      ["pending", "in_process", "created"].includes(p.estado),
-    ).length;
-
-    return { total, approved, pending };
+    const total = listToCalculate.reduce((acc, curr) => acc + curr.monto, 0);
+    const count = listToCalculate.length;
+    return { total, count };
   }, [filteredPagos]);
-
-  const handleCopyId = (id: string) => navigator.clipboard.writeText(id);
 
   return (
     <div className="min-h-screen bg-gray-50 p-4 sm:p-6 pb-20 sm:pb-6">
@@ -318,37 +311,31 @@ export default function PagosPage() {
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Pagos</h1>
-            <p className="text-sm text-gray-500">Historial de transacciones</p>
+            <p className="text-sm text-gray-500">
+              Historial de ingresos confirmados
+            </p>
           </div>
           <button className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors shadow-sm">
             <Download className="w-4 h-4" /> <span>Exportar</span>
           </button>
         </div>
 
-        {/* Stats - Grid Adaptable */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+        {/* Stats */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
           <StatCard
-            title="Ingresos (Vista Actual)"
+            title="Total Ingresos (Vista)"
             value={`$${stats.total.toLocaleString("es-AR")}`}
-            subtext="Total aprobado filtrado"
+            subtext="Suma de pagos en lista"
             icon={DollarSign}
             colorClass="bg-emerald-100 text-emerald-600"
             loading={loading}
           />
           <StatCard
-            title="Exitosos"
-            value={stats.approved}
-            subtext="Transacciones aprobadas"
+            title="Transacciones"
+            value={stats.count}
+            subtext="Cantidad de operaciones"
             icon={CheckCircle2}
             colorClass="bg-blue-100 text-blue-600"
-            loading={loading}
-          />
-          <StatCard
-            title="Pendientes"
-            value={stats.pending}
-            subtext="En revisión / Proceso"
-            icon={AlertCircle}
-            colorClass="bg-amber-100 text-amber-600"
             loading={loading}
           />
         </div>
@@ -369,12 +356,11 @@ export default function PagosPage() {
             <div className="relative w-1/2 lg:w-48">
               <select
                 value={filterStatus}
-                onChange={(e) => setFilterStatus(e.target.value as any)}
+                onChange={(e) => setFilterStatus(e.target.value)}
                 className="appearance-none w-full pl-4 pr-8 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
               >
-                <option value="all">Todos</option>
-                <option value="approved">Aprobados</option>
-                <option value="pending">Pendientes</option>
+                <option value="approved">Confirmados</option>
+                <option value="all">Todos (Admin)</option>
                 <option value="rejected">Rechazados</option>
               </select>
               <Filter className="absolute right-3 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 pointer-events-none" />
@@ -393,10 +379,27 @@ export default function PagosPage() {
               <p>Cargando...</p>
             </div>
           ) : error ? (
-            <div className="text-center py-20 text-red-500">{error}</div>
+            <div className="flex flex-col items-center justify-center py-20 px-4 text-center">
+              <div className="bg-red-50 p-4 rounded-full mb-3">
+                <AlertCircle className="w-8 h-8 text-red-500" />
+              </div>
+              <h3 className="text-lg font-bold text-gray-900 mb-1">
+                Error al cargar datos
+              </h3>
+              <p className="text-sm text-gray-500 max-w-md">{error}</p>
+              <button
+                onClick={() => window.location.reload()}
+                className="mt-4 px-4 py-2 bg-white border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Reintentar
+              </button>
+            </div>
           ) : filteredPagos.length === 0 ? (
-            <div className="text-center py-20 text-gray-500">
-              No se encontraron pagos.
+            <div className="flex flex-col items-center justify-center py-20 text-gray-500">
+              <div className="bg-gray-50 p-4 rounded-full mb-3">
+                <Search className="w-8 h-8 text-gray-400" />
+              </div>
+              <p>No se encontraron pagos con estos filtros.</p>
             </div>
           ) : (
             <>
@@ -427,27 +430,22 @@ export default function PagosPage() {
                             </span>
                             <div
                               className="flex items-center gap-1.5 mt-0.5"
-                              title="Copiar ID MP"
+                              title="ID Referencia"
                             >
                               <span className="font-medium text-gray-900 text-sm truncate w-24">
-                                {p.mp_payment_id}
+                                {p.mp_payment_id || "N/A"}
                               </span>
-                              <button
-                                onClick={() => handleCopyId(p.mp_payment_id)}
-                                className="text-gray-400 hover:text-blue-600"
-                              >
-                                <Copy className="w-3 h-3" />
-                              </button>
                             </div>
                           </div>
                         </td>
                         <td className="px-6 py-4">
                           <div className="flex flex-col">
                             <span className="font-medium text-gray-900 text-sm">
-                              {p.cliente.nombre} {p.cliente.apellido}
+                              {p.cliente.nombre || "Invitado"}{" "}
+                              {p.cliente.apellido}
                             </span>
                             <span className="text-xs text-gray-500 truncate w-32">
-                              {p.cliente.email}
+                              {p.cliente.email || "-"}
                             </span>
                           </div>
                         </td>
@@ -494,7 +492,7 @@ export default function PagosPage() {
                     <div className="flex justify-between items-start mb-3">
                       <div className="flex flex-col">
                         <span className="font-bold text-gray-900">
-                          {p.cliente.nombre} {p.cliente.apellido}
+                          {p.cliente.nombre || "Invitado"} {p.cliente.apellido}
                         </span>
                         <span className="text-xs text-gray-500 font-mono">
                           #{p.id_pago} •{" "}

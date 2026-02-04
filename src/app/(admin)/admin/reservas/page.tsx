@@ -1,12 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import {
-  Plus,
-  Calendar as CalendarIcon,
-  RefreshCw,
-  Layers,
-} from "lucide-react";
+import { Plus, RefreshCw, Layers } from "lucide-react";
 
 import CompactView from "./_components/CompactView";
 import DateSelector from "./_components/DateSelector";
@@ -40,7 +35,6 @@ export default function ReservasPage() {
 
   const fechaISO = useMemo(() => toISODateAR(selectedDate), [selectedDate]);
 
-  // ✅ Función de Refresco Literal (F5)
   const handleHardRefresh = () => {
     window.location.reload();
   };
@@ -96,19 +90,22 @@ export default function ReservasPage() {
   };
 
   return (
-    <div className="h-[100dvh] bg-slate-50 flex flex-col overflow-hidden font-sans">
+    <div className="flex flex-col h-[calc(100vh-60px)] md:h-screen bg-slate-50 font-sans overflow-hidden">
       {/* --- HEADER --- */}
-      <header className="bg-white border-b border-slate-200 px-6 py-4 flex flex-col md:flex-row justify-between items-center gap-4 shrink-0 z-50 relative shadow-sm">
-        <div className="flex items-center justify-between w-full md:w-auto gap-6">
+      {/* z-20 es menor que el z-30 del backdrop del sidebar, arreglando la superposición */}
+      <header className="bg-white border-b border-slate-200 px-4 py-2 md:px-6 md:py-4 flex flex-col md:flex-row justify-between items-center gap-2 shrink-0 relative z-20 shadow-sm">
+        {/* Fila 1: Título + Botón Crear (Móvil) */}
+        {/* pl-10 da espacio al botón hamburguesa del sidebar */}
+        <div className="flex items-center justify-between w-full md:w-auto gap-4 pl-10 md:pl-0">
           <div className="flex items-center gap-2">
-            <div className="bg-slate-900 p-2 rounded-lg text-white shadow-md">
+            <div className="bg-slate-900 p-2 rounded-lg text-white shadow-md hidden sm:block">
               <Layers className="w-5 h-5" />
             </div>
             <div>
-              <h1 className="text-xl font-black text-slate-800 tracking-tight leading-none">
+              <h1 className="text-lg md:text-xl font-black text-slate-800 tracking-tight leading-none">
                 Agenda
               </h1>
-              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">
+              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5 hidden sm:block">
                 Gestión de Turnos
               </p>
             </div>
@@ -123,14 +120,15 @@ export default function ReservasPage() {
                 preSelectedDate: fechaISO,
               })
             }
-            className="md:hidden bg-slate-900 text-white p-2.5 rounded-xl active:scale-95 transition-all shadow-lg"
+            className="md:hidden bg-slate-900 text-white p-2 rounded-lg active:scale-95 transition-all shadow-md"
           >
             <Plus className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="w-full md:w-auto flex justify-center">
-          <div className="bg-white p-1 rounded-xl border border-slate-200 shadow-sm">
+        {/* Fila 2: Selector de Fecha (Centrado y Ajustado) */}
+        <div className="w-full md:w-auto flex justify-center relative z-30">
+          <div className="bg-white p-0.5 rounded-xl border border-slate-200 shadow-sm w-full max-w-[280px] md:max-w-none md:w-auto">
             <DateSelector
               selectedDate={selectedDate}
               onChange={setSelectedDate}
@@ -138,8 +136,8 @@ export default function ReservasPage() {
           </div>
         </div>
 
+        {/* Fila 3: Acciones Escritorio */}
         <div className="hidden md:flex items-center gap-3">
-          {/* ✅ Botón Refrescar Literal */}
           <button
             onClick={handleHardRefresh}
             className="p-2.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition-all flex items-center gap-2 border border-transparent hover:border-slate-200"
@@ -168,13 +166,17 @@ export default function ReservasPage() {
       </header>
 
       {/* --- MAIN CONTENT --- */}
-      <main className="flex-1 relative flex flex-col min-h-0">
+      {/* relative z-0: Crea un nuevo contexto de apilamiento. 
+          Esto obliga a que los z-30 de la grilla (sticky columns) vivan DENTRO de este z-0.
+          Como el Header es z-20 (y es hermano de este main z-0), el Header siempre ganará al Calendario desplegado 
+          sin importar qué z-index tenga la grilla por dentro. */}
+      <main className="flex-1 relative z-0 flex flex-col min-h-0 overflow-hidden">
         {loading && !agenda && (
-          <div className="absolute inset-0 z-20 bg-white/60 backdrop-blur-sm flex items-center justify-center">
+          <div className="absolute inset-0 z-50 bg-white/60 backdrop-blur-sm flex items-center justify-center">
             <div className="bg-white px-6 py-4 rounded-2xl shadow-2xl border border-slate-100 flex items-center gap-3">
               <div className="w-5 h-5 border-2 border-slate-900 border-t-transparent rounded-full animate-spin" />
               <span className="text-sm font-bold text-slate-700 uppercase tracking-tight">
-                Sincronizando agenda...
+                Sincronizando...
               </span>
             </div>
           </div>
@@ -187,7 +189,7 @@ export default function ReservasPage() {
                 <RefreshCw className="w-8 h-8" />
               </div>
               <h2 className="font-bold text-slate-800 text-lg mb-2">
-                No se pudo cargar la agenda
+                Error de Carga
               </h2>
               <p className="text-sm text-slate-500 mb-6">{error}</p>
               <button
@@ -202,8 +204,8 @@ export default function ReservasPage() {
 
         {/* CONTENIDO PRINCIPAL: GRILLA + LEYENDA */}
         {agenda && (
-          <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-            {/* Grilla: flex-1 asegura que tome el espacio pero min-h-0 permite que flexbox lo encoja si es necesario */}
+          <div className="flex-1 flex flex-col min-h-0">
+            {/* Grilla */}
             <div
               className={`flex-1 min-h-0 transition-opacity duration-300 ${loading ? "opacity-50 pointer-events-none" : "opacity-100"}`}
             >
@@ -218,8 +220,8 @@ export default function ReservasPage() {
               />
             </div>
 
-            {/* ✅ Leyenda Fija al Pie */}
-            <div className="shrink-0 bg-white border-t border-slate-200 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+            {/* Leyenda Fija */}
+            <div className="shrink-0 bg-white border-t border-slate-200 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-10 pb-safe">
               <Legend />
             </div>
           </div>

@@ -41,7 +41,7 @@ export async function GET(
     if (!user)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    // 2. Club
+    // 2. Club del Usuario
     const { data: userClub } = await supabase
       .from("club_usuarios")
       .select("id_club")
@@ -50,8 +50,7 @@ export async function GET(
 
     const clubId = userClub?.id_club || 9;
 
-    // 3. CONSULTA SEGURA (Paso 1: Pago + Reserva + Cancha)
-    // No incluimos 'profiles' aquí para evitar el error de relación faltante
+    // 3. Obtener el Pago
     const { data: pago, error } = await supabase
       .from("reservas_pagos")
       .select(
@@ -75,19 +74,51 @@ export async function GET(
       .eq("id_club", clubId)
       .maybeSingle();
 
-    if (error) {
-      console.error("❌ Error DB Pago:", error);
-      return NextResponse.json({ error: "Error interno DB" }, { status: 500 });
-    }
-
-    if (!pago) {
+    if (error || !pago) {
       return NextResponse.json(
         { error: "Pago no encontrado" },
         { status: 404 },
       );
     }
 
-    // 4. Manejo de Arrays/Objetos (Reserva)
+    // 4. DATOS DINÁMICOS DEL CLUB
+    // Buscamos la info institucional para el ticket
+    const { data: clubRaw } = await supabase
+      .from("clubes")
+      .select(
+        `
+        nombre,
+        contacto (
+          telefono ( numero ),
+          direccion ( calle, altura_calle, barrio )
+        )
+      `,
+      )
+      .eq("id_club", clubId)
+      .single();
+
+    // Procesar datos del club (manejo de arrays de Supabase)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const contacto: any = Array.isArray(clubRaw?.contacto)
+      ? clubRaw?.contacto[0]
+      : clubRaw?.contacto;
+
+    // Dirección
+    const dirData = Array.isArray(contacto?.direccion)
+      ? contacto?.direccion[0]
+      : contacto?.direccion;
+    const calle = dirData?.calle || "Dirección";
+    const altura = dirData?.altura_calle || "S/N";
+    const barrio = dirData?.barrio ? `, ${dirData.barrio}` : "";
+    const clubDireccion = `${calle} ${altura}${barrio}`;
+
+    // Teléfono
+    const telData = Array.isArray(contacto?.telefono)
+      ? contacto?.telefono[0]
+      : contacto?.telefono;
+    const clubTelefono = telData?.numero || "";
+
+    // 5. Armado de Objetos (Igual que antes)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const reserva: any = Array.isArray(pago.reservas)
       ? pago.reservas[0]
@@ -97,9 +128,8 @@ export async function GET(
     const canchaRaw: any = reserva?.canchas;
     const canchaNombre = Array.isArray(canchaRaw)
       ? canchaRaw[0]?.nombre
-      : canchaRaw?.nombre || "Cancha desconocida";
+      : canchaRaw?.nombre || "Cancha";
 
-    // 5. CONSULTA SEGURA (Paso 2: Obtener Perfil si existe usuario)
     let perfilData = null;
     if (reserva?.id_usuario) {
       const { data: perfil } = await supabase
@@ -110,7 +140,6 @@ export async function GET(
       perfilData = perfil;
     }
 
-    // 6. Armado del objeto Cliente
     const clienteData = {
       id_usuario: perfilData?.id_usuario || "invitado",
       nombre:
@@ -121,12 +150,10 @@ export async function GET(
         perfilData?.apellido ||
         reserva?.cliente_nombre?.split(" ").slice(1).join(" ") ||
         "",
-      email: perfilData?.email || reserva?.cliente_email || "No especificado",
-      telefono:
-        perfilData?.telefono || reserva?.cliente_telefono || "No especificado",
+      email: perfilData?.email || reserva?.cliente_email || "-",
+      telefono: perfilData?.telefono || reserva?.cliente_telefono || "-",
     };
 
-    // 7. Datos Raw MP
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const rawMP = (pago.raw as any) || {};
     const cardLast4 =
@@ -144,6 +171,13 @@ export async function GET(
       approved_at: pago.updated_at,
       method: pago.provider === "mercadopago" ? "Mercado Pago" : "Efectivo",
       cardLast4,
+      // ✅ AQUÍ ESTÁ LA MAGIA: Datos dinámicos del club
+      club: {
+        nombre: clubRaw?.nombre || "Club Deportivo",
+        direccion: clubDireccion,
+        telefono: clubTelefono,
+        cuit: "30-00000000-0", // Hardcodeado por ahora si no está en tu esquema
+      },
       cliente: clienteData,
       reserva: {
         id_reserva: reserva?.id_reserva || 0,

@@ -225,7 +225,7 @@ export function Sidebar() {
     {
       key: "usuarios-manuales",
       href: "/admin/usuarios/manuales",
-      label: "Manuales / Frecuentes",
+      label: "Manuales ",
       icon: <Contact size={14} />,
       allowedRoles: ["admin", "cajero"],
     },
