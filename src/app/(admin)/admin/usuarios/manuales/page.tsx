@@ -14,10 +14,9 @@ import {
   MoreVertical,
   ExternalLink,
   DollarSign,
-  Calendar,
   Power,
   Ban,
-  StickyNote, // Nuevo Icono
+  StickyNote,
   X,
   Save,
 } from "lucide-react";
@@ -35,7 +34,7 @@ type ClienteManual = {
   total_gastado: number;
   ultima_reserva: string;
   activo: boolean;
-  notas: string; // ✅ Nuevo campo
+  notas: string;
 };
 
 type SortField = "reciente" | "frecuente" | "gastador";
@@ -166,7 +165,7 @@ export default function UsuariosManualesPage() {
       } else {
         alert("Error al cambiar estado.");
       }
-    } catch (error) {
+    } catch {
       alert("Error de conexión.");
     }
   };
@@ -224,7 +223,7 @@ export default function UsuariosManualesPage() {
           c.nombre.toLowerCase().includes(q) ||
           c.telefono.includes(q) ||
           c.email?.toLowerCase().includes(q) ||
-          c.notas?.toLowerCase().includes(q), // Buscar también en notas
+          c.notas?.toLowerCase().includes(q),
       );
     }
     result.sort((a, b) => {
@@ -277,7 +276,9 @@ export default function UsuariosManualesPage() {
           {!loading && clientes.length > 0 && (
             <div className="flex items-center gap-3 bg-slate-50 p-2 rounded-xl border border-slate-100 w-full md:w-auto">
               <div
-                className={`flex-1 md:flex-none px-3 py-1 ${userRole === "admin" ? "border-r border-slate-200" : ""}`}
+                className={`flex-1 md:flex-none px-3 py-1 ${
+                  userRole === "admin" ? "border-r border-slate-200" : ""
+                }`}
               >
                 <span className="block text-[9px] uppercase font-bold text-slate-400 tracking-wider">
                   Activos
@@ -336,7 +337,9 @@ export default function UsuariosManualesPage() {
                 <span>Ordenar</span>
               </span>
               <ChevronDown
-                className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${showFilters ? "rotate-180" : ""}`}
+                className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${
+                  showFilters ? "rotate-180" : ""
+                }`}
               />
             </button>
 
@@ -433,8 +436,9 @@ export default function UsuariosManualesPage() {
                         </div>
                         <div>
                           <div className="flex items-center gap-1">
+                            {/* ✅ CORRECCIÓN NOMBRE */}
                             <h3 className="font-bold text-slate-800 text-sm">
-                              {cliente.nombre}
+                              {cliente.nombre || "Usuario Desconocido"}
                             </h3>
                             {cliente.notas && (
                               <StickyNote className="w-3 h-3 text-yellow-500 fill-yellow-500/20" />
@@ -485,7 +489,11 @@ export default function UsuariosManualesPage() {
                               </button>
                               <button
                                 onClick={(e) => handleToggleStatus(cliente, e)}
-                                className={`w-full text-left px-3 py-2.5 text-xs font-bold rounded-lg flex items-center gap-2 ${esActivo ? "text-red-600 hover:bg-red-50" : "text-green-600 hover:bg-green-50"}`}
+                                className={`w-full text-left px-3 py-2.5 text-xs font-bold rounded-lg flex items-center gap-2 ${
+                                  esActivo
+                                    ? "text-red-600 hover:bg-red-50"
+                                    : "text-green-600 hover:bg-green-50"
+                                }`}
                               >
                                 {esActivo ? (
                                   <>
@@ -503,7 +511,6 @@ export default function UsuariosManualesPage() {
                       )}
                     </div>
 
-                    {/* Stats Mobile */}
                     <div className="grid grid-cols-2 gap-3 mb-3">
                       <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
                         <span className="block text-[9px] font-bold text-slate-400 uppercase">
@@ -586,6 +593,12 @@ export default function UsuariosManualesPage() {
                               >
                                 {cliente.nombre.charAt(0).toUpperCase()}
                               </div>
+                              <div className="font-bold text-slate-800">
+                                {cliente.nombre}
+                                {cliente.notas && (
+                                  <StickyNote className="w-3 h-3 text-yellow-500 fill-yellow-500/20 inline ml-2" />
+                                )}
+                              </div>
                             </div>
                           </td>
 
@@ -653,7 +666,6 @@ export default function UsuariosManualesPage() {
                                 <MoreVertical className="w-4 h-4" />
                               </button>
 
-                              {/* MENÚ DROPDOWN ESCRITORIO */}
                               {activeMenuId === cliente.id && (
                                 <div className="absolute right-8 top-8 w-40 bg-white rounded-xl shadow-xl border border-slate-100 z-50 p-1 animate-in fade-in zoom-in-95 duration-100">
                                   <button
@@ -669,13 +681,25 @@ export default function UsuariosManualesPage() {
                                     Ver / Editar
                                   </button>
 
-                                  {/* BOTÓN NOTAS */}
+                                  <button
+                                    onClick={(e) => openNoteModal(cliente, e)}
+                                    className="w-full text-left px-3 py-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 rounded-lg flex items-center gap-2"
+                                  >
+                                    <StickyNote className="w-3.5 h-3.5 text-yellow-500" />
+                                    {cliente.notas
+                                      ? "Editar Nota"
+                                      : "Crear Nota"}
+                                  </button>
 
                                   <button
                                     onClick={(e) =>
                                       handleToggleStatus(cliente, e)
                                     }
-                                    className={`w-full text-left px-3 py-2.5 text-xs font-bold rounded-lg flex items-center gap-2 ${esActivo ? "text-red-600 hover:bg-red-50" : "text-green-600 hover:bg-green-50"}`}
+                                    className={`w-full text-left px-3 py-2.5 text-xs font-bold rounded-lg flex items-center gap-2 ${
+                                      esActivo
+                                        ? "text-red-600 hover:bg-red-50"
+                                        : "text-green-600 hover:bg-green-50"
+                                    }`}
                                   >
                                     {esActivo ? (
                                       <>
@@ -707,10 +731,7 @@ export default function UsuariosManualesPage() {
       {/* --- MODAL PARA EDITAR NOTAS --- */}
       <AnimatePresence>
         {isNoteModalOpen && editingCliente && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+          <div
             className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
             onClick={() => setIsNoteModalOpen(false)}
           >
@@ -772,7 +793,7 @@ export default function UsuariosManualesPage() {
                 </button>
               </div>
             </motion.div>
-          </motion.div>
+          </div>
         )}
       </AnimatePresence>
     </div>

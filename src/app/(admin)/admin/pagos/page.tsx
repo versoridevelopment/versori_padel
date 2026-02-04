@@ -432,12 +432,6 @@ export default function PagosPage() {
                               <span className="font-medium text-gray-900 text-sm truncate w-24">
                                 {p.mp_payment_id}
                               </span>
-                              <button
-                                onClick={() => handleCopyId(p.mp_payment_id)}
-                                className="text-gray-400 hover:text-blue-600"
-                              >
-                                <Copy className="w-3 h-3" />
-                              </button>
                             </div>
                           </div>
                         </td>
