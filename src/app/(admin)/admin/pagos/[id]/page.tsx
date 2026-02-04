@@ -173,9 +173,6 @@ export default function DetallePagoPage({
           <ChevronLeft className="w-4 h-4" /> Volver
         </Link>
         <div className="flex gap-2">
-          <button className="p-2 bg-white text-slate-600 rounded-full shadow-sm hover:bg-slate-50 border border-slate-200 transition-colors">
-            <Share2 className="w-4 h-4" />
-          </button>
           <button
             onClick={handlePrint}
             className="flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-full text-xs font-bold shadow-lg hover:bg-slate-800 transition-all active:scale-95"
