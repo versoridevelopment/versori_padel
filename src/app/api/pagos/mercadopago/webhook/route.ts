@@ -70,12 +70,9 @@ export async function POST(req: Request) {
     const { token } = await getClubMpAccessToken(id_club);
 
     // 2) Consultar payment real
-    const mpRes = await fetch(
-      `https://api.mercadopago.com/v1/payments/${mp_payment_id}`,
-      {
-        headers: { Authorization: `Bearer ${token}` },
-      }
-    );
+    const mpRes = await fetch(`https://api.mercadopago.com/v1/payments/${mp_payment_id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
 
     const mpJson = await mpRes.json().catch(() => null);
 
@@ -86,10 +83,7 @@ export async function POST(req: Request) {
 
     const id_reserva = parseReservaFromExternalRef(mpJson.external_reference);
     if (!id_reserva) {
-      console.error(
-        "[MP webhook] external_reference inválido:",
-        mpJson.external_reference
-      );
+      console.error("[MP webhook] external_reference inválido:", mpJson.external_reference);
       return jsonOk();
     }
 
@@ -116,10 +110,7 @@ export async function POST(req: Request) {
         .maybeSingle();
 
       if (peErr) {
-        console.error(
-          "[MP webhook] error buscando pago por metadata.id_pago:",
-          { peErr, id_pago_meta }
-        );
+        console.error("[MP webhook] error buscando pago por metadata.id_pago:", { peErr, id_pago_meta });
         return jsonOk();
       }
 
@@ -196,19 +187,23 @@ export async function POST(req: Request) {
       return jsonOk();
     }
 
-    // 6) Transición reserva
+    // 6) Transición reserva  ✅ (CAMBIO PARA SOPORTAR CRON + EXPIRADAS)
     if (payment_status === "approved") {
+      // ✅ Confirmar incluso si fue expirada por el cron
       await supabaseAdmin
         .from("reservas")
-        .update({ estado: "confirmada", confirmed_at: new Date().toISOString() })
+        .update({
+          estado: "confirmada",
+          confirmed_at: new Date().toISOString(),
+        })
         .eq("id_reserva", id_reserva)
-        .eq("estado", "pendiente_pago");
+        .neq("estado", "confirmada");
     } else if (payment_status === "rejected" || payment_status === "cancelled") {
       await supabaseAdmin
         .from("reservas")
         .update({ estado: "rechazada" })
         .eq("id_reserva", id_reserva)
-        .eq("estado", "pendiente_pago");
+        .in("estado", ["pendiente_pago", "expirada"]);
     }
 
     return jsonOk();
