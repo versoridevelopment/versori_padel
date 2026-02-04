@@ -3,13 +3,11 @@
 import {
   X,
   Calendar,
-  Clock,
   Loader2,
   Printer,
   MapPin,
   Edit3,
   Save,
-  AlertTriangle,
   DollarSign,
 } from "lucide-react";
 import { useState, useEffect, useMemo } from "react";
@@ -24,6 +22,10 @@ import CreateReservaForm from "./sidebar/CreateReservaForm";
 import ReservaDetails from "./sidebar/ReservaDetails";
 import CobroModal from "./sidebar/CobroModal";
 import EditReservaMoveForm from "./sidebar/EditReservaMoveForm";
+
+// ✅ IMPORTA el modal nuevo (motivos predefinidos + otro + detalle)
+// Ajustá esta ruta si tu estructura difiere.
+import ConfirmCancelModal from "./sidebar/ConfirmCancelModal";
 
 const normalizeReserva = (r: any) => {
   if (!r) return null;
@@ -40,87 +42,6 @@ const normalizeReserva = (r: any) => {
     notas: r.notas || "",
   };
 };
-
-/** ✅ Modal confirmación cancelación (ventanita) */
-function ConfirmCancelModal({
-  open,
-  onClose,
-  onConfirm,
-  loading,
-}: {
-  open: boolean;
-  onClose: () => void;
-  onConfirm: (motivo?: string | null) => void;
-  loading?: boolean;
-}) {
-  const [motivo, setMotivo] = useState("");
-
-  useEffect(() => {
-    if (!open) setMotivo("");
-  }, [open]);
-
-  if (!open) return null;
-
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center">
-      <div
-        className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
-        onClick={onClose}
-      />
-
-      <div className="relative bg-white w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 p-6 animate-in fade-in zoom-in-95">
-        <button
-          onClick={onClose}
-          className="absolute top-3 right-3 p-1 rounded-full hover:bg-slate-100 text-slate-400"
-          title="Cerrar"
-          disabled={!!loading}
-        >
-          <X className="w-5 h-5" />
-        </button>
-
-        <div className="flex items-center gap-3 mb-4">
-          <div className="bg-rose-100 text-rose-600 p-2 rounded-full">
-            <AlertTriangle className="w-5 h-5" />
-          </div>
-          <h3 className="text-lg font-bold text-slate-800">Cancelar reserva</h3>
-        </div>
-
-        <p className="text-sm text-slate-600 mb-4">
-          ¿Estás seguro de que querés cancelar esta reserva?
-          <br />
-          Esta acción <b>no se puede deshacer</b>.
-        </p>
-
-        <textarea
-          placeholder="Motivo (opcional)"
-          className="w-full border border-slate-200 rounded-xl p-3 text-sm resize-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500 outline-none"
-          rows={3}
-          value={motivo}
-          onChange={(e) => setMotivo(e.target.value)}
-          disabled={!!loading}
-        />
-
-        <div className="flex gap-3 mt-6">
-          <button
-            onClick={onClose}
-            className="flex-1 py-3 rounded-xl border border-slate-300 text-slate-700 font-bold hover:bg-slate-50"
-            disabled={!!loading}
-          >
-            Volver
-          </button>
-
-          <button
-            onClick={() => onConfirm(motivo.trim() || null)}
-            disabled={!!loading}
-            className="flex-1 py-3 rounded-xl bg-rose-600 text-white font-bold hover:bg-rose-700 disabled:opacity-60"
-          >
-            {loading ? "Cancelando..." : "Sí, cancelar"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 export default function ReservaSidebar(props: ReservaSidebarProps) {
   const [supabase] = useState(() =>
@@ -156,7 +77,7 @@ export default function ReservaSidebar(props: ReservaSidebarProps) {
     fechaDisplay,
     horaFinCalculada,
     handleCreate,
-    handleCancelar, // ✅ ahora lo usamos con motivo opcional
+    handleCancelar, // ✅ recibe motivo opcional
     openCobro,
     handleCobrar,
     getWhatsappLink,
@@ -169,7 +90,7 @@ export default function ReservaSidebar(props: ReservaSidebarProps) {
   const [editNotas, setEditNotas] = useState("");
   const [isSavingNotas, setIsSavingNotas] = useState(false);
 
-  // ✅ modal cancelar
+  // ✅ modal cancelar (usa el nuevo componente importado)
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [cancelLoading, setCancelLoading] = useState(false);
 
@@ -278,7 +199,7 @@ export default function ReservaSidebar(props: ReservaSidebarProps) {
     }
   };
 
-  // ✅ confirmación cancelación con motivo opcional
+  // ✅ confirmación cancelación con motivo (viene del modal nuevo)
   async function confirmCancelar(motivo?: string | null) {
     if (!reserva) return;
     setCancelLoading(true);
@@ -375,7 +296,10 @@ export default function ReservaSidebar(props: ReservaSidebarProps) {
               />
             ) : (
               <div className="space-y-6">
-                <ReservaDetails reserva={reserva} getWhatsappLink={getWhatsappLink} />
+                <ReservaDetails
+                  reserva={reserva}
+                  getWhatsappLink={getWhatsappLink}
+                />
 
                 <div className="space-y-2 pt-4 border-t border-slate-100">
                   <div className="flex items-center justify-between">
@@ -441,7 +365,7 @@ export default function ReservaSidebar(props: ReservaSidebarProps) {
                 <Printer className="w-4 h-4 text-slate-400" /> Ticket
               </button>
 
-              {/* ✅ Cancelar ahora abre modal con motivo */}
+              {/* ✅ Cancelar abre el modal (nuevo) */}
               <button
                 onClick={() => setShowCancelModal(true)}
                 className="py-3 border border-rose-100 bg-rose-50 text-rose-700 rounded-xl text-sm font-bold hover:bg-rose-100 transition-colors"
@@ -461,7 +385,7 @@ export default function ReservaSidebar(props: ReservaSidebarProps) {
         </div>
       </div>
 
-      {/* ✅ Modal cancelación */}
+      {/* ✅ Modal cancelación (nuevo componente importado) */}
       <ConfirmCancelModal
         open={showCancelModal}
         onClose={() => setShowCancelModal(false)}
