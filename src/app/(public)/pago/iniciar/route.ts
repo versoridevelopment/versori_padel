@@ -10,11 +10,30 @@ function isExpired(expires_at: string) {
 }
 
 function isLocalhost(u: string) {
-  return (
-    u.includes("localhost") ||
-    u.includes("127.0.0.1") ||
-    u.includes(".localhost")
-  );
+  return u.includes("localhost") || u.includes("127.0.0.1") || u.includes(".localhost");
+}
+
+function hhmm(v: any) {
+  const s = String(v || "");
+  return s.length >= 5 ? s.slice(0, 5) : s;
+}
+
+function safeStr(v: any, fallback = "") {
+  const s = String(v ?? "").trim();
+  return s || fallback;
+}
+
+// MP: statement_descriptor ~22 chars, sin símbolos raros
+function statementDescriptorFromClub(name: string) {
+  const clean = safeStr(name, "CLUB")
+    .toUpperCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // sin tildes
+    .replace(/[^A-Z0-9 ]/g, "") // solo A-Z 0-9 espacio
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return clean.slice(0, 22) || "CLUB";
 }
 
 export async function GET(req: Request) {
@@ -26,7 +45,6 @@ export async function GET(req: Request) {
 
     // ✅ Base pública para MP (ngrok en local)
     const baseUrl = (process.env.MP_BASE_URL || origin).replace(/\/$/, "");
-
     if (isLocalhost(baseUrl)) {
       return NextResponse.json(
         {
@@ -50,18 +68,15 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "id_pago inválido" }, { status: 400 });
     }
 
-    // 1) Leer reserva
+    // 1) Leer reserva (ahora traemos datos para armar el detalle)
     const { data: reserva, error: rErr } = await supabaseAdmin
       .from("reservas")
-      .select("id_reserva,id_club,estado,expires_at")
+      .select("id_reserva,id_club,id_cancha,estado,expires_at,fecha,inicio,fin,fin_dia_offset")
       .eq("id_reserva", id_reserva)
       .maybeSingle();
 
     if (rErr) {
-      return NextResponse.json(
-        { error: `Error leyendo reserva: ${rErr.message}` },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: `Error leyendo reserva: ${rErr.message}` }, { status: 500 });
     }
     if (!reserva) {
       return NextResponse.json({ error: "Reserva no encontrada" }, { status: 404 });
@@ -78,27 +93,35 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "La reserva expiró" }, { status: 410 });
     }
 
-    // ✅ 1.1) Leer club.subdominio (para volver al tenant correcto)
+    // 1.1) Leer club (subdominio para retorno + nombre para detalle)
     const { data: club, error: cErr } = await supabaseAdmin
       .from("clubes")
-      .select("id_club, subdominio")
+      .select("id_club, subdominio, nombre")
       .eq("id_club", reserva.id_club)
       .maybeSingle();
 
     if (cErr) {
-      return NextResponse.json(
-        { error: `Error leyendo club: ${cErr.message}` },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: `Error leyendo club: ${cErr.message}` }, { status: 500 });
     }
     if (!club?.subdominio) {
-      return NextResponse.json(
-        { error: "El club no tiene subdominio configurado" },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: "El club no tiene subdominio configurado" }, { status: 500 });
     }
 
     const tenant = String(club.subdominio);
+    const clubNombre = safeStr(club.nombre, `Club #${reserva.id_club}`);
+
+    // 1.2) Leer cancha (nombre para detalle)
+    let canchaNombre = "Cancha";
+    if (reserva.id_cancha) {
+      const { data: cancha, error: caErr } = await supabaseAdmin
+        .from("canchas")
+        .select("id_cancha,nombre")
+        .eq("id_cancha", reserva.id_cancha)
+        .eq("id_club", reserva.id_club)
+        .maybeSingle();
+
+      if (!caErr && cancha?.nombre) canchaNombre = String(cancha.nombre);
+    }
 
     // 2) Leer pago
     const { data: pago, error: pErr } = await supabaseAdmin
@@ -109,10 +132,7 @@ export async function GET(req: Request) {
       .maybeSingle();
 
     if (pErr) {
-      return NextResponse.json(
-        { error: `Error leyendo pago: ${pErr.message}` },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: `Error leyendo pago: ${pErr.message}` }, { status: 500 });
     }
     if (!pago) {
       return NextResponse.json({ error: "Pago no encontrado" }, { status: 404 });
@@ -130,24 +150,45 @@ export async function GET(req: Request) {
 
     const amount = Number(pago.amount || 0);
     if (!Number.isFinite(amount) || amount <= 0) {
-      return NextResponse.json(
-        { error: "Monto inválido en reservas_pagos.amount" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Monto inválido en reservas_pagos.amount" }, { status: 400 });
     }
 
-    // 4) Crear preference
-    // ✅ IMPORTANTÍSIMO: back_urls + notification_url públicas
-    // ✅ y “tenant-aware” con ?club=
+    // 4) Datos para mostrar en “Detalles del pago”
+    const fecha = safeStr((reserva as any).fecha, "");
+    const inicio = hhmm((reserva as any).inicio);
+    const fin = hhmm((reserva as any).fin);
+
+    // 👉 Esto es lo que vas a ver en la UI de MP
+    const itemTitle = `${clubNombre} · ${canchaNombre}`;
+    const itemDescParts = [
+      fecha ? `Fecha ${fecha}` : null,
+      inicio && fin ? `Horario ${inicio}-${fin}` : null,
+      `Reserva #${id_reserva}`,
+      "Anticipo",
+    ].filter(Boolean);
+    const itemDescription = itemDescParts.join(" · ");
+
+    const preferenceDescription = `${clubNombre} · ${canchaNombre} · Reserva #${id_reserva} · Anticipo`;
+    const statement_descriptor = statementDescriptorFromClub(clubNombre);
+
+    // 5) Crear preference
     const preferencePayload = {
       items: [
         {
-          title: `Reserva #${id_reserva} (anticipo)`,
+          id: `reserva-${id_reserva}`,
+          title: itemTitle,
+          description: itemDescription,
           quantity: 1,
           unit_price: amount,
           currency_id: (pago.currency as string) || "ARS",
         },
       ],
+
+      // Visible/semivisible
+      description: preferenceDescription,
+      statement_descriptor,
+
+      // Técnica
       external_reference: String(id_reserva),
 
       notification_url: `${baseUrl}/api/pagos/mercadopago/webhook?id_club=${reserva.id_club}`,
@@ -166,11 +207,20 @@ export async function GET(req: Request) {
 
       auto_return: "approved",
 
+      // NO visible, pero clave para tu webhook y auditoría
       metadata: {
         id_reserva,
         id_pago,
         id_club: reserva.id_club,
-        club: tenant,
+        club_subdominio: tenant,
+        club_nombre: clubNombre,
+        id_cancha: reserva.id_cancha ?? null,
+        cancha_nombre: canchaNombre,
+        fecha: fecha || null,
+        inicio: inicio || null,
+        fin: fin || null,
+        fin_dia_offset: (reserva as any).fin_dia_offset ?? null,
+        tipo: "anticipo",
         modo,
       },
     };
@@ -195,11 +245,9 @@ export async function GET(req: Request) {
 
     const mp_preference_id = String(mpJson.id);
     const init_point = mpJson.init_point ? String(mpJson.init_point) : null;
-    const sandbox_init_point = mpJson.sandbox_init_point
-      ? String(mpJson.sandbox_init_point)
-      : null;
+    const sandbox_init_point = mpJson.sandbox_init_point ? String(mpJson.sandbox_init_point) : null;
 
-    // 5) Guardar
+    // 6) Guardar
     const { error: upErr } = await supabaseAdmin
       .from("reservas_pagos")
       .update({
@@ -213,23 +261,15 @@ export async function GET(req: Request) {
       .eq("id_pago", id_pago);
 
     if (upErr) {
-      return NextResponse.json(
-        { error: `Error guardando preference: ${upErr.message}` },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: `Error guardando preference: ${upErr.message}` }, { status: 500 });
     }
 
-    // 6) Redirect
+    // 7) Redirect
     const redirectUrl =
-      (modo === "test" ? sandbox_init_point : init_point) ||
-      sandbox_init_point ||
-      init_point;
+      (modo === "test" ? sandbox_init_point : init_point) || sandbox_init_point || init_point;
 
     if (!redirectUrl) {
-      return NextResponse.json(
-        { error: "Mercado Pago no devolvió init_point" },
-        { status: 502 }
-      );
+      return NextResponse.json({ error: "Mercado Pago no devolvió init_point" }, { status: 502 });
     }
 
     return NextResponse.redirect(redirectUrl, { status: 302 });

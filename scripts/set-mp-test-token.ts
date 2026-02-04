@@ -4,8 +4,8 @@ import dotenv from "dotenv";
 dotenv.config({ path: path.resolve(process.cwd(), ".env.local") });
 
 async function run() {
-  const id_club = 9; // ⚠️ poné el ID real del club
-  const accessTokenTest = "APP_USR-1169350126709074-122803-9cf6a7bfac44b1c7e0b2b84f18c40466-3098143490"; // ⚠️ tu token TEST real
+  const id_club = 1; // ⚠️ poné el ID real del club
+  const accessTokenTest = ""; // ⚠️ tu token TEST real
     
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
     throw new Error("Falta NEXT_PUBLIC_SUPABASE_URL en .env.local");
@@ -27,7 +27,7 @@ async function run() {
     .from("club_mercadopago")
     .upsert({
       id_club,
-      modo: "test",                 // 👈 coincide con tu tabla
+      modo: "prod",                 // 👈 coincide con tu tabla
       access_token_enc: enc.enc,
       access_token_iv: enc.iv,
       access_token_tag: enc.tag,

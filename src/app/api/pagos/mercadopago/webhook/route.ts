@@ -70,9 +70,12 @@ export async function POST(req: Request) {
     const { token } = await getClubMpAccessToken(id_club);
 
     // 2) Consultar payment real
-    const mpRes = await fetch(`https://api.mercadopago.com/v1/payments/${mp_payment_id}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const mpRes = await fetch(
+      `https://api.mercadopago.com/v1/payments/${mp_payment_id}`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      }
+    );
 
     const mpJson = await mpRes.json().catch(() => null);
 
@@ -83,7 +86,10 @@ export async function POST(req: Request) {
 
     const id_reserva = parseReservaFromExternalRef(mpJson.external_reference);
     if (!id_reserva) {
-      console.error("[MP webhook] external_reference inválido:", mpJson.external_reference);
+      console.error(
+        "[MP webhook] external_reference inválido:",
+        mpJson.external_reference
+      );
       return jsonOk();
     }
 
@@ -104,13 +110,16 @@ export async function POST(req: Request) {
         .from("reservas_pagos")
         .select("*")
         .eq("id_pago", id_pago_meta)
-        .eq("id_club", id_club)         // asegura tenant
-        .eq("id_reserva", id_reserva)   // asegura que corresponde a esa reserva
+        .eq("id_club", id_club) // asegura tenant
+        .eq("id_reserva", id_reserva) // asegura que corresponde a esa reserva
         .in("status", ["created", "pending"])
         .maybeSingle();
 
       if (peErr) {
-        console.error("[MP webhook] error buscando pago por metadata.id_pago:", { peErr, id_pago_meta });
+        console.error(
+          "[MP webhook] error buscando pago por metadata.id_pago:",
+          { peErr, id_pago_meta }
+        );
         return jsonOk();
       }
 
@@ -157,15 +166,23 @@ export async function POST(req: Request) {
     const diff = Math.abs(amountDb - transaction_amount);
 
     if (!Number.isFinite(amountDb) || amountDb <= 0 || diff > 0.01) {
-      console.error("[MP webhook] Monto no coincide", { amountDb, transaction_amount, diff });
+      console.error("[MP webhook] Monto no coincide", {
+        amountDb,
+        transaction_amount,
+        diff,
+      });
       return jsonOk();
     }
+
+    // ✅ CAMBIO ÚNICO: guardar order.id como mp_merchant_order_id (int8)
+    const mp_order_id = mpJson?.order?.id ? Number(mpJson.order.id) : null;
 
     // 5) Update reservas_pagos
     const { error: upErr } = await supabaseAdmin
       .from("reservas_pagos")
       .update({
         mp_payment_id,
+        mp_merchant_order_id: mp_order_id, // ✅ único agregado
         mp_status: payment_status,
         mp_status_detail: payment_status_detail,
         status: payment_status === "approved" ? "approved" : payment_status,
