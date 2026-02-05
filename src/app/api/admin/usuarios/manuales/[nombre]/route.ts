@@ -19,8 +19,6 @@ export async function GET(req: Request, { params }: Ctx) {
 
     // ----------------------------------------------------------------------
     // PASO 1: Buscar Reservas
-    // (Sin JOINs a profiles para evitar el error 500)
-    // (Sin updated_at porque no existe en tu tabla)
     // ----------------------------------------------------------------------
     const { data: reservas, error } = await supabaseAdmin
       .from("reservas")
@@ -31,8 +29,9 @@ export async function GET(req: Request, { params }: Ctx) {
         cliente_nombre,
         canchas(nombre),
         cliente_telefono, cliente_email,
-        creado_por, cancelado_por
-      `,
+        creado_por, cancelado_por,
+        motivo_cancelacion  
+      `, // <--- AQUI AGREGAMOS "motivo_cancelacion"
       )
       .eq("id_club", id_club)
       .ilike("cliente_nombre", decodedName) // ilike es más seguro para nombres manuales

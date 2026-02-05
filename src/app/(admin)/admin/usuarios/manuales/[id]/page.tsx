@@ -11,11 +11,8 @@ import {
   Clock,
   MapPin,
   Edit2,
-  X,
   Loader2,
   Save,
-  AlertCircle,
-  Calendar,
   CheckCircle2,
   AlertTriangle,
   XCircle,
@@ -67,7 +64,7 @@ const StatusBadge = ({ status }: { status: string }) => {
   );
 };
 
-// TIPOS COINCIDENTES CON BACKEND
+// TIPOS ACTUALIZADOS
 type ReservaHistorial = {
   id_reserva: number;
   fecha: string;
@@ -80,6 +77,7 @@ type ReservaHistorial = {
   audit_accion: string;
   audit_fecha: string;
   audit_responsable: string;
+  motivo_cancelacion?: string | null; // ✅ Nuevo campo
 };
 
 type PerfilManual = {
@@ -292,23 +290,6 @@ export default function DetalleUsuarioManualPage({
               </div>
             </div>
           </div>
-
-          {/* <div
-            onClick={() => setIsNoteModalOpen(true)}
-            className="bg-amber-50 rounded-2xl border border-amber-100 p-5 cursor-pointer hover:shadow-md transition-all group"
-          >
-            <div className="flex justify-between items-start mb-2">
-              <h3 className="text-xs font-bold text-amber-800 uppercase flex items-center gap-2">
-                <StickyNote className="w-4 h-4" /> Notas Internas
-              </h3>
-              <Edit2 className="w-3 h-3 text-amber-400 group-hover:text-amber-600" />
-            </div>
-            <p
-              className={`text-sm ${perfil.notas ? "text-amber-900" : "text-amber-800/50 italic"}`}
-            >
-              {perfil.notas || "Agregar observaciones..."}
-            </p>
-          </div> */}
         </div>
 
         <div className="grid grid-cols-2 gap-4">
@@ -398,6 +379,15 @@ export default function DetalleUsuarioManualPage({
                               minute: "2-digit",
                             })}
                           </div>
+                          {/* ✅ SECCIÓN DE MOTIVO DE CANCELACIÓN */}
+                          {isCancel && r.motivo_cancelacion && (
+                            <div className="mt-1.5 p-2 bg-rose-50 border border-rose-100 rounded-md text-[10px] text-rose-800 leading-tight max-w-[250px]">
+                              <span className="font-bold block mb-0.5">
+                                Motivo:
+                              </span>
+                              {r.motivo_cancelacion}
+                            </div>
+                          )}
                         </div>
                       </td>
                       <td className="px-6 py-4 text-right">
@@ -417,7 +407,7 @@ export default function DetalleUsuarioManualPage({
         </div>
       </div>
 
-      {/* Modales sin cambios importantes */}
+      {/* Modales */}
       <AnimatePresence>
         {isEditOpen && (
           <div
