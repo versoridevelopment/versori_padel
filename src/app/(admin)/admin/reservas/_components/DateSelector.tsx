@@ -1,15 +1,19 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import {
-  ChevronLeft,
-  ChevronRight,
-  Calendar as CalendarIcon,
-} from "lucide-react";
+import { ChevronLeft, ChevronRight, Calendar as CalendarIcon } from "lucide-react";
 
 interface Props {
   selectedDate: Date;
   onChange: (date: Date) => void;
+}
+
+// ✅ ISO local (sin UTC) para input type="date"
+function toISODateLocal(d: Date) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 export default function DateSelector({ selectedDate, onChange }: Props) {
@@ -19,10 +23,7 @@ export default function DateSelector({ selectedDate, onChange }: Props) {
   // Cerrar al hacer click fuera
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (
-        containerRef.current &&
-        !containerRef.current.contains(e.target as Node)
-      ) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setIsOpen(false);
       }
     };
@@ -31,16 +32,15 @@ export default function DateSelector({ selectedDate, onChange }: Props) {
   }, []);
 
   const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    // Ajustar zona horaria local
     const [y, m, d] = e.target.value.split("-").map(Number);
-    onChange(new Date(y, m - 1, d));
+    onChange(new Date(y, m - 1, d)); // medianoche local
     setIsOpen(false);
   };
 
   const shiftDate = (days: number) => {
     const d = new Date(selectedDate);
     d.setDate(d.getDate() + days);
-    onChange(d);
+    onChange(new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0));
   };
 
   return (
@@ -63,6 +63,7 @@ export default function DateSelector({ selectedDate, onChange }: Props) {
         <span className="block text-xs font-bold text-blue-600 uppercase tracking-wider group-hover:text-blue-700">
           {selectedDate.toLocaleDateString("es-AR", { weekday: "long" })}
         </span>
+
         <div className="flex items-center justify-center gap-1.5 text-gray-800">
           <CalendarIcon className="w-3.5 h-3.5 text-gray-400" />
           <span className="block text-base font-bold">
@@ -81,7 +82,7 @@ export default function DateSelector({ selectedDate, onChange }: Props) {
         <ChevronRight className="w-5 h-5" />
       </button>
 
-      {/* Mini Calendario Flotante (Nativo por simplicidad y UX móvil) */}
+      {/* Mini Calendario Flotante */}
       {isOpen && (
         <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 bg-white p-4 rounded-xl shadow-xl border border-gray-100 z-50 animate-in fade-in zoom-in-95 duration-200">
           <label className="block text-xs font-bold text-gray-500 mb-2">
@@ -89,7 +90,7 @@ export default function DateSelector({ selectedDate, onChange }: Props) {
           </label>
           <input
             type="date"
-            value={selectedDate.toISOString().split("T")[0]}
+            value={toISODateLocal(selectedDate)}
             onChange={handleDateChange}
             className="w-full p-2 border border-gray-200 rounded-lg text-sm"
             autoFocus

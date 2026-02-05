@@ -16,8 +16,22 @@ function toISODateAR(d: Date) {
   return `${y}-${m}-${day}`;
 }
 
+// ✅ Día operativo: si es 00:00–02:59, sigue siendo “día anterior”
+function getOperationalDate(cutoffHour = 3, base = new Date()) {
+  const d = new Date(base);
+  if (d.getHours() < cutoffHour) d.setDate(d.getDate() - 1);
+
+  // Normalizar a medianoche local para que sea una “fecha” limpia
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
+}
+
 export default function ReservasPage() {
-  const [selectedDate, setSelectedDate] = useState(new Date());
+  const OPERATIVE_CUTOFF_HOUR = 3;
+
+  const [selectedDate, setSelectedDate] = useState(() =>
+    getOperationalDate(OPERATIVE_CUTOFF_HOUR),
+  );
+
   const [agenda, setAgenda] = useState<AgendaApiResponse | null>(null);
   const [idClub, setIdClub] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
@@ -46,8 +60,9 @@ export default function ReservasPage() {
       const url = `/api/admin/agenda?fecha=${fechaISO}`;
       const res = await fetch(url, { cache: "no-store" });
       const json = await res.json();
-      if (!res.ok || !json?.ok)
+      if (!res.ok || !json?.ok) {
         throw new Error(json?.error || "Error cargando agenda");
+      }
       setAgenda(json);
       setIdClub(json.id_club);
     } catch (e: any) {
@@ -61,6 +76,7 @@ export default function ReservasPage() {
 
   useEffect(() => {
     loadAgenda();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fechaISO]);
 
   const handleReservaClick = (r: ReservaUI) => {
@@ -73,11 +89,7 @@ export default function ReservasPage() {
     });
   };
 
-  const handleEmptySlotClick = (
-    canchaId: number,
-    timeStr: string,
-    dateStr: string,
-  ) => {
+  const handleEmptySlotClick = (canchaId: number, timeStr: string, dateStr: string) => {
     setSidebarState({
       isOpen: true,
       mode: "create",
@@ -129,10 +141,7 @@ export default function ReservasPage() {
         {/* Fila 2: Selector de Fecha (Centrado y Ajustado) */}
         <div className="w-full md:w-auto flex justify-center relative z-30">
           <div className="bg-white p-0.5 rounded-xl border border-slate-200 shadow-sm w-full max-w-[280px] md:max-w-none md:w-auto">
-            <DateSelector
-              selectedDate={selectedDate}
-              onChange={setSelectedDate}
-            />
+            <DateSelector selectedDate={selectedDate} onChange={setSelectedDate} />
           </div>
         </div>
 
@@ -166,10 +175,6 @@ export default function ReservasPage() {
       </header>
 
       {/* --- MAIN CONTENT --- */}
-      {/* relative z-0: Crea un nuevo contexto de apilamiento. 
-          Esto obliga a que los z-30 de la grilla (sticky columns) vivan DENTRO de este z-0.
-          Como el Header es z-20 (y es hermano de este main z-0), el Header siempre ganará al Calendario desplegado 
-          sin importar qué z-index tenga la grilla por dentro. */}
       <main className="flex-1 relative z-0 flex flex-col min-h-0 overflow-hidden">
         {loading && !agenda && (
           <div className="absolute inset-0 z-50 bg-white/60 backdrop-blur-sm flex items-center justify-center">
@@ -188,9 +193,7 @@ export default function ReservasPage() {
               <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4 text-red-500">
                 <RefreshCw className="w-8 h-8" />
               </div>
-              <h2 className="font-bold text-slate-800 text-lg mb-2">
-                Error de Carga
-              </h2>
+              <h2 className="font-bold text-slate-800 text-lg mb-2">Error de Carga</h2>
               <p className="text-sm text-slate-500 mb-6">{error}</p>
               <button
                 onClick={loadAgenda}
@@ -207,7 +210,9 @@ export default function ReservasPage() {
           <div className="flex-1 flex flex-col min-h-0">
             {/* Grilla */}
             <div
-              className={`flex-1 min-h-0 transition-opacity duration-300 ${loading ? "opacity-50 pointer-events-none" : "opacity-100"}`}
+              className={`flex-1 min-h-0 transition-opacity duration-300 ${
+                loading ? "opacity-50 pointer-events-none" : "opacity-100"
+              }`}
             >
               <CompactView
                 canchas={agenda.canchas}
