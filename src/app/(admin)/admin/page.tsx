@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import Image from "next/image";
 import { format, subDays, startOfYear } from "date-fns";
 import { es } from "date-fns/locale";
@@ -30,7 +29,6 @@ import { createBrowserClient } from "@supabase/ssr";
 
 import { RevenueChart } from "./components/dashboard/RevenueChart";
 import { CourtRanking } from "./components/dashboard/CourtRanking";
-import { RecentBookings } from "./components/dashboard/RecentBookings";
 import { ClientRanking } from "./components/dashboard/ClientRanking";
 import { HourlyActivityChart } from "./components/dashboard/HourlyActivityChart";
 import { PaymentStatusPie } from "./components/dashboard/PaymentStatusPie";
@@ -243,7 +241,7 @@ export default function DashboardPage() {
     );
   }
 
-  const { kpis, charts, tablaReservas, comparativaCanchas } = data;
+  const { kpis, charts, comparativaCanchas } = data;
   const isAdmin = userRole === "admin";
 
   const dateStr = currentTime
@@ -402,7 +400,7 @@ export default function DashboardPage() {
       {/* --- 3. GRÁFICOS DETALLADOS --- */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 pt-2 animate-in slide-in-from-bottom-4 duration-700 delay-200">
         {/* Gráfico Financiero (SOLO ADMIN) */}
-        {isAdmin ? (
+        {isAdmin && (
           <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm relative z-0">
             <div className="flex justify-between items-center mb-8">
               <div>
@@ -421,33 +419,13 @@ export default function DashboardPage() {
               <RevenueChart data={charts.revenue} />
             </div>
           </div>
-        ) : (
-          <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col relative z-0">
-            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-white">
-              <div>
-                <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
-                  <CalendarRange className="w-5 h-5 text-blue-500" /> Próximas
-                  Reservas
-                </h3>
-                <p className="text-xs text-slate-500 mt-1">
-                  Agenda operativa inmediata
-                </p>
-              </div>
-              <Link
-                href="/admin/reservas"
-                className="flex items-center gap-1 text-xs font-bold text-slate-700 hover:text-blue-600 bg-slate-100 hover:bg-blue-50 px-4 py-2 rounded-lg transition-colors"
-              >
-                Ver Agenda Completa <ArrowRight size={12} />
-              </Link>
-            </div>
-            <div className="flex-1">
-              <RecentBookings data={tablaReservas} />
-            </div>
-          </div>
         )}
 
-        {/* Columna Derecha: Widgets (CORREGIDO PARA EVITAR SUPERPOSICIÓN) */}
-        <div className="flex flex-col gap-6">
+        {/* Columna Derecha: Widgets */}
+        {/* Si no es admin, ocupará el espacio disponible en el flujo */}
+        <div
+          className={`flex flex-col gap-6 ${!isAdmin ? "lg:col-span-3 lg:grid lg:grid-cols-2" : ""}`}
+        >
           {isAdmin && (
             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm relative z-0">
               <div className="mb-6 flex justify-between items-start">
@@ -467,7 +445,6 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* Se eliminó h-full para evitar solapamiento */}
           <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm relative z-0">
             <div className="mb-6">
               <h3 className="font-bold text-slate-800 text-sm flex items-center gap-2">
@@ -487,10 +464,6 @@ export default function DashboardPage() {
       </div>
 
       {/* --- 4. SECCIÓN INFERIOR (Rankings) --- */}
-      {/* - Grid ajustado a 2 columnas
-          - Eliminado el widget de reservas para Admin
-          - Agregado overflow-hidden para limpiar bordes
-      */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm relative z-0 overflow-hidden">
           <div className="mb-6 flex justify-between items-center">
@@ -515,12 +488,9 @@ export default function DashboardPage() {
             <ClientRanking data={charts.topClientes} />
           </div>
           <div className="mt-6 pt-4 border-t border-slate-50">
-            <Link
-              href="/admin/usuarios"
-              className="flex items-center justify-center gap-2 w-full py-2.5 text-xs text-slate-500 font-bold hover:text-slate-800 hover:bg-slate-50 rounded-xl transition-all"
-            >
+            <div className="flex items-center justify-center gap-2 w-full py-2.5 text-xs text-slate-500 font-bold hover:text-slate-800 hover:bg-slate-50 rounded-xl transition-all cursor-pointer">
               Ver Base de Datos <ArrowRight size={12} />
-            </Link>
+            </div>
           </div>
         </div>
       </div>
