@@ -38,9 +38,8 @@ const Hero = ({
     : null;
 
   return (
-    // CAMBIO 1: Altura ajustada para móviles (h-[65vh]) vs PC (h-[90vh])
-    // Esto evita que el zoom recorte demasiado la imagen en pantallas verticales
-    <section className="relative h-[65vh] min-h-[450px] md:h-[90vh] md:min-h-[600px] w-full overflow-hidden flex items-center justify-center bg-[#0b0d12]">
+    // CAMBIO: Aumenté min-h-[500px] en móvil para que la imagen tenga más espacio vertical y no corte el logo
+    <section className="relative h-[65vh] min-h-[500px] md:h-[90vh] md:min-h-[600px] w-full overflow-hidden flex items-center justify-center bg-[#0b0d12]">
       {/* --- FONDO --- */}
       <div className="absolute inset-0 z-0">
         {heroUrl ? (
@@ -58,8 +57,10 @@ const Hero = ({
               src={heroUrl}
               alt="Portada del club"
               fill
-              // object-center asegura que el centro (donde suele estar el logo) sea el punto focal
-              className="object-cover object-center"
+              // ✅ CAMBIO AQUÍ:
+              // Usamos object-[65%_center] para móvil (enfoca más a la derecha, moviendo la imagen a la izquierda)
+              // Usamos md:object-center para que en PC se mantenga centrado normal.
+              className="object-cover object-[19%_center] md:object-center"
               priority
               sizes="100vw"
             />
@@ -70,8 +71,7 @@ const Hero = ({
       </div>
 
       {/* --- CAPAS DE COLOR (Overlay) --- */}
-      {/* Reducimos un poco la opacidad en móvil para que se vea más el fondo */}
-      <div className="absolute inset-0 bg-black/30 md:bg-black/40 z-[1]" />
+      <div className="absolute inset-0 bg-black/40 z-[1]" />
 
       <div
         className="absolute inset-0 z-[2] opacity-40 mix-blend-overlay pointer-events-none"
@@ -89,11 +89,12 @@ const Hero = ({
       {/* --- CONTENIDO --- */}
       <Container className="relative z-10 w-full px-4">
         <div className="max-w-3xl mx-auto md:mx-0 space-y-4 md:space-y-6 animate-in fade-in slide-in-from-bottom-8 duration-1000 text-center md:text-left">
-          {/* CAMBIO 2: Tipografía más pequeña en móvil (text-4xl) para no tapar el logo */}
+          {/* TÍTULO */}
           <h1 className="text-4xl md:text-7xl font-black text-white leading-tight tracking-tight drop-shadow-xl">
             {titulo || "TU CLUB DE PÁDEL"}
           </h1>
 
+          {/* SUBTÍTULO */}
           <p className="text-base md:text-2xl text-gray-100 font-medium max-w-xl mx-auto md:mx-0 drop-shadow-md leading-relaxed opacity-90">
             {subtitulo ||
               "El mejor lugar para disfrutar del deporte que te apasiona."}
@@ -139,7 +140,7 @@ const Hero = ({
         </div>
       </Container>
 
-      {/* Decoración inferior reducida en móvil */}
+      {/* Decoración inferior */}
       <div className="absolute bottom-0 left-0 w-full h-16 md:h-32 bg-gradient-to-t from-[#0b0d12] to-transparent z-[3]" />
     </section>
   );
